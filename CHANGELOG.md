@@ -2,6 +2,31 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.4.0] — 2026-11-08
+
+### Added
+
+- **Layered module scopes (route B).** A blueprint can now contain parent/child/grandchild layers: layer `A` is the root, each child layer gets the next letter (`B`, `C`, …), and modules use a `A1`/`B1`/`C1` code while keeping a stable internal id. Every layer can hold its own eight diagram instances (`diagram.layerId` + `type`), created lazily.
+- **Drill-down canvas.** Double-click a module node or use its corner button to enter its child layer; breadcrumbs, back/ESC, and leaf detection are included. Parent layers only show their own modules.
+- **Global search.** The header searches requirement codes/text, module codes/names/summaries, and layer letters/titles; results navigate to the target layer, diagram and node/requirement.
+- **Progressive requirements.** Requirement items carry stable `uid`/`code` and optional `moduleId`; the left panel filters by the active layer and can include descendants.
+- **Markdown/HTML export.** Current-layer and all-layer Markdown; a single-file, no-external-network HTML review page with layer navigation and search. Host commands: `/blueprint export md|html [all|<layer>]`.
+- **Self-check and coverage.** `/blueprint check` returns 17 rules (broken edges, dependency cycles, missing module codes/acceptance, unassigned requirements, etc.) plus a per-layer requirement coverage matrix; exposed as a Checks panel.
+- **Stable-ID requirement diff and review queue.** Requirement changes are `added`/`removed`/`modified` by `uid`, with word-level (CJK character-level) highlighting; each item can be accepted or rejected, with bulk actions and undo.
+- **Confirmation gate.** `/blueprint confirm` issues a Host-memory, one-time token bound to the session and blueprint hash; `/blueprint dispatch <token>` consumes it. Tool `confirm`/`dispatch` are disabled and tool `update` cannot change status.
+- **Data-safety fixes.** Explicitly cleared requirement sections stay empty; tool updates merge nodes/edges by stable id with explicit removal refs; layout only assigns missing coordinates.
+
+### Changed
+
+- Blueprint JSON schema is now version 2 with `layers`; 0.3.x files migrate to root layer A on first normalize.
+- All diagram layout/render/export paths use `diagram.type`; root keeps legacy keys and child diagrams use `<layer>:<type>`.
+- README/package version raised to 0.4.0.
+
+### Fixed
+
+- Partial agent updates no longer delete unmentioned nodes, edges, or human-adjusted coordinates.
+- Confirmation can no longer be performed by directly calling the agent tool.
+
 ## [0.3.0] — 2026-11-07
 
 ### Added

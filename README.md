@@ -54,6 +54,11 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
 - **Version history** — every agent or human save archives the previous content. Compare any two versions with a semantic diff (requirements, nodes, edges, fields, modules) including concrete added/removed node and edge labels; restore a version with one click; create manual snapshots.
 - **Requirement ↔ node ↔ module traceability** — link any diagram node to one or more requirement items, attach nodes/files/acceptance criteria to a module, highlight linked nodes from the requirement list, and pass the linked scope into dispatch prompts.
 - **Live dispatch board** — child subagent sessions of the current conversation, refreshed every five seconds, with module status, one-click navigation, cancel, retry, and manual status updates.
+- **Layered module scopes** — root layer `A`, child layers `B`/`C`/…, module codes `A1`/`B1`; double-click a module or use its corner button to drill down, breadcrumbs to return, eight diagrams per layer created lazily.
+- **Global search** — requirement code/text, module code/name/summary and layer letter/title; results jump to the right layer, diagram and node.
+- **Markdown/HTML export** — current-layer or all-layer Markdown and a single-file offline HTML review page, exposed through `/blueprint export`.
+- **Self-check and coverage** — 17 structural/coverage rules and a requirement-module matrix through `/blueprint check` and the Checks panel.
+- **Stable-ID requirement review** — added/removed/modified by `uid`, word-level highlighting, and per-item accept/reject with undo.
 - **draw.io & Mermaid interop** — import `.drawio`/XML or Mermaid by paste or file, replacing or appending to the target diagram; export the current diagram back to draw.io XML or Mermaid.
 - **One-click dispatch** — confirmation marks the blueprint `confirmed` and asks the agent to spawn one subagent per module, respecting dependencies.
 - **Local-first storage** — `<workspace>/.dsh/blueprints/<sessionId>.json`, reviewable and diffable in Git.
@@ -290,6 +295,8 @@ Blueprint Studio deliberately ships a **small self-contained SVG canvas**: zero 
 - [x] Class and state diagrams with Mermaid export.
 - [x] Version history, semantic diff with node/edge changes, restore and manual snapshots.
 - [x] Requirement ↔ node ↔ module traceability and dispatch scope.
+- [x] Layered parent/child/grandchild scopes with lettered layers and A1/B1 module codes.
+- [x] Global search, Markdown/HTML export, self-check/coverage and requirement review queue.
 - [x] Live subagent dispatch board with open/cancel/retry/status.
 - [x] draw.io import/export.
 - [x] Mermaid import (class, state, flowchart) and export.
