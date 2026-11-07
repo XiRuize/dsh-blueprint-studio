@@ -658,6 +658,8 @@ window.__ModuleLoader__.load({
             tplDiagram('sequence', '时序图', [], []),
             tplDiagram('er', 'ER 图', [], []),
             tplDiagram('c4', 'C4 图', [], []),
+            tplDiagram('class', '类图', [], []),
+            tplDiagram('state', '状态图', [], []),
           ],
           modules: [
             tplModule('web-ui', '前端应用', '实现登录、项目列表与仪表盘页面，接入后端 REST 接口；验收：核心流程可点通且刷新不丢数据。', []),
@@ -749,6 +751,8 @@ window.__ModuleLoader__.load({
             tplDiagram('sequence', '时序图', [], []),
             tplDiagram('er', 'ER 图', [], []),
             tplDiagram('c4', 'C4 图', [], []),
+            tplDiagram('class', '类图', [], []),
+            tplDiagram('state', '状态图', [], []),
           ],
           modules: [
             tplModule('cli-parser', '命令解析', '解析子命令、选项与位置参数，生成执行计划并处理用法错误；验收：未知选项退出码为 2。', []),
@@ -838,6 +842,8 @@ window.__ModuleLoader__.load({
             tplDiagram('sequence', '时序图', [], []),
             tplDiagram('er', 'ER 图', [], []),
             tplDiagram('c4', 'C4 图', [], []),
+            tplDiagram('class', '类图', [], []),
+            tplDiagram('state', '状态图', [], []),
           ],
           modules: [
             tplModule('pipe-ingest', '采集', '实现数据源配置、增量游标与原始数据落地；验收：重复运行不重复采集。', []),
@@ -927,6 +933,8 @@ window.__ModuleLoader__.load({
             tplDiagram('sequence', '时序图', [], []),
             tplDiagram('er', 'ER 图', [], []),
             tplDiagram('c4', 'C4 图', [], []),
+            tplDiagram('class', '类图', [], []),
+            tplDiagram('state', '状态图', [], []),
           ],
           modules: [
             tplModule('plugin-host', 'Host 工具', '注册带 schema 的工具并实现业务处理；验收：工具可被 Agent 调用且返回结构化结果。', []),
