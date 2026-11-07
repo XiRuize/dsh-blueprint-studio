@@ -55,6 +55,7 @@ window.__ModuleLoader__.load({
       textChanged: 'changed', sectionTitleChanged: 'Title changed', diagramMissing: 'Diagram only exists on one side',
       diagrams: 'Diagrams', undo: 'Undo', redo: 'Redo', undoDone: 'Undid the last blueprint change', redoDone: 'Redid the blueprint change',
       backToStart: 'Welcome', continueEditing: 'Continue editing current blueprint', historyHint: 'Ctrl+Z / Ctrl+Y',
+      draftSaved: 'Draft saved', generationTimeout: 'The AI did not return a blueprint within 60 seconds. Retry, or check the connection and keep waiting.', retry: 'Retry', cancelWaiting: 'Cancel waiting',
     }
     const ZH = {
       open: '蓝图', title: '工程蓝图', subtitle: '先把系统画清楚，再开始写代码',
@@ -105,6 +106,7 @@ window.__ModuleLoader__.load({
       textChanged: '已修改', sectionTitleChanged: '标题已修改', diagramMissing: '该图只存在于一侧',
       diagrams: '图解', undo: '撤销', redo: '重做', undoDone: '已撤销上一步蓝图修改', redoDone: '已重做蓝图修改',
       backToStart: '初始页', continueEditing: '继续编辑当前蓝图', historyHint: 'Ctrl+Z / Ctrl+Y',
+      draftSaved: '草稿已保存', generationTimeout: 'AI 未在 60 秒内返回蓝图。可以重试，或检查网络后继续等待。', retry: '重试', cancelWaiting: '取消等待',
     }
 
     let dict = ZH
@@ -164,6 +166,9 @@ window.__ModuleLoader__.load({
       canUndo: false,
       canRedo: false,
       historyVersion: 0,
+      lastSaveMode: null,
+      draftSavedAt: 0,
+      generationFailed: false,
     }
     const listeners = new Set()
     function snapshot() { return state }
@@ -179,6 +184,46 @@ window.__ModuleLoader__.load({
       return useSyncExternalStore(subscribe, snapshot, snapshot)
     }
     let toastTimer = null
+    const AUTOSAVE_DELAY_MS = 1800
+    const GENERATION_TIMEOUT_MS = 60000
+    const GENERATION_POLL_MS = 2000
+    let autosaveTimer = null
+    let generationWatch = null
+    let saveChain = Promise.resolve()
+    // Serialize all writes (draft + explicit) so overlapping edits cannot race each other.
+    function enqueueSave(task) {
+      const run = saveChain.then(task, task)
+      saveChain = run.then(() => undefined, () => undefined)
+      return run
+    }
+    function clearAutosaveTimer() {
+      if (autosaveTimer !== null) {
+        clearTimeout(autosaveTimer)
+        autosaveTimer = null
+      }
+    }
+    function scheduleAutosave() {
+      if (!state.open || state.bp === null || state.sessionId === null) return
+      clearAutosaveTimer()
+      const sessionId = state.sessionId
+      autosaveTimer = setTimeout(() => {
+        autosaveTimer = null
+        if (!state.open || state.sessionId !== sessionId) return
+        saveDraft(sessionId)
+      }, AUTOSAVE_DELAY_MS)
+    }
+    function clearGenerationWatch() {
+      if (generationWatch === null) return
+      const watch = generationWatch
+      generationWatch = null
+      watch.stopped = true
+      if (watch.interval !== null) clearInterval(watch.interval)
+      if (watch.timeout !== null) clearTimeout(watch.timeout)
+    }
+    function cancelGenerationWait() {
+      clearGenerationWatch()
+      set({ aiBusy: null })
+    }
     function toast(message, tone) {
       set({ toast: { message, tone: tone ?? 'info' } })
       if (toastTimer !== null) clearTimeout(toastTimer)
@@ -303,8 +348,9 @@ window.__ModuleLoader__.load({
         }
         const parsed = JSON.parse(text)
         ensureLayout(parsed)
+        clearGenerationWatch()
         if (state.dirty && !initial) {
-          set({ loading: false, remoteUpdated: true, lastText: text })
+          set({ loading: false, remoteUpdated: true, lastText: text, generationFailed: false })
           return
         }
         const nextFingerprint = JSON.stringify({ ...parsed, updatedAt: 0 })
@@ -327,6 +373,8 @@ window.__ModuleLoader__.load({
           landing: false,
           canUndo: false,
           canRedo: false,
+          generationFailed: false,
+          lastSaveMode: null,
           tab: parsed.diagrams.some(diagram => diagram.key === state.tab) ? state.tab : parsed.diagrams[0]?.key ?? 'usecase',
         })
       } catch (error) {
@@ -334,25 +382,71 @@ window.__ModuleLoader__.load({
       }
     }
 
-    async function saveBlueprint({ silent = true } = {}) {
-      if (state.bp === null || state.sessionId === null) return false
-      set({ saving: true })
-      try {
-        const api = remote()
-        const line = `/blueprint save ${base64(JSON.stringify(state.bp))}`
-        const result = await api.commands.execute(state.sessionId, line, [])
-        if (!result.ok) throw new Error(result.error?.message ?? 'command failed')
-        const outcome = result.value?.result
-        if (outcome?.kind === 'error') throw new Error(outcome.text)
-        set({ saving: false, dirty: false, lastLoaded: Date.now() })
-        if (!silent) toast(t('savedToast'), 'success')
-        loadVersions()
-        return true
-      } catch (error) {
-        set({ saving: false, error: String(error?.message ?? error) })
-        toast(`${t('saveFailed')}: ${String(error?.message ?? error)}`, 'error')
-        return false
-      }
+    function saveBlueprint({ silent = true } = {}) {
+      if (state.bp === null || state.sessionId === null) return Promise.resolve(false)
+      clearAutosaveTimer()
+      const sessionId = state.sessionId
+      return enqueueSave(async () => {
+        if (state.bp === null || state.sessionId !== sessionId) return false
+        const payload = JSON.stringify(state.bp)
+        set({ saving: true })
+        try {
+          const api = remote()
+          const line = `/blueprint save ${base64(payload)}`
+          const result = await api.commands.execute(sessionId, line, [])
+          if (!result.ok) throw new Error(result.error?.message ?? 'command failed')
+          const outcome = result.value?.result
+          if (outcome?.kind === 'error') throw new Error(outcome.text)
+          if (state.sessionId !== sessionId) return true
+          const upToDate = state.bp !== null && JSON.stringify(state.bp) === payload
+          set({ saving: false, dirty: !upToDate, lastSaveMode: 'archive', error: null, lastLoaded: Date.now() })
+          if (!silent) toast(t('savedToast'), 'success')
+          loadVersions()
+          if (!upToDate) scheduleAutosave()
+          return true
+        } catch (error) {
+          if (state.sessionId !== sessionId) return false
+          const message = String(error?.message ?? error)
+          set({ saving: false, dirty: true, error: `${t('saveFailed')}: ${message}` })
+          toast(`${t('saveFailed')}: ${message}`, 'error')
+          return false
+        }
+      })
+    }
+
+    function saveDraft(sessionId) {
+      if (state.bp === null || state.sessionId === null) return Promise.resolve(false)
+      const targetSession = sessionId ?? state.sessionId
+      return enqueueSave(async () => {
+        if (!state.open || state.bp === null || state.sessionId !== targetSession) return false
+        const payload = JSON.stringify(state.bp)
+        set({ saving: true })
+        try {
+          const api = remote()
+          const line = `/blueprint save ${base64(payload)} --draft`
+          const result = await api.commands.execute(targetSession, line, [])
+          if (!result.ok) throw new Error(result.error?.message ?? 'command failed')
+          const outcome = result.value?.result
+          if (outcome?.kind === 'error') throw new Error(outcome.text)
+          if (state.sessionId !== targetSession) return true
+          const upToDate = state.bp !== null && JSON.stringify(state.bp) === payload
+          set({
+            saving: false,
+            dirty: !upToDate,
+            lastSaveMode: 'draft',
+            draftSavedAt: Date.now(),
+            error: null,
+          })
+          // Edits arrived while the write was in flight: keep dirty and merge them into one new draft write.
+          if (!upToDate) scheduleAutosave()
+          return true
+        } catch (error) {
+          if (state.sessionId !== targetSession) return false
+          const message = String(error?.message ?? error)
+          set({ saving: false, dirty: true, error: `${t('saveFailed')}: ${message}` })
+          return false
+        }
+      })
     }
 
     async function runBlueprintCommand(line) {
@@ -704,6 +798,7 @@ window.__ModuleLoader__.load({
         diff: null,
         ...historyFlags(),
       })
+      scheduleAutosave()
       toast(t('undoDone'), 'info')
     }
     function redoBlueprint() {
@@ -720,6 +815,7 @@ window.__ModuleLoader__.load({
         diff: null,
         ...historyFlags(),
       })
+      scheduleAutosave()
       toast(t('redoDone'), 'info')
     }
 
@@ -734,6 +830,7 @@ window.__ModuleLoader__.load({
       }
       bp.updatedAt = Date.now()
       set({ bp: { ...bp }, dirty: true, ...historyFlags() })
+      scheduleAutosave()
     }
 
     function wrapLines(label, width) {
@@ -862,56 +959,84 @@ window.__ModuleLoader__.load({
 
     function openStudio(sessionId) {
       if (!sessionId) return
+      clearAutosaveTimer()
+      clearGenerationWatch()
       resetHistory()
       set({
         open: true, sessionId, path: pathFor(sessionId), bp: null, loading: true, missing: false,
-        dirty: false, selected: null, mode: 'select', connectFrom: null, error: null, lastText: '', tab: 'usecase',
+        dirty: false, saving: false, selected: null, mode: 'select', connectFrom: null, error: null, lastText: '', tab: 'usecase',
         panel: 'inspector', versions: [], versionsLoaded: false, diff: null, children: [], childrenLoaded: false,
         landing: false, canUndo: false, canRedo: false, historyVersion: state.historyVersion + 1,
+        lastSaveMode: null, draftSavedAt: 0, generationFailed: false, aiBusy: null, toast: null,
       })
       loadBlueprint({ initial: true })
       loadVersions()
     }
 
-    function backToStart() {
+    async function backToStart() {
+      clearAutosaveTimer()
       if (state.dirty) {
-        const pending = saveBlueprint({ silent: true })
-        pending.then(ok => {
-          if (ok) set({ landing: true, selected: null, mode: 'select', connectFrom: null, diff: null, panel: 'inspector' })
-        })
-        return
+        const ok = await saveBlueprint({ silent: true })
+        if (!ok) return
       }
       set({ landing: true, selected: null, mode: 'select', connectFrom: null, diff: null, panel: 'inspector' })
     }
 
-    function closeStudio() {
+    async function closeStudio() {
+      clearAutosaveTimer()
       if (state.dirty) {
-        saveBlueprint({ silent: true })
+        const ok = await saveBlueprint({ silent: true })
+        if (!ok) return
       }
-      set({ open: false })
+      clearGenerationWatch()
+      set({ open: false, saving: false })
     }
 
     function EmptyState() {
       const store = useStore()
       const existing = store.bp !== null
       const [task, setTask] = useState(existing ? (store.bp.prompt ?? '') : '')
+      useEffect(() => () => clearGenerationWatch(), [])
       const start = async () => {
         if (task.trim() === '') return
+        const sessionId = state.sessionId
+        if (sessionId === null) return
         try {
-          set({ loading: true, error: null })
+          set({ loading: true, error: null, generationFailed: false })
           await sendPrompt(generatePrompt(task.trim()), 'generating')
+          if (!state.open || state.sessionId !== sessionId) return
           set({ loading: false, landing: false })
-          // The agent will create the file; poll picks it up.
-          const timer = setInterval(async () => {
-            if (!state.open) { clearInterval(timer); return }
-            const text = await readBlueprintText(state.sessionId).catch(() => null)
-            if (text !== null) {
-              clearInterval(timer)
-              loadBlueprint()
+          // The agent will create the file. Poll until it appears, but never wait forever.
+          clearGenerationWatch()
+          const watch = { sessionId, interval: null, timeout: null, stopped: false }
+          generationWatch = watch
+          const stop = () => {
+            if (watch.stopped) return
+            watch.stopped = true
+            if (watch.interval !== null) clearInterval(watch.interval)
+            if (watch.timeout !== null) clearTimeout(watch.timeout)
+            if (generationWatch === watch) generationWatch = null
+          }
+          watch.interval = setInterval(async () => {
+            if (watch.stopped) return
+            if (!state.open || state.sessionId !== sessionId) { stop(); return }
+            const text = await readBlueprintText(sessionId).catch(() => null)
+            if (watch.stopped) return
+            if (text !== null && text.trim() !== '') {
+              stop()
+              await loadBlueprint()
             }
-          }, 2000)
+          }, GENERATION_POLL_MS)
+          watch.timeout = setTimeout(() => {
+            if (watch.stopped) return
+            stop()
+            if (!state.open || state.sessionId !== sessionId) return
+            // Stop the client-side wait only; the regular studio poll still picks the file up if it appears later.
+            set({ aiBusy: null, loading: false, error: t('generationTimeout'), generationFailed: true })
+          }, GENERATION_TIMEOUT_MS)
         } catch (error) {
-          set({ loading: false, error: String(error?.message ?? error) })
+          clearGenerationWatch()
+          set({ loading: false, error: String(error?.message ?? error), generationFailed: false })
         }
       }
       const continueOrStart = () => {
@@ -969,6 +1094,10 @@ window.__ModuleLoader__.load({
           h('div', { className: 'bp-empty-actions' },
             h('button', { className: 'bp-btn bp-primary', disabled: task.trim() === '' || store.aiBusy !== null, onClick: start },
               h(Icon, { name: 'spark', size: 15 }), store.aiBusy ? t('generating') : t('generate')),
+            store.generationFailed && store.aiBusy === null
+              ? h('button', { className: 'bp-btn bp-primary', disabled: task.trim() === '', onClick: start },
+                h(Icon, { name: 'spark', size: 15 }), t('retry'))
+              : null,
             h('button', { className: 'bp-btn', onClick: continueOrStart }, existing ? t('continueEditing') : t('manualStart'))),
           store.aiBusy ? h('div', { className: 'bp-waiting' }, h('span', { className: 'bp-spinner' }), t('waiting')) : null,
           store.error ? h('div', { className: 'bp-error' }, store.error) : null))
@@ -2116,7 +2245,7 @@ window.__ModuleLoader__.load({
           h('span', { className: `bp-status-dot ${bp.status ?? 'draft'}` }),
           h('span', null, statusLabel(bp.status)),
           h('span', { className: 'bp-sep' }, '·'),
-          h('span', { className: 'bp-muted' }, store.dirty ? t('unsaved') : t('saved'))) : null,
+          h('span', { className: 'bp-muted' }, store.saving ? t('saving') : store.dirty ? t('unsaved') : store.lastSaveMode === 'draft' ? t('draftSaved') : t('saved'))) : null,
         h('div', { className: 'bp-actions' },
           bp !== null && !store.landing ? button('bp-ghost bp-back', backToStart, h(React.Fragment, null, h(Icon, { name: 'back', size: 15 }), h('span', { className: 'bp-back-label' }, t('backToStart'))), { title: t('backToStart') }) : null,
           bp !== null && !store.landing ? button('bp-ghost', undoBlueprint, h(Icon, { name: 'undo', size: 15 }), { title: `${t('undo')} · Ctrl+Z`, disabled: !store.canUndo }) : null,
@@ -2174,6 +2303,12 @@ window.__ModuleLoader__.load({
           if (!state.dirty && state.aiBusy === null) loadBlueprint()
         }, 2600)
         return () => clearInterval(timer)
+      }, [store.open, store.sessionId])
+
+      // A closed panel or a session switch must never let an old debounce write into the new session.
+      useEffect(() => () => {
+        clearAutosaveTimer()
+        clearGenerationWatch()
       }, [store.open, store.sessionId])
 
       useEffect(() => {
@@ -2250,7 +2385,7 @@ window.__ModuleLoader__.load({
             h(RightPanel, { store })) : null,
           store.aiBusy !== null ? h('div', { className: 'bp-ai-strip' }, h('span', { className: 'bp-spinner' }),
             store.aiBusy === 'generating' ? t('generating') : store.aiBusy === 'dispatching' ? t('dispatching') : t('expanding'),
-            h('button', { type: 'button', className: 'bp-link', onClick: () => set({ aiBusy: null }) }, t('close'))) : null,
+            h('button', { type: 'button', className: 'bp-link', onClick: cancelGenerationWait }, t('cancelWaiting'))) : null,
           store.remoteUpdated && store.dirty ? h('div', { className: 'bp-conflict' },
             h('span', null, t('aiUpdated')),
             h('button', { type: 'button', className: 'bp-btn', onClick: () => loadBlueprint({ initial: true }) }, t('reload'))) : null,

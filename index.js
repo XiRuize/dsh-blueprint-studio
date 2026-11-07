@@ -7,9 +7,11 @@ import {
   blueprintVersionsIndexRelativePath,
   deleteBlueprintFile,
   normalizeBlueprint,
+  parseBlueprintSaveInput,
   readBlueprintFile,
   readBlueprintVersion,
   readVersionsIndex,
+  saveBlueprintFromCommand,
   semanticDiff,
   writeBlueprintFile,
   DIAGRAM_DEFS,
@@ -285,12 +287,12 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比和恢复当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get' },
+        input: { hint: 'save <base64-json> [--draft] | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
           if (sub === 'save') {
-            const encoded = rest.join('')
+            const { encoded, draft } = parseBlueprintSaveInput(rest.join(' '))
             if (encoded === '') return { kind: 'error', text: '缺少蓝图数据。' }
             let parsed
             try {
@@ -300,11 +302,24 @@ export function apply(ctx, rawConfig) {
             }
             const { file, raw } = await readCurrent(invocation.agent)
             const previous = raw === undefined ? undefined : normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
-            const blueprint = normalizeBlueprint(parsed, previous, { sessionId: file.sessionId })
-            await archive(file, previous, 'ui')
-            await writeBlueprintFile(file.absolute, blueprint)
-            if (previous === undefined) await archive(file, blueprint, 'ui', 'initial')
-            return { kind: 'success', text: `蓝图已保存：${file.relative}` }
+            const saved = await saveBlueprintFromCommand({
+              cwd: file.cwd,
+              sessionId: file.sessionId,
+              input: parsed,
+              previous,
+              draft,
+              source: 'ui',
+            })
+            if (saved.mode === 'draft') {
+              return { kind: 'success', text: `蓝图草稿已保存（draft，未归档）：${file.relative}` }
+            }
+            if (saved.archiveErrors.length > 0) {
+              return {
+                kind: 'success',
+                text: `蓝图已保存（archived 失败，文件已写入）：${file.relative}\n版本归档失败：${saved.archiveErrors.join('；')}`,
+              }
+            }
+            return { kind: 'success', text: `蓝图已保存并归档（archived）：${file.relative}` }
           }
           if (sub === 'snapshot') {
             const { file, raw } = await readCurrent(invocation.agent)
