@@ -701,6 +701,7 @@ window.__ModuleLoader__.load({
         selected: null,
         mode: 'select',
         connectFrom: null,
+        diff: null,
         ...historyFlags(),
       })
       toast(t('undoDone'), 'info')
@@ -716,6 +717,7 @@ window.__ModuleLoader__.load({
         selected: null,
         mode: 'select',
         connectFrom: null,
+        diff: null,
         ...historyFlags(),
       })
       toast(t('redoDone'), 'info')
