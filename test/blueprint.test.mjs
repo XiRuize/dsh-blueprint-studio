@@ -150,8 +150,17 @@ test('semantic diff reports requirement, diagram and module changes', () => {
   }, undefined, { sessionId: 's' })
 
   const diff = semanticDiff(before, after)
-  assert.equal(diff.sections[0].added[0], 'three')
-  assert.equal(diff.sections[0].removed[0], 'two')
+  assert.deepEqual(diff.sections[0].added, [])
+  assert.deepEqual(diff.sections[0].removed, [])
+  assert.equal(diff.sections[0].modified[0].uid, 'goals:i2')
+  assert.equal(diff.sections[0].modified[0].code, 'R2')
+  assert.equal(diff.sections[0].modified[0].before, 'two')
+  assert.equal(diff.sections[0].modified[0].after, 'three')
+  assert.deepEqual(diff.sections[0].modified[0].wordDiff, [
+    { type: 'remove', text: 'two' },
+    { type: 'add', text: 'three' },
+  ])
+  assert.equal(diff.totals.modified, 1)
   assert.equal(diff.diagrams[0].addedNodes[0].label, 'Browse')
   assert.equal(diff.diagrams[0].addedEdges.length, 1)
   assert.equal(diff.modules.added[0].name, 'UI')

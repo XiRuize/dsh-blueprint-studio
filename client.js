@@ -65,6 +65,16 @@ window.__ModuleLoader__.load({
       importErrorParse: 'Could not parse the pasted content.',
       replaceDiagram: 'Replace current diagram', appendDiagram: 'Append to current diagram', importAction: 'Import',
       diffBase: 'From', diffTarget: 'To', diffEmpty: 'No semantic changes between these versions.',
+      diffAdded: 'Added', diffRemoved: 'Removed', diffModified: 'Modified',
+      reviewQueue: 'Review queue', reviewHint: 'Accept writes the after value back to the current blueprint; reject keeps it unchanged.',
+      reviewAccept: 'Accept', reviewReject: 'Reject', reviewAcceptAll: 'Accept all ({count})', reviewRejectAll: 'Reject all ({count})',
+      reviewAcceptAllConfirm: 'Accept {count} review entries and write them to the current blueprint?',
+      reviewRejectAllConfirm: 'Reject {count} review entries? The current blueprint stays unchanged.',
+      reviewNeedsCurrent: 'Write-back is only available when the comparison target is Current. Restore a version or save as current first.',
+      reviewAccepted: 'Accepted', reviewRejected: 'Rejected', reviewProgress: '{decided} / {count} decided',
+      reviewSaved: 'Applied {count} review entries and saved.', reviewRejectedToast: 'Rejected {count} review entries.',
+      reviewUndo: 'Undo this review', reviewUndoConfirm: 'Undo the last review write-back and save the blueprint again?',
+      reviewUndone: 'Review write-back undone.',
       fieldsEmpty: 'No fields yet.', addEdge: 'Add edge', edgeKind: 'Kind', saveSnapshotHint: 'Archive the current blueprint as a version',
       boardHint: 'Child sessions of this conversation, refreshed every 5 seconds.', moduleOf: 'Module', versionAt: 'Time', versionBy: 'Source',
       textChanged: 'changed', sectionTitleChanged: 'Title changed', diagramMissing: 'Diagram only exists on one side',
@@ -149,6 +159,16 @@ window.__ModuleLoader__.load({
       importErrorParse: '无法解析粘贴的内容。',
       replaceDiagram: '替换当前图', appendDiagram: '追加到当前图', importAction: '导入',
       diffBase: '基准', diffTarget: '对比', diffEmpty: '这两个版本之间没有语义变化。',
+      diffAdded: '新增', diffRemoved: '删除', diffModified: '修改',
+      reviewQueue: '待复核队列', reviewHint: '接受会把 before→after 的 after 写回当前蓝图；拒绝保持当前不变。',
+      reviewAccept: '接受', reviewReject: '拒绝', reviewAcceptAll: '全部接受（{count}）', reviewRejectAll: '全部拒绝（{count}）',
+      reviewAcceptAllConfirm: '接受 {count} 条并写回当前蓝图？',
+      reviewRejectAllConfirm: '拒绝 {count} 条？当前蓝图保持不变。',
+      reviewNeedsCurrent: '只有对比目标是“当前”版本时才能写回；请先恢复版本或另存为当前。',
+      reviewAccepted: '已接受', reviewRejected: '已拒绝', reviewProgress: '已处理 {decided} / {count} 条',
+      reviewSaved: '已应用 {count} 条复核并保存。', reviewRejectedToast: '已拒绝 {count} 条复核。',
+      reviewUndo: '撤销本次复核', reviewUndoConfirm: '撤销上一次复核写回并重新保存蓝图？',
+      reviewUndone: '已撤销本次复核写回。',
       fieldsEmpty: '还没有字段。', addEdge: '新增连线', edgeKind: '类型', saveSnapshotHint: '把当前蓝图归档为版本',
       boardHint: '当前会话的子代理，每 5 秒刷新。', moduleOf: '模块', versionAt: '时间', versionBy: '来源',
       textChanged: '已修改', sectionTitleChanged: '标题已修改', diagramMissing: '该图只存在于一侧',
@@ -2825,12 +2845,264 @@ window.__ModuleLoader__.load({
             diagram.changedEdges.map((edge, index) => h('div', { className: 'bp-diff-line bp-warn', key: `ce-${edge.id}-${index}` }, `~ ${edgeLabelText(edge)}`)))) : null)
     }
 
+    function requirementDiffText(entry) {
+      if (typeof entry === 'string') return entry
+      return entry?.text ?? entry?.after ?? ''
+    }
+
+    function requirementDiffCode(entry) {
+      return typeof entry === 'object' && entry !== null ? entry.code ?? '' : ''
+    }
+
+    // Flatten every requirement add/remove/modify in the diff into one queue row
+    // so the review controls can apply all of them with a single action.
+    function reviewQueueRows(diff) {
+      const rows = []
+      for (const section of diff.sections ?? []) {
+        const push = (kind, entry, index) => {
+          const object = typeof entry === 'object' && entry !== null ? entry : {}
+          const id = object.id ?? ''
+          const uid = object.uid ?? (id === '' ? '' : `${section.key}:${id}`)
+          rows.push({
+            key: `${section.key}:${kind}:${uid || id || index}:${index}`,
+            kind,
+            sectionKey: section.key,
+            sectionTitle: section.title,
+            uid,
+            id,
+            code: object.code ?? '',
+            text: requirementDiffText(entry),
+            before: kind === 'modified' ? object.before ?? '' : requirementDiffText(entry),
+            after: kind === 'modified' ? object.after ?? '' : requirementDiffText(entry),
+            wordDiff: kind === 'modified' ? object.wordDiff ?? [] : undefined,
+          })
+        }
+        ;(section.added ?? []).forEach((entry, index) => push('added', entry, index))
+        ;(section.removed ?? []).forEach((entry, index) => push('removed', entry, index))
+        ;(section.modified ?? []).forEach((entry, index) => push('modified', entry, index))
+      }
+      return rows
+    }
+
+    function requirementUid(sectionKey, item) {
+      const uid = typeof item?.uid === 'string' ? item.uid.trim() : ''
+      if (uid !== '') return uid
+      return `${sectionKey}:${typeof item?.id === 'string' ? item.id.trim() : ''}`
+    }
+
+    // Accepting a modified row writes the `after` text into the current blueprint,
+    // accepting a removed row removes the item, and accepting an added row keeps
+    // the current copy (the target of a writable comparison is always current).
+    function applyReviewRows(bp, rows) {
+      let changed = 0
+      for (const row of rows) {
+        if (row.kind === 'added') continue
+        if (row.kind === 'modified') {
+          let applied = false
+          for (const section of bp.sections ?? []) {
+            const list = Array.isArray(section.items) ? section.items : []
+            const item = list.find(candidate => requirementUid(section.key, candidate) === row.uid
+              && (row.id === '' || candidate.id === row.id))
+            if (item === undefined) continue
+            if (item.text !== row.after) {
+              item.text = row.after
+              changed += 1
+            }
+            applied = true
+            break
+          }
+          if (applied) continue
+        }
+        if (row.kind === 'removed') {
+          for (const section of bp.sections ?? []) {
+            const list = Array.isArray(section.items) ? section.items : []
+            const index = list.findIndex(item => requirementUid(section.key, item) === row.uid)
+            if (index < 0) continue
+            list.splice(index, 1)
+            changed += 1
+            break
+          }
+        }
+      }
+      return changed
+    }
+
+    function RequirementWordDiff({ segments }) {
+      if (!Array.isArray(segments) || segments.length === 0) return null
+      return h('span', null, segments.map((segment, index) => h('span', {
+        key: index,
+        className: segment.type === 'add' ? 'bp-seg-add' : segment.type === 'remove' ? 'bp-seg-remove' : undefined,
+      }, segment.text)))
+    }
+
+    function ReviewQueue({ diff, store }) {
+      const writable = diff.to === 'current' && store.bp !== null
+      const rows = useMemo(() => reviewQueueRows(diff), [diff])
+      const [decisions, setDecisions] = useState({})
+      const [applying, setApplying] = useState(false)
+      const [undoSnapshot, setUndoSnapshot] = useState(null)
+
+      useEffect(() => {
+        setDecisions({})
+        setUndoSnapshot(null)
+      }, [diff])
+
+      if (rows.length === 0) return null
+      const pending = rows.filter(row => decisions[row.key] === undefined)
+      const decided = rows.length - pending.length
+
+      const mark = (targets, decision) => {
+        setDecisions(current => {
+          const next = { ...current }
+          for (const row of targets) next[row.key] = decision
+          return next
+        })
+      }
+
+      const decide = async (targets, decision, options = {}) => {
+        if (!writable || targets.length === 0 || applying) return
+        if (options.bulk === true) {
+          const prompt = decision === 'accepted' ? 'reviewAcceptAllConfirm' : 'reviewRejectAllConfirm'
+          if (!window.confirm(t(prompt, { count: targets.length }))) return
+        }
+        if (decision === 'rejected') {
+          mark(targets, 'rejected')
+          toast(t('reviewRejectedToast', { count: targets.length }), 'info')
+          return
+        }
+        setApplying(true)
+        const snapshot = cloneBlueprint(store.bp)
+        mutate(bp => { applyReviewRows(bp, targets) }, { undoLabel: 'review' })
+        mark(targets, 'accepted')
+        setUndoSnapshot(snapshot)
+        const saved = await saveBlueprint({ silent: true })
+        setApplying(false)
+        if (!saved) return
+        toast(t('reviewSaved', { count: targets.length }), 'success')
+      }
+
+      const undoReview = async () => {
+        if (undoSnapshot === null || applying) return
+        if (!window.confirm(t('reviewUndoConfirm'))) return
+        setApplying(true)
+        setUndoSnapshot(null)
+        setDecisions({})
+        recordUndo(store.bp, 'review-undo')
+        set({
+          bp: cloneBlueprint(undoSnapshot),
+          dirty: true,
+          selected: null,
+          mode: 'select',
+          connectFrom: null,
+          ...historyFlags(),
+        })
+        const saved = await saveBlueprint({ silent: true })
+        setApplying(false)
+        if (saved) toast(t('reviewUndone'), 'info')
+      }
+
+      return h('div', { className: 'bp-review' },
+        h('div', { className: 'bp-review-head' },
+          h('div', null,
+            h('div', { className: 'bp-kicker' }, t('reviewQueue')),
+            h('div', { className: 'bp-muted' }, writable ? t('reviewHint') : t('reviewNeedsCurrent')),
+            decided > 0 ? h('div', { className: 'bp-muted' }, t('reviewProgress', { decided, count: rows.length })) : null),
+          h('div', { className: 'bp-review-toolbar' },
+            undoSnapshot !== null
+              ? h('button', { type: 'button', className: 'bp-btn', disabled: applying, onClick: undoReview }, t('reviewUndo'))
+              : null,
+            h('button', {
+              type: 'button', className: 'bp-btn bp-primary', disabled: !writable || pending.length === 0 || applying,
+              onClick: () => decide(pending, 'accepted', { bulk: true }),
+            }, t('reviewAcceptAll', { count: pending.length })),
+            h('button', {
+              type: 'button', className: 'bp-btn bp-danger', disabled: !writable || pending.length === 0 || applying,
+              onClick: () => decide(pending, 'rejected', { bulk: true }),
+            }, t('reviewRejectAll', { count: pending.length })))),
+        h('div', { className: 'bp-review-list' }, rows.map(row => {
+          const decision = decisions[row.key]
+          return h('div', { className: `bp-review-row${decision === undefined ? '' : ' decided'}`, key: row.key },
+            h('div', { className: 'bp-review-main' },
+              h('div', { className: 'bp-review-meta' },
+                h('span', { className: row.kind === 'added' ? 'bp-plus' : row.kind === 'removed' ? 'bp-minus' : 'bp-warn' },
+                  row.kind === 'added' ? `+ ${t('diffAdded')}` : row.kind === 'removed' ? `− ${t('diffRemoved')}` : `~ ${t('diffModified')}`),
+                row.code ? h('span', { className: 'bp-review-code' }, row.code) : null,
+                h('span', { className: 'bp-review-section' }, row.sectionTitle),
+                decision === undefined ? null : h('span', { className: 'bp-review-decision' }, decision === 'accepted' ? t('reviewAccepted') : t('reviewRejected'))),
+              h('div', { className: 'bp-review-text' },
+                row.kind === 'modified'
+                  ? h(React.Fragment, null,
+                      h('span', { className: 'bp-review-before' }, row.before),
+                      h('span', { className: 'bp-review-arrow' }, ' → '),
+                      h('span', { className: 'bp-review-after' }, h(RequirementWordDiff, {
+                        segments: Array.isArray(row.wordDiff) && row.wordDiff.length > 0
+                          ? row.wordDiff
+                          : [{ type: 'same', text: row.after }],
+                      })))
+                  : h('span', { className: row.kind === 'added' ? 'bp-plus' : 'bp-minus' }, row.text))),
+            h('div', { className: 'bp-review-actions' },
+              h('button', {
+                type: 'button', className: 'bp-btn', disabled: !writable || applying || decision !== undefined,
+                onClick: () => decide([row], 'accepted'),
+              }, t('reviewAccept')),
+              h('button', {
+                type: 'button', className: 'bp-btn bp-danger', disabled: !writable || applying || decision !== undefined,
+                onClick: () => decide([row], 'rejected'),
+              }, t('reviewReject'))))
+        })))
+    }
+
+    function RequirementSectionCard({ section }) {
+      const added = section.added ?? []
+      const removed = section.removed ?? []
+      const modified = section.modified ?? []
+      const group = (key, title, className, list, render) => list.length === 0 ? null : h('div', { className: 'bp-diff-group', key },
+        h('div', { className: `bp-diff-group-title ${className}` }, `${title} · ${list.length}`),
+        list.map(render))
+      return h('div', { className: 'bp-diff-card', key: section.key },
+        h('div', { className: 'bp-diff-card-head' },
+          h('strong', null, section.title),
+          h('span', null, `${section.before} → ${section.after}`)),
+        section.sectionAdded ? h('div', { className: 'bp-plus' }, `+ ${t('added')}`) : null,
+        section.sectionRemoved ? h('div', { className: 'bp-minus' }, `− ${t('removed')}`) : null,
+        section.titleChanged ? h('div', { className: 'bp-warn' }, `${t('sectionTitleChanged')}: ${section.titleChanged.from} → ${section.titleChanged.to}`) : null,
+        group('added', t('diffAdded'), 'bp-plus', added, (entry, index) => h('div', { className: 'bp-diff-line bp-plus', key: `a-${index}` },
+          `+ ${requirementDiffCode(entry) ? `${requirementDiffCode(entry)} · ` : ''}${requirementDiffText(entry)}`)),
+        group('removed', t('diffRemoved'), 'bp-minus', removed, (entry, index) => h('div', { className: 'bp-diff-line bp-minus', key: `r-${index}` },
+          `− ${requirementDiffCode(entry) ? `${requirementDiffCode(entry)} · ` : ''}${requirementDiffText(entry)}`)),
+        group('modified', t('diffModified'), 'bp-warn', modified, (entry, index) => h('div', { className: 'bp-diff-line bp-warn', key: `m-${index}` },
+          h('span', { className: 'bp-review-code' }, entry.code || entry.uid || ''),
+          h('span', null, h(RequirementWordDiff, {
+            segments: Array.isArray(entry.wordDiff) && entry.wordDiff.length > 0
+              ? entry.wordDiff
+              : [{ type: 'same', text: entry.after ?? '' }],
+          })))))
+    }
+
     function DiffPanel({ store }) {
       const diff = store.diff
       if (diff === null) return null
       const added = diff.totals?.added ?? 0
       const removed = diff.totals?.removed ?? 0
+      const modified = diff.totals?.modified ?? 0
       const changed = diff.totals?.changed ?? 0
+      const requirementsSection = h('section', null,
+        h('h3', null, t('requirements')),
+        diff.sections.length === 0 ? h('div', { className: 'bp-muted' }, '—') : null,
+        diff.sections.map(section => h(RequirementSectionCard, { key: section.key, section })))
+      const diagramsSection = h('section', null,
+        h('h3', null, t('diagrams')),
+        diff.diagrams.length === 0 ? h('div', { className: 'bp-muted' }, '—') : null,
+        diff.diagrams.map(diagram => h(DiagramDiffCard, { key: diagram.key, diagram })))
+      const modulesSection = h('section', null,
+        h('h3', null, t('modules')),
+        diff.modules.added.map(module => h('div', { className: 'bp-diff-line bp-plus', key: module.id }, `+ ${module.name}`)),
+        diff.modules.removed.map(module => h('div', { className: 'bp-diff-line bp-minus', key: module.id }, `− ${module.name}`)),
+        diff.modules.changed.map(module => h('div', { className: 'bp-diff-card', key: module.id },
+          h('strong', null, module.name),
+          module.changes.map((change, index) => h('div', {
+            className: 'bp-diff-line bp-warn', key: index,
+          }, `~ ${change.field}: ${change.from || '—'} → ${change.to || '—'}`)))))
       return h('div', { className: 'bp-diff' },
         h('div', { className: 'bp-diff-head' },
           h('div', null,
@@ -2839,34 +3111,12 @@ window.__ModuleLoader__.load({
           h('div', { className: 'bp-diff-totals' },
             h('span', { className: 'bp-plus' }, `+${added}`),
             h('span', { className: 'bp-minus' }, `−${removed}`),
-            h('span', { className: 'bp-warn' }, `~${changed}`)),
+            modified > 0 ? h('span', { className: 'bp-warn' }, `~${modified} ${t('diffModified')}`) : null,
+            changed > 0 ? h('span', { className: 'bp-warn' }, `~${changed} ${t('changed')}`) : null),
           h('button', { type: 'button', className: 'bp-btn', onClick: () => set({ diff: null }) }, t('closeDiff'))),
-        added + removed + changed === 0 ? h('div', { className: 'bp-empty-diff' }, t('diffEmpty')) : null,
-        h('div', { className: 'bp-diff-grid' },
-          h('section', null,
-            h('h3', null, t('requirements')),
-            diff.sections.length === 0 ? h('div', { className: 'bp-muted' }, '—') : null,
-            diff.sections.map(section => h('div', { className: 'bp-diff-card', key: section.key },
-              h('div', { className: 'bp-diff-card-head' },
-                h('strong', null, section.title),
-                h('span', null, `${section.before} → ${section.after}`)),
-              section.sectionAdded ? h('div', { className: 'bp-plus' }, `+ ${t('added')}`) : null,
-              section.sectionRemoved ? h('div', { className: 'bp-minus' }, `− ${t('removed')}`) : null,
-              section.titleChanged ? h('div', { className: 'bp-warn' }, `${t('sectionTitleChanged')}: ${section.titleChanged.from} → ${section.titleChanged.to}`) : null,
-              section.added.map((item, index) => h('div', { className: 'bp-diff-line bp-plus', key: `a-${index}` }, `+ ${item}`)),
-              section.removed.map((item, index) => h('div', { className: 'bp-diff-line bp-minus', key: `r-${index}` }, `− ${item}`))))),
-          h('section', null,
-            h('h3', null, t('diagrams')),
-            diff.diagrams.length === 0 ? h('div', { className: 'bp-muted' }, '—') : null,
-            diff.diagrams.map(diagram => h(DiagramDiffCard, { key: diagram.key, diagram }))),
-          h('section', null,
-            h('h3', null, t('modules')),
-            diff.modules.added.map(module => h('div', { className: 'bp-diff-line bp-plus', key: module.id }, `+ ${module.name}`)),
-            diff.modules.removed.map(module => h('div', { className: 'bp-diff-line bp-minus', key: module.id }, `− ${module.name}`)),
-            diff.modules.changed.map(module => h('div', { className: 'bp-diff-card', key: module.id },
-              h('strong', null, module.name),
-              module.changes.map((change, index) => h('div', { className: 'bp-diff-line bp-warn', key: index },
-                `~ ${change.field}: ${change.from || '—'} → ${change.to || '—'}`)))))))
+        added + removed + modified + changed === 0 ? h('div', { className: 'bp-empty-diff' }, t('diffEmpty')) : null,
+        h(ReviewQueue, { diff, store }),
+        h('div', { className: 'bp-diff-grid' }, requirementsSection, diagramsSection, modulesSection))
     }
 
     function ImportDialog({ store }) {
@@ -4156,6 +4406,25 @@ window.__ModuleLoader__.load({
 .bp-diff-group{display:flex;flex-direction:column;gap:1px}
 .bp-diff-group-title{font-size:10px;font-weight:650;letter-spacing:.02em;margin-top:2px}
 .bp-diff-change{font-size:10px;line-height:1.4;padding-left:10px;color:var(--dsw-alias-label-secondary);word-break:break-word}
+.bp-review{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:9px 10px;margin-top:12px}
+.bp-review-head{display:flex;align-items:flex-start;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.bp-review-head .bp-kicker{margin-bottom:3px}
+.bp-review-toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.bp-review-list{display:flex;flex-direction:column;gap:5px;margin-top:8px;max-height:300px;overflow:auto}
+.bp-review-row{display:flex;gap:8px;align-items:flex-start;padding:6px 7px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base)}
+.bp-review-row.decided{opacity:.68}
+.bp-review-main{flex:1;min-width:0}
+.bp-review-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;color:var(--dsw-alias-label-secondary)}
+.bp-review-code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10px;padding:0 4px;border-radius:5px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);margin-right:5px;white-space:nowrap}
+.bp-review-section{font-size:10px}
+.bp-review-decision{font-size:10px;font-weight:650;color:var(--dsw-alias-brand-primary)}
+.bp-review-text{font-size:11px;line-height:1.5;margin-top:3px;word-break:break-word}
+.bp-review-before{color:var(--dsw-alias-label-secondary);text-decoration:line-through}
+.bp-review-arrow{color:var(--dsw-alias-label-secondary)}
+.bp-review-actions{display:flex;gap:4px;flex:0 0 auto}
+.bp-review-actions .bp-btn{height:24px;font-size:10.5px;padding:0 7px}
+.bp-seg-add{color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 20%,transparent);border-radius:2px;text-decoration:none}
+.bp-seg-remove{color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 18%,transparent);border-radius:2px;text-decoration:line-through}
 .bp-empty-diff{padding:20px 0;color:var(--dsw-alias-label-secondary);font-size:12px}
 .bp-tabs{max-width:100%;overflow-x:auto;scrollbar-width:thin;flex-wrap:nowrap;min-width:0}
 .bp-tab{white-space:nowrap}
