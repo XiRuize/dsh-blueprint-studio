@@ -49,7 +49,7 @@
   ],
   "scripts": {
     "check": "node --check index.js && node --check client.js && node --check lib/blueprint.js",
-    "test": "node --test test/blueprint.test.mjs test/mermaid.test.mjs test/layers.test.mjs test/checks.test.mjs test/reqdiff.test.mjs",
+    "test": "node --test test/blueprint.test.mjs test/mermaid.test.mjs test/layers.test.mjs test/checks.test.mjs test/reqdiff.test.mjs test/export.test.mjs",
     "prepublishOnly": "npm run check && npm test"
   },
   "engines": {
