@@ -1,0 +1,247 @@
+# Blueprint Studio
+
+**Draw the system before you build it.**
+
+Blueprint Studio is a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that turns a one-line request into a collaborative software-engineering blueprint: requirement columns, six kinds of diagram, version history, and a live dispatch board for per-module subagents. You edit the blueprint by hand or ask the agent to expand it, then confirm — and the agent dispatches **one subagent per module**.
+
+> 中文简介：写代码前先让 AI 把需求、用例、数据流、时序、ER、C4 和模块关系画清楚；人可以逐条修改、补图、一键扩充，确认后由 AI 按模块分派子代理并行实施。每次保存自动归档版本，可对比、可恢复。
+
+![Use-case view](docs/usecase.png)
+
+| Sequence | ER |
+| --- | --- |
+| ![Sequence view](docs/sequence.png) | ![ER view](docs/er.png) |
+
+| C4 | Data flow | Modules |
+| --- | --- | --- |
+| ![C4 view](docs/c4.png) | ![Data-flow view](docs/dfd.png) | ![Module view](docs/module.png) |
+
+```
+prompt ──▶ requirements ──▶ diagrams ──▶ human review ──▶ confirm ──▶ N subagents
+             (7 columns)     (6 views)    edit / expand / diff            (per module)
+```
+
+## Why
+
+Agents are fast at writing code and bad at guessing intent. A blueprint is a cheap, reviewable contract:
+
+- **Requirements are visible** rather than buried in a chat transcript.
+- **Diagrams expose missing actors, stores, messages, entities and boundaries** before they become architecture.
+- **Modules become dispatch units** with explicit scope, dependencies and acceptance criteria.
+- **Every save is a version** — compare what the agent changed against what you changed, and restore in one click.
+- **Humans stay in control** of the expensive decision (what to build), not the cheap one (which file to edit).
+
+## Features
+
+- **Seven requirement columns** — goals, actors, functional, non-functional, constraints, acceptance, risks; every item is editable, addable and removable.
+- **Six editable diagrams**
+  - UML use case: actors, use cases, system boundary;
+  - data flow: external entity, process, data store, labelled flows;
+  - module dependency;
+  - sequence: participants, ordered sync/async/return messages;
+  - ER: entities with typed fields and primary keys, relationship diamonds, cardinality;
+  - C4: person, system, container, component, database, external system, with technology and responsibility labels.
+- **Visual editing on an SVG canvas** — drag nodes, pan/zoom, connect nodes, edit labels and edge kinds, ER field editor, delete, deterministic auto-layout.
+- **AI generate / expand** — one button sends a focused instruction to the agent; the studio refreshes when the agent writes the blueprint.
+- **Version history** — every agent or human save archives the previous content. Compare any two versions with a semantic diff (requirements, nodes, edges, fields, modules); restore a version with one click; create manual snapshots.
+- **Live dispatch board** — child subagent sessions of the current conversation, refreshed every five seconds, with module status and one-click navigation.
+- **draw.io interop** — import `.drawio`/XML by paste or file, replacing or appending to the current diagram; export the current diagram back to draw.io XML.
+- **One-click dispatch** — confirmation marks the blueprint `confirmed` and asks the agent to spawn one subagent per module, respecting dependencies.
+- **Local-first storage** — `<workspace>/.dsh/blueprints/<sessionId>.json`, reviewable and diffable in Git.
+- **Exports** — JSON, Mermaid (flowchart, sequence, ER), SVG, draw.io XML.
+- **Bilingual UI** — English and 简体中文.
+
+## Install
+
+Install the workspace bundle with the Harness plugin manager:
+
+```text
+plugin_manager(action="install_bundle", target="<absolute path to dsh-blueprint-studio>")
+```
+
+The bundle inserts two rows: a Host plugin (`blueprint` tool, `/blueprint` command, system-prompt section) and a Web client half (composer button + full-screen studio). No build step and no runtime dependencies are required.
+
+After installation, open any conversation. A **Blueprint / 蓝图** button appears in the composer tool row. The agent is also instructed to create a blueprint before multi-step implementation work.
+
+> **Reload required after a fresh install.** The Host half is live as soon as `install_bundle` reports `applied`. The Web client half is part of the boot graph, so reload the page — or restart the desktop app — once; otherwise the composer button and studio are not mounted. Editing `client.js` later also needs a reload unless the deployment runs `pnpm run dev:web` for live client HMR.
+
+## Usage
+
+1. Send a task prompt. For a non-trivial coding task the agent calls `blueprint(action="create")` before touching files.
+2. Click **蓝图** in the composer. The studio opens with requirements and diagrams.
+3. Refine:
+   - edit any requirement inline, add items or whole sections;
+   - drag nodes, add nodes from the toolbar, switch to **Connect** and click two nodes;
+   - for ER entities, add fields and mark primary keys in the inspector;
+   - use **Auto layout** to re-run the deterministic layout;
+   - click ✨ on a section or a diagram to ask the agent to expand only that part.
+4. Use **Versions** to compare the last agent revision with your edits, restore an older version, or save a named snapshot.
+5. Use **Board** to watch child subagents after dispatch.
+6. Click **Confirm & dispatch**. The blueprint is saved as `confirmed`, then the agent is instructed to:
+   - read the latest blueprint,
+   - mark it `dispatched`,
+   - start one subagent per module (dependencies first, independent modules in parallel),
+   - write each child session id back to the module and update status.
+
+### Version history
+
+```
+.dsh/blueprints/
+├── <sessionId>.json                 # current blueprint
+└── <sessionId>.versions/
+    ├── index.json                   # lightweight manifest (last 40)
+    ├── v-xxxx.json                  # archived blueprint
+    └── v-yyyy.json
+```
+
+Versions are archived automatically before every write (agent tool or studio save), plus manual snapshots. The index stores time, source (`agent` / `ui` / `manual`), label, status and counts. Diff is computed on the Host (`semanticDiff`) and rendered as a three-column review: requirements, diagrams, modules.
+
+### draw.io import
+
+Click **Import draw.io** in the diagram toolbar, then paste XML or choose a `.drawio`/`.xml` file. The parser maps `mxCell` vertices and edges into the current diagram:
+
+- `shape=umlActor` → actor; `ellipse` → use case/process; `rhombus` → relationship; `cylinder` → store/database; `swimlane` → system; component/container heuristics for C4;
+- geometry is preserved, so the imported layout stays where the author drew it;
+- choose **Replace current diagram** or append with a generated id suffix.
+
+Export the current diagram as draw.io XML from **Export → draw.io XML**.
+
+## Data model
+
+The tool accepts a compact, model-friendly object; layout is computed in the browser so the model never has to invent pixel coordinates.
+
+```json
+{
+  "title": "Plugin marketplace",
+  "summary": "Browse, install and pin plugins inside DSH.",
+  "prompt": "Build a plugin marketplace…",
+  "sections": [
+    { "key": "functional", "title": "Functional requirements", "items": ["Search by name and tag"] }
+  ],
+  "diagrams": [
+    {
+      "key": "usecase",
+      "nodes": [
+        { "id": "u", "type": "actor", "label": "DSH user" },
+        { "id": "browse", "type": "usecase", "label": "Browse plugins" },
+        { "id": "sys", "type": "system", "label": "Marketplace" }
+      ],
+      "edges": [{ "from": "u", "to": "browse", "label": "uses" }]
+    }
+  ],
+  "modules": [
+    { "id": "search", "name": "Search", "summary": "Index, query, ranking; acceptance: …", "dependsOn": [] }
+  ]
+}
+```
+
+Node types by diagram:
+
+| Diagram | Node types | Edge notes |
+| --- | --- | --- |
+| `usecase` | `actor`, `usecase`, `system` | `association`, `include`, `extend` |
+| `dfd` | `entity`, `process`, `store` | `flow`, label = data name |
+| `module` | `module`, `external` | `depends` |
+| `sequence` | `participant`, `actor` | `kind: sync \| async \| return`, `order` |
+| `er` | `entity` (with `fields`), `relationship` | `cardinality: "1..*"` |
+| `c4` | `person`, `system`, `container`, `component`, `database`, `external` | `technology` on nodes/edges |
+
+ER field:
+
+```json
+{ "name": "id", "type": "uuid", "key": true }
+```
+
+Sequence message:
+
+```json
+{ "from": "user", "to": "api", "label": "GET /plugins", "kind": "sync", "order": 1 }
+```
+
+## Agent contract
+
+The Host half contributes:
+
+- a `blueprint` tool with `create | update | get | confirm | dispatch | snapshot | delete`;
+- a `/blueprint` command used by the studio for `save`, `versions`, `diff`, `restore`, `snapshot`, `path`, `get`;
+- a system-prompt section that tells the agent to plan before coding, wait for confirmation, dispatch per-module subagents, record child session ids, and update module status.
+
+The studio writes through the **public** `commands.execute` Remote and reads through `workspaceFiles.read`; child subagents come from `session.list`. It never needs a private RPC bridge. That keeps the plugin compatible with the shipped Harness API surface.
+
+## Architecture
+
+```
+┌──────────────────────────── Browser (client.js) ───────────────────────────┐
+│ composer button ──▶ Studio overlay (React, SVG canvas, zero runtime deps)   │
+│        │ read                     │ write / prompt           │ list        │
+└────────┼──────────────────────────┼──────────────────────────┼─────────────┘
+         ▼                          ▼                          ▼
+  workspaceFiles.read        commands.execute           session.list
+  blueprint + versions       /blueprint save|diff|…      child subagents
+         │                          │                          │
+┌────────┼──────────────────────────┼──────────────────────────┼─────────────┐
+│ Host   ▼                          ▼                          ▼             │
+│  blueprint tool ── normalize ── atomic JSON write ── version archive        │
+│  semanticDiff ── /blueprint command ── system-prompt section               │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Source of truth**: a JSON file in the workspace, so the agent, the human and Git all see the same artifact.
+- **Deterministic layout**: the model produces semantics (nodes/edges/fields), the client produces geometry.
+- **No custom RPC**: reads use `workspaceFiles`, writes use a recorded command; both are shipped, authorized Remotes.
+- **Session-scoped**: one blueprint and one history per session, keyed by session id.
+
+## Prior art and why a custom renderer
+
+The diagram space is crowded, but most tools optimize for *drawing*, not for *an agent-generated, human-editable planning artifact inside a chat harness*.
+
+| Project | License | Fit |
+| --- | --- | --- |
+| [Mermaid](https://github.com/mermaid-js/mermaid) | MIT | Excellent text-to-SVG for AI output; weak freeform editing. Supported here as an **export**. |
+| [draw.io / diagrams.net](https://github.com/jgraph/drawio) | Apache-2.0 | Mature editor; supported here as **import/export**, not as an embedded iframe. |
+| [Excalidraw](https://github.com/excalidraw/excalidraw) | MIT | Great whiteboard, not UML/DFD semantics. |
+| [React Flow](https://github.com/xyflow/xyflow) | MIT | Strong node editor; adds a bundling dependency and its own styling model. |
+| [LogicFlow](https://github.com/didi/LogicFlow) | Apache-2.0 | Good flowchart engine; same dependency trade-off. |
+| [AntV X6](https://github.com/antvis/X6) | MIT | Powerful graph engine, heavier than this use case needs. |
+| [PlantUML](https://github.com/plantuml/plantuml) | GPL | Great use-case/sequence support, needs a Java renderer and is GPL. |
+| [ai-draw](https://github.com/stone-yu/ai-draw) | MIT | Good reference for an AI diagram product, not a DSH plugin. |
+| [肥猫简图](https://mind.pictureknow.com) | proprietary | Strong interaction reference (UML panel, drag/drop); no reusable source. |
+
+Blueprint Studio deliberately ships a **small self-contained SVG canvas**: zero runtime dependencies, full control over the host theme, deterministic layout, and an explicit semantic model that an LLM can produce reliably. Interop is handled by import/export rather than by embedding a second editor.
+
+## Roadmap
+
+- [x] Sequence diagram, ER diagram, C4 context/container.
+- [x] Version history, semantic diff, restore and manual snapshots.
+- [x] Live subagent dispatch board.
+- [x] draw.io import/export.
+- [ ] Collaboration: presence, comments and change proposals on requirement items.
+- [ ] Richer DFD: level-1 decomposition, balancing checks, data dictionary.
+- [ ] More C4 levels and automatic boundary inference.
+- [ ] Import: Mermaid, PlantUML.
+- [ ] Blueprint templates per domain (web app, CLI, data pipeline, agent tool).
+- [ ] Publish to npm as `dsh-blueprint-studio`.
+
+## Development
+
+The bundle is plain ESM and plain browser JavaScript — no compile step.
+
+```bash
+# syntax check
+node --check index.js
+node --check client.js
+
+# unit tests (normalizer, diff, version archive)
+node --test test/
+
+# install into a profile
+# plugin_manager(action="install_bundle", target="<abs path>")
+```
+
+Host files: `index.js`, `lib/blueprint.js`. Client: `client.js` (module-loader factory, React from the host module table). Locales: `locale/en.json`, `locale/zh.json`. Screenshots: `docs/`.
+
+## License
+
+MIT. See [LICENSE](./LICENSE).
+
+The icon is original artwork for this project.

@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a defect in Blueprint Studio
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the report. Please redact business data from blueprint JSON.
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the console error and whether the Host or Client half is affected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a conversation
+        2. Click Blueprint
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: DSH and plugin version
+      placeholder: dsh 0.2.x, dsh-blueprint-studio 0.2.0
+  - type: textarea
+    id: blueprint
+    attributes:
+      label: Minimal blueprint JSON (optional)
+      render: json

@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest a new diagram, workflow or integration
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What planning or review problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the semantic model changes and the UI, not only the screenshot.
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: It can be implemented without a new runtime dependency
+        - label: It can be implemented with public DSH Remotes
+        - label: I can contribute a test and a screenshot
