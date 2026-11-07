@@ -14,6 +14,7 @@ import {
   readBlueprintFile,
   readBlueprintVersion,
   readVersionsIndex,
+  recordModuleVerification,
   saveBlueprintFromCommand,
   semanticDiff,
   verifyBlueprintToken,
@@ -58,7 +59,7 @@ blueprint 结构：
     "nodes": [{"id":"u1","type":"...","label":"名称","technology":"可选","description":"可选","requirementIds":["goals:i1"],"fields":[{"name":"id","type":"uuid","key":true}]}],
     "edges": [{"from":"u1","to":"u2","label":"标签","kind":"association|flow|depends|sync|async|return|relationship","cardinality":"1..*","order":1}]
   }],
-  "modules": [{"id":"auth","name":"认证模块","layerId":"A","code":"A1","parentId":null,"summary":"范围、接口与验收要点","dependsOn":["db"],"nodeIds":["usecase:u1"],"files":["lib/auth.js"],"acceptance":["登录成功后返回会话令牌"]}]
+  "modules": [{"id":"auth","name":"认证模块","layerId":"A","code":"A1","parentId":null,"summary":"范围、接口与验收要点","dependsOn":["db"],"nodeIds":["usecase:u1"],"files":["lib/auth.js"],"acceptance":["登录成功后返回会话令牌"],"status":"pending","verification":{"tests":{"status":"pending","evidence":[]},"reviewer":{"status":"pending","evidence":[]},"human":{"status":"pending","evidence":[]}}}]
 }
 
 分层规则：
@@ -85,6 +86,7 @@ blueprint 结构：
 - ER 图实体字段写在 fields，关系边上写基数。
 - C4 图用 technology 写技术选型，description 写职责。
 - 可追踪：节点用 requirementIds 引用 "<sectionKey>:<itemId>"（如 goals:i1）；模块用 nodeIds 引用 "<diagramKey>:<nodeId>"（如 usecase:u1），并用 files、acceptance 写清涉及文件与验收标准。
+- 分层验证：模块的 verification 分 tests / reviewer / human 三层，只能由用户执行 /blueprint verify 写入；工具 update 会保留旧值，不能通过传 verification 绕过。任一层 failed 会把模块置为 needs-rework，三层全部 passed 才会置为 done，其余情况保持原状态。
 - 模块拆分到「一个子代理能独立完成」的粒度，并在 summary 里写清交付物与验收标准。
 - 不要编造用户没有提供的业务事实；不确定的写进 risks 栏目。`
 
@@ -351,9 +353,9 @@ export function apply(ctx, rawConfig) {
     ctx.effect(() =>
       commands.register({
         name: 'blueprint',
-        description: '蓝图工坊：保存、归档、对比、恢复、导出和自检当前会话的工程蓝图（界面调用）。',
+        description: '蓝图工坊：保存、归档、对比、恢复、导出、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | check | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | check | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -386,6 +388,41 @@ export function apply(ctx, rawConfig) {
               }
             }
             return { kind: 'success', text: `蓝图已保存并归档（archived）：${file.relative}` }
+          }
+          if (sub === 'verify') {
+            const moduleId = String(rest[0] ?? '').trim()
+            const role = String(rest[1] ?? '').trim()
+            const status = String(rest[2] ?? '').trim()
+            const evidence = rest.slice(3).join(' ').trim()
+            const usage = '用法：/blueprint verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence]'
+            if (moduleId === '' || role === '' || status === '') {
+              return { kind: 'error', text: `参数不足。${usage}` }
+            }
+            const { file, raw } = await readCurrent(invocation.agent)
+            if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图，无法记录验证。' }
+            const previous = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            // Only this user-driven command mutates verification. The agent tool's
+            // update path preserves the previous value (see mergeBlueprintForUpdate).
+            const blueprint = normalizeBlueprint(previous, undefined, { sessionId: file.sessionId })
+            const result = recordModuleVerification(blueprint, { moduleId, role, status, evidence })
+            if (!result.ok) return { kind: 'error', text: result.message }
+            blueprint.updatedAt = Date.now()
+            await archive(file, previous, 'ui', `verify ${result.moduleId} ${result.role} ${result.status}`)
+            await writeBlueprintFile(file.absolute, blueprint)
+            return {
+              kind: 'success',
+              text: JSON.stringify({
+                ok: true,
+                moduleId: result.moduleId,
+                role: result.role,
+                status: result.status,
+                moduleStatus: result.moduleStatus,
+                evidence: result.evidence,
+                at: result.at,
+                verification: result.verification,
+                path: file.relative,
+              }),
+            }
           }
           if (sub === 'confirm') {
             const { file, raw } = await readCurrent(invocation.agent)
@@ -616,7 +653,7 @@ export function apply(ctx, rawConfig) {
               return { kind: 'error', text: `取消子代理失败：${String(error?.message ?? error)}` }
             }
           }
-          return { kind: 'error', text: '可用：/blueprint save | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | check | cancel' }
+          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | check | cancel' }
         },
       }),
     )
@@ -636,7 +673,7 @@ export function apply(ctx, rawConfig) {
 2. 分层数据模型：A 是根层，子层 letter 唯一且 id=letter，用 parentModuleId 指向父层模块；模块用稳定的 id、layerId、code（如 A1/B1）和 parentId，需求条目用 uid（sectionKey:id）和全局递增 code（R1/R2…）。只有根层 A 自动保留 8 张图；子层图必须显式给出，key 为 "<letter>:<type>"，没有空图占位。
 3. 用两三句话向用户说明方案，并请他在「蓝图」面板中检查、增删改；在用户明确确认之前，不要开始实现，也不要调用文件编辑工具。确认与分派由用户在面板发起，Host 会校验一次性令牌；不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")，它们会被拒绝。
 4. 用户确认后，调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过），再按 modules 为每个模块启动一个子代理：有依赖的按依赖顺序，无依赖的并行。子代理提示词必须包含模块范围、层路径、依赖、验收标准，以及相关图表中的接口/数据流。
-5. 启动子代理后，把子代理 sessionId 写回对应 module 的 subagentSessionId 字段，并用 module.status 标记 running；每个子代理完成后把状态改为 done 或 blocked，并在 summary 里补一行结果。
+5. 启动子代理后，把子代理 sessionId 写回对应 module 的 subagentSessionId 字段，并用 module.status 标记 running；每个子代理完成后不要自行宣称模块 done：tests / reviewer / human 三层验证只能由用户执行 /blueprint verify 记录，任一层 failed 会自动置为 needs-rework，三层全部 passed 才会置为 done。
 6. 全部完成后汇总改动、验证结果与剩余风险。用户可以在「版本」面板对比每次保存并恢复旧版本。
 
 简单问答、解释概念、单行小修不需要蓝图，直接回答或修改即可。

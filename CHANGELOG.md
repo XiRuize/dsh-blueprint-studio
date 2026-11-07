@@ -2,6 +2,20 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- **Layered acceptance verification.** Modules now carry optional `verification.tests` / `reviewer` / `human` entries (`status`, `evidence[]`, `at`). Normalization defaults missing or malformed entries to `pending`, a single `failed` layer forces `needs-rework`, and only three `passed` layers produce `done`.
+- **`/blueprint verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence]`.** The Host validates the module, role and status, appends evidence, updates the aggregated module status, archives the previous blueprint and writes the file.
+- **Verification UI in the Modules panel.** Each module lists its acceptance criteria and the three layers with status and evidence summary, plus a role/result/evidence form that calls the Host command. The status chip supports `needs-rework`, and marking `done` without three passes is refused with a readable hint.
+- **`module-verification-incomplete` check.** A module claiming `done` without all three layers passed is reported as an error; a module with no acceptance criteria is still reported once by `module-acceptance-missing` instead of double-reporting.
+- **`test/acceptance.test.mjs`.** Covers normalization, inheritance, aggregation, the command helper, the agent-update trust boundary, the new check and an end-to-end `/blueprint verify` run.
+
+### Changed
+
+- Agent tool `update` preserves the previous module `verification` by module id (a new module starts pending); `create` remains a full replacement.
+
 ## [0.4.0] — 2026-11-08
 
 ### Added

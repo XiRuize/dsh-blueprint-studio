@@ -57,7 +57,8 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
 - **Layered module scopes** — root layer `A`, child layers `B`/`C`/…, module codes `A1`/`B1`; double-click a module or use its corner button to drill down, breadcrumbs to return, eight diagrams per layer created lazily.
 - **Global search** — requirement code/text, module code/name/summary and layer letter/title; results jump to the right layer, diagram and node.
 - **Markdown/HTML export** — current-layer or all-layer Markdown and a single-file offline HTML review page, exposed through `/blueprint export`.
-- **Self-check and coverage** — 17 structural/coverage rules and a requirement-module matrix through `/blueprint check` and the Checks panel.
+- **Layered acceptance verification** — every module carries independent `tests` / `reviewer` / `human` layers with evidence. `/blueprint verify` records a layer, a failed layer forces `needs-rework`, and only three passes can make a module `done`; the Modules panel shows all three layers and records verification without leaving the studio.
+- **Self-check and coverage** — 19 structural/coverage rules and a requirement-module matrix through `/blueprint check` and the Checks panel.
 - **Stable-ID requirement review** — added/removed/modified by `uid`, word-level highlighting, and per-item accept/reject with undo.
 - **draw.io & Mermaid interop** — import `.drawio`/XML or Mermaid by paste or file, replacing or appending to the target diagram; export the current diagram back to draw.io XML or Mermaid.
 - **One-click dispatch** — confirmation marks the blueprint `confirmed` and asks the agent to spawn one subagent per module, respecting dependencies.
@@ -245,7 +246,7 @@ Sequence message:
 The Host half contributes:
 
 - a `blueprint` tool with `create | update | get | confirm | dispatch | snapshot | delete`;
-- a `/blueprint` command used by the studio for `save`, `versions`, `diff`, `restore`, `snapshot`, `path`, `get`;
+- a `/blueprint` command used by the studio for `save`, `verify`, `versions`, `diff`, `restore`, `snapshot`, `path`, `get`, `export`, `check`;
 - a system-prompt section that tells the agent to plan before coding, wait for confirmation, dispatch per-module subagents, record child session ids, and update module status.
 
 The studio writes through the **public** `commands.execute` Remote and reads through `workspaceFiles.read`; child subagents come from `session.list`. It never needs a private RPC bridge. That keeps the plugin compatible with the shipped Harness API surface.
