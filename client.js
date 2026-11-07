@@ -53,7 +53,8 @@ window.__ModuleLoader__.load({
       fieldsEmpty: 'No fields yet.', addEdge: 'Add edge', edgeKind: 'Kind', saveSnapshotHint: 'Archive the current blueprint as a version',
       boardHint: 'Child sessions of this conversation, refreshed every 5 seconds.', moduleOf: 'Module', versionAt: 'Time', versionBy: 'Source',
       textChanged: 'changed', sectionTitleChanged: 'Title changed', diagramMissing: 'Diagram only exists on one side',
-      diagrams: 'Diagrams',
+      diagrams: 'Diagrams', undo: 'Undo', redo: 'Redo', undoDone: 'Undid the last blueprint change', redoDone: 'Redid the blueprint change',
+      backToStart: 'Welcome', continueEditing: 'Continue editing current blueprint', historyHint: 'Ctrl+Z / Ctrl+Y',
     }
     const ZH = {
       open: '蓝图', title: '工程蓝图', subtitle: '先把系统画清楚，再开始写代码',
@@ -102,7 +103,8 @@ window.__ModuleLoader__.load({
       fieldsEmpty: '还没有字段。', addEdge: '新增连线', edgeKind: '类型', saveSnapshotHint: '把当前蓝图归档为版本',
       boardHint: '当前会话的子代理，每 5 秒刷新。', moduleOf: '模块', versionAt: '时间', versionBy: '来源',
       textChanged: '已修改', sectionTitleChanged: '标题已修改', diagramMissing: '该图只存在于一侧',
-      diagrams: '图解',
+      diagrams: '图解', undo: '撤销', redo: '重做', undoDone: '已撤销上一步蓝图修改', redoDone: '已重做蓝图修改',
+      backToStart: '初始页', continueEditing: '继续编辑当前蓝图', historyHint: 'Ctrl+Z / Ctrl+Y',
     }
 
     let dict = ZH
@@ -158,6 +160,10 @@ window.__ModuleLoader__.load({
       childrenLoaded: false,
       childrenLoading: false,
       importOpen: false,
+      landing: false,
+      canUndo: false,
+      canRedo: false,
+      historyVersion: 0,
     }
     const listeners = new Set()
     function snapshot() { return state }
@@ -279,7 +285,16 @@ window.__ModuleLoader__.load({
       try {
         const text = await readBlueprintText(sessionId)
         if (text === null || text.trim() === '') {
-          set({ loading: false, missing: true, bp: initial ? null : state.bp, lastText: '' })
+          resetHistory()
+          set({
+            loading: false,
+            missing: true,
+            bp: initial ? null : state.bp,
+            lastText: '',
+            landing: initial ? true : state.landing,
+            canUndo: false,
+            canRedo: false,
+          })
           return
         }
         if (text === state.lastText) {
@@ -292,6 +307,13 @@ window.__ModuleLoader__.load({
           set({ loading: false, remoteUpdated: true, lastText: text })
           return
         }
+        const nextFingerprint = JSON.stringify({ ...parsed, updatedAt: 0 })
+        const currentFingerprint = state.bp === null ? null : JSON.stringify({ ...state.bp, updatedAt: 0 })
+        if (currentFingerprint === nextFingerprint) {
+          set({ loading: false, lastText: text, missing: false, landing: false })
+          return
+        }
+        resetHistory()
         set({
           bp: parsed,
           loading: false,
@@ -302,6 +324,9 @@ window.__ModuleLoader__.load({
           remoteUpdated: false,
           error: null,
           aiBusy: null,
+          landing: false,
+          canUndo: false,
+          canRedo: false,
           tab: parsed.diagrams.some(diagram => diagram.key === state.tab) ? state.tab : parsed.diagrams[0]?.key ?? 'usecase',
         })
       } catch (error) {
@@ -631,16 +656,82 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function mutate(fn, { layout = false } = {}) {
+    let undoStack = []
+    let redoStack = []
+    let lastUndoAt = 0
+    let lastUndoLabel = ''
+    const UNDO_LIMIT = 60
+
+    function cloneBlueprint(bp) {
+      return JSON.parse(JSON.stringify(bp))
+    }
+    function resetHistory() {
+      undoStack = []
+      redoStack = []
+      lastUndoAt = 0
+      lastUndoLabel = ''
+    }
+    function historyFlags() {
+      return {
+        canUndo: undoStack.length > 0,
+        canRedo: redoStack.length > 0,
+        historyVersion: state.historyVersion + 1,
+      }
+    }
+    function recordUndo(bp, label) {
+      const now = Date.now()
+      if (undoStack.length > 0 && now - lastUndoAt < 800 && lastUndoLabel === label) {
+        lastUndoAt = now
+        return
+      }
+      undoStack.push(cloneBlueprint(bp))
+      if (undoStack.length > UNDO_LIMIT) undoStack.shift()
+      redoStack = []
+      lastUndoAt = now
+      lastUndoLabel = label
+    }
+    function undoBlueprint() {
+      if (state.bp === null || undoStack.length === 0) return
+      redoStack.push(cloneBlueprint(state.bp))
+      const previous = undoStack.pop()
+      lastUndoAt = 0
+      set({
+        bp: previous,
+        dirty: true,
+        selected: null,
+        mode: 'select',
+        connectFrom: null,
+        ...historyFlags(),
+      })
+      toast(t('undoDone'), 'info')
+    }
+    function redoBlueprint() {
+      if (state.bp === null || redoStack.length === 0) return
+      undoStack.push(cloneBlueprint(state.bp))
+      const next = redoStack.pop()
+      lastUndoAt = 0
+      set({
+        bp: next,
+        dirty: true,
+        selected: null,
+        mode: 'select',
+        connectFrom: null,
+        ...historyFlags(),
+      })
+      toast(t('redoDone'), 'info')
+    }
+
+    function mutate(fn, { layout = false, undoLabel = 'edit', undo = true } = {}) {
       const bp = state.bp
       if (bp === null) return
+      if (undo) recordUndo(bp, undoLabel)
       fn(bp)
       if (layout) {
         const diagram = bp.diagrams.find(item => item.key === state.tab)
         if (diagram !== undefined) layoutDiagram(diagram)
       }
       bp.updatedAt = Date.now()
-      set({ bp: { ...bp }, dirty: true })
+      set({ bp: { ...bp }, dirty: true, ...historyFlags() })
     }
 
     function wrapLines(label, width) {
@@ -702,6 +793,9 @@ window.__ModuleLoader__.load({
       if (name === 'zoomIn') return h('svg', common, h('circle', { cx: 10.5, cy: 10.5, r: 6.5 }), h('path', { d: 'M15.5 15.5L21 21M10.5 8v5M8 10.5h5' }))
       if (name === 'zoomOut') return h('svg', common, h('circle', { cx: 10.5, cy: 10.5, r: 6.5 }), h('path', { d: 'M15.5 15.5L21 21M8 10.5h5' }))
       if (name === 'expand') return h('svg', common, h('path', { d: 'M4 9V4h5M20 15v5h-5M4 15v5h5M20 9V4h-5' }))
+      if (name === 'back') return h('svg', common, h('path', { d: 'M19 12H5M11 6l-6 6 6 6' }))
+      if (name === 'undo') return h('svg', common, h('path', { d: 'M9 14L4 9l5-5' }), h('path', { d: 'M4 9h9a7 7 0 1 1 0 14h-3' }))
+      if (name === 'redo') return h('svg', common, h('path', { d: 'M15 14l5-5-5-5' }), h('path', { d: 'M20 9h-9a7 7 0 1 0 0 14h3' }))
       return h('svg', common, h('circle', { cx: 12, cy: 12, r: 8 }))
     }
 
@@ -766,13 +860,26 @@ window.__ModuleLoader__.load({
 
     function openStudio(sessionId) {
       if (!sessionId) return
+      resetHistory()
       set({
         open: true, sessionId, path: pathFor(sessionId), bp: null, loading: true, missing: false,
         dirty: false, selected: null, mode: 'select', connectFrom: null, error: null, lastText: '', tab: 'usecase',
         panel: 'inspector', versions: [], versionsLoaded: false, diff: null, children: [], childrenLoaded: false,
+        landing: false, canUndo: false, canRedo: false, historyVersion: state.historyVersion + 1,
       })
       loadBlueprint({ initial: true })
       loadVersions()
+    }
+
+    function backToStart() {
+      if (state.dirty) {
+        const pending = saveBlueprint({ silent: true })
+        pending.then(ok => {
+          if (ok) set({ landing: true, selected: null, mode: 'select', connectFrom: null, diff: null, panel: 'inspector' })
+        })
+        return
+      }
+      set({ landing: true, selected: null, mode: 'select', connectFrom: null, diff: null, panel: 'inspector' })
     }
 
     function closeStudio() {
@@ -784,13 +891,14 @@ window.__ModuleLoader__.load({
 
     function EmptyState() {
       const store = useStore()
-      const [task, setTask] = useState('')
+      const existing = store.bp !== null
+      const [task, setTask] = useState(existing ? (store.bp.prompt ?? '') : '')
       const start = async () => {
         if (task.trim() === '') return
         try {
           set({ loading: true, error: null })
           await sendPrompt(generatePrompt(task.trim()), 'generating')
-          set({ loading: false })
+          set({ loading: false, landing: false })
           // The agent will create the file; poll picks it up.
           const timer = setInterval(async () => {
             if (!state.open) { clearInterval(timer); return }
@@ -804,7 +912,11 @@ window.__ModuleLoader__.load({
           set({ loading: false, error: String(error?.message ?? error) })
         }
       }
-      const manual = () => {
+      const continueOrStart = () => {
+        if (existing) {
+          set({ landing: false, selected: null })
+          return
+        }
         const now = Date.now()
         const bp = {
           version: 1,
@@ -835,7 +947,8 @@ window.__ModuleLoader__.load({
           createdAt: now,
           updatedAt: now,
         }
-        set({ bp, missing: false, dirty: true, tab: 'usecase' })
+        resetHistory()
+        set({ bp, missing: false, dirty: true, tab: 'usecase', landing: false, canUndo: false, canRedo: false })
         saveBlueprint({ silent: true })
       }
       return h('div', { className: 'bp-empty' },
@@ -854,7 +967,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'bp-empty-actions' },
             h('button', { className: 'bp-btn bp-primary', disabled: task.trim() === '' || store.aiBusy !== null, onClick: start },
               h(Icon, { name: 'spark', size: 15 }), store.aiBusy ? t('generating') : t('generate')),
-            h('button', { className: 'bp-btn', onClick: manual }, t('manualStart'))),
+            h('button', { className: 'bp-btn', onClick: continueOrStart }, existing ? t('continueEditing') : t('manualStart'))),
           store.aiBusy ? h('div', { className: 'bp-waiting' }, h('span', { className: 'bp-spinner' }), t('waiting')) : null,
           store.error ? h('div', { className: 'bp-error' }, store.error) : null))
     }
@@ -2003,16 +2116,19 @@ window.__ModuleLoader__.load({
           h('span', { className: 'bp-sep' }, '·'),
           h('span', { className: 'bp-muted' }, store.dirty ? t('unsaved') : t('saved'))) : null,
         h('div', { className: 'bp-actions' },
-          bp !== null ? button('bp-ghost', () => saveBlueprint({ silent: false }), h(Icon, { name: 'save', size: 15 }), { title: `${t('save')} · ${t('saveHint')}`, disabled: store.saving || !store.dirty }) : null,
-          bp !== null ? button('bp-ghost', regenerate, h(Icon, { name: 'spark', size: 15 }), { title: t('regenerate'), disabled: busy }) : null,
-          bp !== null ? h('details', { className: 'bp-menu' },
+          bp !== null && !store.landing ? button('bp-ghost bp-back', backToStart, h(React.Fragment, null, h(Icon, { name: 'back', size: 15 }), h('span', { className: 'bp-back-label' }, t('backToStart'))), { title: t('backToStart') }) : null,
+          bp !== null && !store.landing ? button('bp-ghost', undoBlueprint, h(Icon, { name: 'undo', size: 15 }), { title: `${t('undo')} · Ctrl+Z`, disabled: !store.canUndo }) : null,
+          bp !== null && !store.landing ? button('bp-ghost', redoBlueprint, h(Icon, { name: 'redo', size: 15 }), { title: `${t('redo')} · Ctrl+Y`, disabled: !store.canRedo }) : null,
+          bp !== null && !store.landing ? button('bp-ghost', () => saveBlueprint({ silent: false }), h(Icon, { name: 'save', size: 15 }), { title: `${t('save')} · ${t('saveHint')}`, disabled: store.saving || !store.dirty }) : null,
+          bp !== null && !store.landing ? button('bp-ghost', regenerate, h(Icon, { name: 'spark', size: 15 }), { title: t('regenerate'), disabled: busy }) : null,
+          bp !== null && !store.landing ? h('details', { className: 'bp-menu' },
             h('summary', { className: 'bp-btn' }, h(Icon, { name: 'download', size: 15 }), t('export')),
             h('div', { className: 'bp-menu-pop' },
               h('button', { type: 'button', onClick: exportJSON }, t('exportJSON')),
               h('button', { type: 'button', onClick: exportMermaid }, t('exportMermaid')),
               h('button', { type: 'button', onClick: exportSVG }, t('exportSVG')),
               h('button', { type: 'button', onClick: exportDrawio }, t('exportDrawio')))) : null,
-          bp !== null ? h('button', {
+          bp !== null && !store.landing ? h('button', {
             type: 'button',
             className: 'bp-btn bp-primary',
             disabled: busy || bp.modules.length === 0,
@@ -2074,18 +2190,34 @@ window.__ModuleLoader__.load({
         const onKey = event => {
           const tag = event.target?.tagName
           const editing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || event.target?.isContentEditable
+          if (state.landing) {
+            if (event.key === 'Escape') closeStudio()
+            return
+          }
           if (event.key === 'Escape') {
             event.preventDefault()
             if (state.selected) set({ selected: null, connectFrom: null, mode: 'select' })
             else closeStudio()
             return
           }
-          if (editing) return
-          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+          const command = event.metaKey || event.ctrlKey
+          if (command && event.key.toLowerCase() === 'z') {
+            event.preventDefault()
+            if (event.shiftKey) redoBlueprint()
+            else undoBlueprint()
+            return
+          }
+          if (command && event.key.toLowerCase() === 'y') {
+            event.preventDefault()
+            redoBlueprint()
+            return
+          }
+          if (command && event.key.toLowerCase() === 's') {
             event.preventDefault()
             saveBlueprint({ silent: false })
             return
           }
+          if (editing) return
           if ((event.key === 'Delete' || event.key === 'Backspace') && state.selected) {
             event.preventDefault()
             deleteSelection()
@@ -2103,8 +2235,8 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bp-shell', onClick: event => event.stopPropagation() },
           h(Header, { store }),
           store.loading && bp === null ? h('div', { className: 'bp-loading' }, h('span', { className: 'bp-spinner' }), t('waiting')) : null,
-          bp === null && !store.loading ? h(EmptyState) : null,
-          bp !== null ? h('div', { className: 'bp-body' },
+          (store.landing || bp === null) && !store.loading ? h(EmptyState) : null,
+          !store.landing && bp !== null ? h('div', { className: 'bp-body' },
             h(LeftPanel, { store }),
             h('main', { className: 'bp-main' },
               h(DiagramHeader, { store }),
@@ -2305,6 +2437,8 @@ window.__ModuleLoader__.load({
 .bp-check{display:flex;align-items:center;gap:4px}
 .bp-check input{width:12px;height:12px;margin:0}
 .bp-import-actions{display:flex;gap:6px;justify-content:flex-end}
+.bp-back-label{font-size:11.5px}
+@media (max-width:1400px){.bp-back-label{display:none}}
 @media (max-width:1180px){.bp-right{display:none}.bp-left{width:300px;flex-basis:300px}}
 @media (max-width:860px){.bp-left{display:none}.bp-shell{width:100vw;height:100vh;border-radius:0}.bp-open-label{display:none}}
 @media (prefers-reduced-motion:reduce){.bp-spinner{animation:none}}

@@ -2,6 +2,25 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.2.1] — 2026-11-07
+
+### Added
+
+- **Undo / redo in the studio.** `Ctrl+Z` undoes the last blueprint change, `Ctrl+Shift+Z` / `Ctrl+Y` redo; toolbar buttons show availability. Changes are coalesced for fast typing and dragging, and a save or an agent update does not silently reset the undo stack.
+- **Back to welcome.** A visible “初始页 / Welcome” action returns from the manual editor to the initial one-click generate screen. The existing blueprint is kept, and the welcome screen offers “继续编辑当前蓝图 / Continue editing current blueprint”.
+- Welcome screen prefills the task description from an existing blueprint and can regenerate it without starting from zero.
+
+### Changed
+
+- Opening a saved blueprint no longer resets the local undo history when the file content is unchanged.
+- The header hides editing actions (save/export/dispatch/undo) while on the welcome screen.
+- Package version raised to `0.2.1`.
+
+### Fixed
+
+- Back button children were not wrapped, leaving it without a visible label.
+- `Ctrl+Z` now works while a requirement textarea or field input is focused instead of being swallowed by native text undo.
+
 ## [0.2.0] — 2026-11-07
 
 ### Added

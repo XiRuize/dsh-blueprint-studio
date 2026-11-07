@@ -42,6 +42,8 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
   - ER: entities with typed fields and primary keys, relationship diamonds, cardinality;
   - C4: person, system, container, component, database, external system, with technology and responsibility labels.
 - **Visual editing on an SVG canvas** — drag nodes, pan/zoom, connect nodes, edit labels and edge kinds, ER field editor, delete, deterministic auto-layout.
+- **Undo / redo** — `Ctrl+Z` and `Ctrl+Shift+Z` / `Ctrl+Y`, plus toolbar buttons. Fast typing and dragging coalesce into one step; a save or an agent update does not silently discard the local undo stack.
+- **Welcome screen round-trip** — one click returns from the manual editor to the initial generate screen; “继续编辑当前蓝图” brings you back without losing the file.
 - **AI generate / expand** — one button sends a focused instruction to the agent; the studio refreshes when the agent writes the blueprint.
 - **Version history** — every agent or human save archives the previous content. Compare any two versions with a semantic diff (requirements, nodes, edges, fields, modules); restore a version with one click; create manual snapshots.
 - **Live dispatch board** — child subagent sessions of the current conversation, refreshed every five seconds, with module status and one-click navigation.
@@ -68,20 +70,30 @@ After installation, open any conversation. A **Blueprint / 蓝图** button appea
 ## Usage
 
 1. Send a task prompt. For a non-trivial coding task the agent calls `blueprint(action="create")` before touching files.
-2. Click **蓝图** in the composer. The studio opens with requirements and diagrams.
+2. Click **蓝图** in the composer. The studio opens on the **welcome screen** when no blueprint exists: type the task and click **生成蓝图**, or choose **手动开始** for a blank canvas.
 3. Refine:
    - edit any requirement inline, add items or whole sections;
+   - undo mistakes with `Ctrl+Z`, redo with `Ctrl+Y` / `Ctrl+Shift+Z`;
    - drag nodes, add nodes from the toolbar, switch to **Connect** and click two nodes;
    - for ER entities, add fields and mark primary keys in the inspector;
    - use **Auto layout** to re-run the deterministic layout;
    - click ✨ on a section or a diagram to ask the agent to expand only that part.
-4. Use **Versions** to compare the last agent revision with your edits, restore an older version, or save a named snapshot.
-5. Use **Board** to watch child subagents after dispatch.
-6. Click **Confirm & dispatch**. The blueprint is saved as `confirmed`, then the agent is instructed to:
+4. Click **初始页** to go back to the welcome screen at any time; **继续编辑当前蓝图** returns to the same file.
+5. Use **Versions** to compare the last agent revision with your edits, restore an older version, or save a named snapshot.
+6. Use **Board** to watch child subagents after dispatch.
+7. Click **Confirm & dispatch**. The blueprint is saved as `confirmed`, then the agent is instructed to:
    - read the latest blueprint,
    - mark it `dispatched`,
    - start one subagent per module (dependencies first, independent modules in parallel),
    - write each child session id back to the module and update status.
+
+### Undo, welcome and versions
+
+| Editor: undo/redo + 初始页 | Welcome: generate or continue |
+| --- | --- |
+| ![Editor](docs/editor.png) | ![Welcome](docs/welcome.png) |
+
+Undo is local to the open studio (up to 60 snapshots). It is not the same as version history: undo changes the working copy and marks it dirty, while **Save** / snapshot archives a version. This separation lets you undo freely and still keep every saved revision.
 
 ### Version history
 
