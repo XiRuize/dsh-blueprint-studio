@@ -600,7 +600,7 @@ window.__ModuleLoader__.load({
     }
 
     function dispatchPrompt() {
-      const base = `用户已在蓝图面板确认工程蓝图。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 调用 blueprint(action="dispatch") 标记为已分派；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态。`
+      const base = `用户已在蓝图面板确认工程蓝图，Host 已校验一次性确认令牌并完成分派。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")：确认与分派只能由用户在面板完成，工具调用会被 Host 拒绝；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态。`
       const bp = state.bp
       if (bp === null) return base
       const blocks = []
@@ -3692,20 +3692,64 @@ window.__ModuleLoader__.load({
         toast(String(error?.message ?? error), 'error')
       }
     }
+    function confirmTokenFromCommand(text) {
+      let parsed
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        throw new Error('确认命令没有返回可解析的令牌，请重试。')
+      }
+      if (parsed === null || typeof parsed !== 'object' || typeof parsed.token !== 'string' || parsed.token.trim() === '') {
+        throw new Error('确认命令没有返回一次性令牌，请重试。')
+      }
+      return parsed.token.trim()
+    }
+
     async function dispatch() {
       const bp = state.bp
       if (bp === null) return
       if (bp.modules.length === 0) { toast(t('dispatchBlocked'), 'error'); return }
+      let stage = 'save'
       try {
-        mutate(current => { current.status = 'confirmed' })
-        const ok = await saveBlueprint({ silent: true })
-        if (!ok) return
+        // Already successfully gated/dispatched on the Host: retry only the prompt so a
+        // transient prompt failure does not force the user to re-confirm (tokens are one-time).
+        if (bp.status === 'dispatched') {
+          stage = 'prompt'
+          await sendPrompt(dispatchPrompt(), 'dispatching')
+          toast(t('dispatching'), 'success')
+          return
+        }
+        clearAutosaveTimer()
+        if (state.dirty) {
+          const saved = await saveBlueprint({ silent: true })
+          if (!saved) throw new Error('蓝图保存失败，未执行确认与分派，请重试。')
+        }
+        if (state.bp === null) return
+        stage = 'confirm'
+        const confirmation = await runBlueprintCommand('confirm')
+        const token = confirmTokenFromCommand(confirmation)
+        stage = 'dispatch'
+        await runBlueprintCommand(`dispatch ${token}`)
+        // The Host has already written status=dispatched. Update the local view without
+        // writing again: a later save with a stale status must not roll the gate back.
+        set({
+          bp: state.bp === null ? null : { ...state.bp, status: 'dispatched' },
+          dirty: false,
+          error: null,
+          lastLoaded: Date.now(),
+        })
+        stage = 'prompt'
         await sendPrompt(dispatchPrompt(), 'dispatching')
-        mutate(current => { current.status = 'dispatched' })
-        await saveBlueprint({ silent: true })
         toast(t('dispatching'), 'success')
       } catch (error) {
-        toast(String(error?.message ?? error), 'error')
+        const detail = String(error?.message ?? error)
+        const message = stage === 'dispatch'
+          ? `确认成功，但分派失败，请再次点击「确认并分派」重试：${detail}`
+          : stage === 'prompt'
+            ? `确认并分派成功，但发送提示失败，请再次点击「确认并分派」重试发送：${detail}`
+            : detail
+        set({ error: message })
+        toast(message, 'error')
       }
     }
 
