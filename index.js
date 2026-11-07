@@ -31,7 +31,7 @@ const TOOL_DESCRIPTION = `在写代码之前，把需求整理成可协作的工
 
 action:
 - create：创建或整体覆盖蓝图（需要 blueprint 对象）。
-- update：在已有蓝图上合并更新：sections 未提交的 items 沿用旧值，显式 items: [] 会清空；diagrams 按 key 对齐，节点/边按 id 合并，未提交的节点/边保留，用 removedNodeIds / removedEdgeIds 显式删除。
+- update：在已有蓝图上合并更新：sections 未提交的 items 沿用旧值，显式 items: [] 会清空；diagrams 按 layerId+type 对齐（root 兼容旧 key），节点/边按 id 合并，未提交的节点/边和子层图保留，用 removedNodeIds / removedEdgeIds 显式删除。
 - get：读取当前蓝图全文；用户确认后、分派模块前必须先 get。
 - confirm：已禁用。确认只能由用户在「蓝图」面板发起，Host 会校验一次性确认令牌。
 - dispatch：已禁用。分派只能由用户在「蓝图」面板完成，Host 会校验一次性确认令牌。
@@ -43,15 +43,29 @@ blueprint 结构：
   "title": "一句话标题",
   "summary": "2-3 句方案摘要",
   "prompt": "用户的原始需求",
-  "sections": [{"key":"goals|actors|functional|nonfunctional|constraints|acceptance|risks|自定义","title":"栏目名","items":["条目文本"]}],
+  "layers": [
+    {"letter":"A","title":"总览","parentModuleId":null},
+    {"letter":"B","title":"认证层","parentModuleId":"api"}
+  ],
+  "sections": [{"key":"goals|actors|functional|nonfunctional|constraints|acceptance|risks|自定义","title":"栏目名","items":[{"id":"i1","uid":"goals:i1","code":"R1","text":"条目文本","moduleId":"可选模块 id"}]}],
   "diagrams": [{
-    "key": "usecase|dfd|module|sequence|er|c4",
+    "key": "usecase|dfd|module|sequence|er|c4|class|state（仅 A 层）；子层用 \"B:dfd\"",
+    "layerId": "A",
+    "type": "usecase|dfd|module|sequence|er|c4|class|state",
     "title": "图解名",
     "nodes": [{"id":"u1","type":"...","label":"名称","technology":"可选","description":"可选","requirementIds":["goals:i1"],"fields":[{"name":"id","type":"uuid","key":true}]}],
     "edges": [{"from":"u1","to":"u2","label":"标签","kind":"association|flow|depends|sync|async|return|relationship","cardinality":"1..*","order":1}]
   }],
-  "modules": [{"id":"auth","name":"认证模块","summary":"范围、接口与验收要点","dependsOn":["db"],"nodeIds":["usecase:u1"],"files":["lib/auth.js"],"acceptance":["登录成功后返回会话令牌"]}]
+  "modules": [{"id":"auth","name":"认证模块","layerId":"A","code":"A1","parentId":null,"summary":"范围、接口与验收要点","dependsOn":["db"],"nodeIds":["usecase:u1"],"files":["lib/auth.js"],"acceptance":["登录成功后返回会话令牌"]}]
 }
+
+分层规则：
+- A 是根层（总览），始终存在；子层 letter 唯一，可写 A–Z、AA/AB…，id 与 letter 相同。
+- 子层通过 parentModuleId 指向父层中的模块；父子不能成环，层数 ≤64，层级深度 ≤4（A 算第 1 层）。
+- 模块保留稳定 id；layerId 默认 A，code 形如 A1/B1（前缀必须等于 layer.letter，全局唯一），parentId 在根层为 null、子层等于该层 parentModuleId。
+- 仅根层 A 自动补齐 8 张图；子层只在 diagrams 显式出现时创建，对应 key 为 "<letter>:<type>"，同一 layer+type 唯一。
+- 条目 uid 为 "<sectionKey>:<id>"，code 全局唯一且只增不改（R1/R2…）；可选 moduleId 指向模块 id，不存在时保留原值并由自检报告。
+- 上限：需求条目 ≤2000、图实例 ≤256、模块 ≤500、层 ≤64、深度 ≤4；超出会返回可读错误，不会静默截断。
 
 节点类型：
 - usecase：actor、usecase、system。
@@ -489,11 +503,12 @@ export function apply(ctx, rawConfig) {
           text: `## 工程蓝图工作流（Blueprint Studio）
 
 当用户提出需要多步骤实现、跨文件改动或新功能的任务时，在写代码之前：
-1. 调用 blueprint(action="create") 生成结构化蓝图：7 个需求栏目、usecase / dfd / module 三张基础图，按需补 sequence / er / c4，以及可独立分派的 modules。把原始需求写进 prompt。
-2. 用两三句话向用户说明方案，并请他在「蓝图」面板中检查、增删改；在用户明确确认之前，不要开始实现，也不要调用文件编辑工具。确认与分派由用户在面板发起，Host 会校验一次性令牌；不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")，它们会被拒绝。
-3. 用户确认后，调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过），再按 modules 为每个模块启动一个子代理：有依赖的按依赖顺序，无依赖的并行。子代理提示词必须包含模块范围、依赖、验收标准，以及相关图表中的接口/数据流。
-4. 启动子代理后，把子代理 sessionId 写回对应 module 的 subagentSessionId 字段，并用 module.status 标记 running；每个子代理完成后把状态改为 done 或 blocked，并在 summary 里补一行结果。
-5. 全部完成后汇总改动、验证结果与剩余风险。用户可以在「版本」面板对比每次保存并恢复旧版本。
+1. 调用 blueprint(action="create") 生成结构化蓝图：7 个需求栏目、根层 A（总览）与按需子层（layers）、usecase / dfd / module 三张基础图，按需补 sequence / er / c4 / class / state，以及可独立分派的 modules。把原始需求写进 prompt。
+2. 分层数据模型：A 是根层，子层 letter 唯一且 id=letter，用 parentModuleId 指向父层模块；模块用稳定的 id、layerId、code（如 A1/B1）和 parentId，需求条目用 uid（sectionKey:id）和全局递增 code（R1/R2…）。只有根层 A 自动保留 8 张图；子层图必须显式给出，key 为 "<letter>:<type>"，没有空图占位。
+3. 用两三句话向用户说明方案，并请他在「蓝图」面板中检查、增删改；在用户明确确认之前，不要开始实现，也不要调用文件编辑工具。确认与分派由用户在面板发起，Host 会校验一次性令牌；不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")，它们会被拒绝。
+4. 用户确认后，调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过），再按 modules 为每个模块启动一个子代理：有依赖的按依赖顺序，无依赖的并行。子代理提示词必须包含模块范围、层路径、依赖、验收标准，以及相关图表中的接口/数据流。
+5. 启动子代理后，把子代理 sessionId 写回对应 module 的 subagentSessionId 字段，并用 module.status 标记 running；每个子代理完成后把状态改为 done 或 blocked，并在 summary 里补一行结果。
+6. 全部完成后汇总改动、验证结果与剩余风险。用户可以在「版本」面板对比每次保存并恢复旧版本。
 
 简单问答、解释概念、单行小修不需要蓝图，直接回答或修改即可。
 
