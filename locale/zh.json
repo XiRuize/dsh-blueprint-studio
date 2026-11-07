@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "工程蓝图",
-    "description": "写代码前先与 AI 梳理需求，绘制用例、数据流、模块、时序、ER 与 C4 六类图解；支持版本对比、恢复和按模块分派子代理。"
+    "description": "写代码前先与 AI 梳理需求，绘制用例、数据流、模块、时序、ER、C4、类图与状态图八类图解；支持版本对比、恢复和按模块分派子代理。"
   },
   "open": "蓝图",
   "title": "工程蓝图",
@@ -73,5 +73,22 @@
   "notes": "备注",
   "dispatchPrompt": "确认并分派",
   "confirmHint": "每个模块一个子代理，有依赖的先做。",
-  "canvasHint": "拖拽空白平移 · 滚轮缩放 · 拖动节点移动"
+  "canvasHint": "拖拽空白平移 · 滚轮缩放 · 拖动节点移动",
+  "classDiagram": "类图",
+  "stateDiagram": "状态图",
+  "classNode": "类",
+  "interface": "接口",
+  "stateNode": "状态",
+  "initial": "初始",
+  "final": "结束",
+  "choice": "选择",
+  "members": "成员",
+  "field": "字段",
+  "method": "方法",
+  "addMethod": "新增方法",
+  "transition": "转移",
+  "extends": "继承",
+  "implements": "实现",
+  "association": "关联",
+  "dependency": "依赖"
 }
