@@ -20,6 +20,11 @@ window.__ModuleLoader__.load({
       deleteNode: 'Delete node', deleteEdge: 'Delete edge', addNode: 'Add node', noSelection: 'Select a node or edge to edit it.',
       noModules: 'No modules yet. Ask the agent to split the work into modules.', moduleStatus: 'Status', dependsOn: 'Depends on',
       export: 'Export', exportJSON: 'Blueprint JSON', exportMermaid: 'Mermaid', exportSVG: 'SVG image', close: 'Close',
+      exportMarkdownLayer: 'Markdown (current layer)', exportMarkdownAll: 'Markdown (all layers)',
+      exportHtmlLayer: 'HTML (current layer)', exportHtmlAll: 'HTML (all layers)',
+      exporting: 'Exporting…', exportSaved: 'Saved {name}', exportFailed: 'Export failed',
+      exportEmpty: 'The export returned no content.',
+      exportTooLarge: 'The export exceeds the 5 MB limit ({size}). Narrow the scope and retry.',
       statusDraft: 'Draft', statusConfirmed: 'Confirmed', statusDispatched: 'Dispatched',
       generating: 'The agent is drafting the blueprint…', expanding: 'The agent is expanding the blueprint…',
       waiting: 'Waiting for the agent…', sent: 'Instruction sent to the agent', savedToast: 'Blueprint saved',
@@ -44,6 +49,18 @@ window.__ModuleLoader__.load({
       diffTitle: 'Version diff', noVersions: 'No archived versions yet. Save once to create the first snapshot.',
       added: 'added', removed: 'removed', changed: 'changed', selectTwo: 'Pick two versions to compare.',
       closeDiff: 'Back', versionRestored: 'Version restored', snapshotSaved: 'Snapshot saved', versionLoadFailed: 'Could not load versions',
+      checks: 'Checks', checksHint: 'Validate diagram structure, module dependencies and requirement coverage.',
+      checkLoading: 'Running self-check…', checkEmpty: 'No issues found. The blueprint is consistent.',
+      checkFailed: 'Self-check failed', checkInvalid: 'The self-check result is not valid JSON.',
+      checkCheckedAt: 'Checked {time}', checkTruncated: 'Showing the first {shown} issues; the rest were truncated.',
+      checkError: 'Error', checkWarn: 'Warning', checkInfo: 'Info',
+      checkGroupError: 'Errors ({count})', checkGroupWarn: 'Warnings ({count})', checkGroupInfo: 'Info ({count})',
+      checkCoverage: 'Coverage', checkTotalRequirements: 'Requirements', checkCoveredRequirements: 'Covered',
+      checkUncoveredRequirements: 'Uncovered', checkLayerCount: 'Layers',
+      checkModulesWithoutRequirements: 'Modules without requirements', checkModulesMissingAcceptance: 'Modules missing acceptance',
+      checkCoveragePercent: '{percent}% covered', checkNone: 'None', checkUnknown: 'Not available',
+      checkLocateHint: 'Click to locate this issue', checkDiagram: 'Diagram', checkRequirement: 'Requirement',
+      checkModule: 'Module', checkLayer: 'Layer',
       children: 'Subagents', noChildren: 'No child subagents yet.', running: 'running', idle: 'idle', refresh: 'Refresh',
       openSession: 'Open session', copyId: 'Copy session id', importDrawio: 'Import draw.io', importFailed: 'Import failed',
       openChild: 'Open child session', cancelChild: 'Cancel', runModule: 'Retry / run module', moduleStatusHint: 'Change module status; the draft saves automatically.',
@@ -120,6 +137,11 @@ window.__ModuleLoader__.load({
       deleteNode: '删除节点', deleteEdge: '删除连线', addNode: '新增节点', noSelection: '选中一个节点或连线后即可编辑。',
       noModules: '还没有模块。可以让 AI 把工作拆成可独立分派的模块。', moduleStatus: '状态', dependsOn: '依赖',
       export: '导出', exportJSON: '蓝图 JSON', exportMermaid: 'Mermaid', exportSVG: 'SVG 图片', close: '关闭',
+      exportMarkdownLayer: 'Markdown（当前层）', exportMarkdownAll: 'Markdown（全部层）',
+      exportHtmlLayer: 'HTML（当前层）', exportHtmlAll: 'HTML（全部层）',
+      exporting: '导出中…', exportSaved: '已保存 {name}', exportFailed: '导出失败',
+      exportEmpty: '导出结果为空。',
+      exportTooLarge: '导出内容超过 5MB 上限（当前 {size}），请缩小范围后重试。',
       statusDraft: '草稿', statusConfirmed: '已确认', statusDispatched: '已分派',
       generating: 'AI 正在起草蓝图…', expanding: 'AI 正在扩充蓝图…',
       waiting: '等待 AI 更新…', sent: '指令已发送给 AI', savedToast: '蓝图已保存',
@@ -144,6 +166,18 @@ window.__ModuleLoader__.load({
       diffTitle: '版本对比', noVersions: '还没有历史版本。保存一次就会生成第一份快照。',
       added: '新增', removed: '删除', changed: '修改', selectTwo: '选择两个版本进行对比。',
       closeDiff: '返回', versionRestored: '已恢复版本', snapshotSaved: '快照已保存', versionLoadFailed: '版本加载失败',
+      checks: '自检', checksHint: '检查图结构、模块依赖与需求承接情况。',
+      checkLoading: '正在自检…', checkEmpty: '没有发现问题，蓝图保持一致。',
+      checkFailed: '自检失败', checkInvalid: '自检结果不是有效的 JSON。',
+      checkCheckedAt: '自检于 {time}', checkTruncated: '只显示前 {shown} 条问题，其余已截断。',
+      checkError: '错误', checkWarn: '警告', checkInfo: '提示',
+      checkGroupError: '错误（{count}）', checkGroupWarn: '警告（{count}）', checkGroupInfo: '提示（{count}）',
+      checkCoverage: '覆盖摘要', checkTotalRequirements: '需求总数', checkCoveredRequirements: '已承接',
+      checkUncoveredRequirements: '未承接', checkLayerCount: '层数',
+      checkModulesWithoutRequirements: '无需求模块', checkModulesMissingAcceptance: '缺验收模块',
+      checkCoveragePercent: '已承接 {percent}%', checkNone: '无', checkUnknown: '未知',
+      checkLocateHint: '点击定位到蓝图中的对应位置', checkDiagram: '图', checkRequirement: '需求',
+      checkModule: '模块', checkLayer: '层',
       children: '子代理', noChildren: '还没有子代理。', running: '运行中', idle: '空闲', refresh: '刷新',
       openSession: '打开会话', copyId: '复制会话 ID', importDrawio: '导入 draw.io', importFailed: '导入失败',
       openChild: '打开子会话', cancelChild: '取消', runModule: '重试/执行模块', moduleStatusHint: '修改模块状态，草稿会自动保存。',
@@ -254,6 +288,12 @@ window.__ModuleLoader__.load({
       lastLoaded: 0,
       remoteUpdated: false,
       panel: 'inspector',
+      exporting: null,
+      check: null,
+      checkLoading: false,
+      checkLoaded: false,
+      checkError: null,
+      checkAt: 0,
       versions: [],
       versionsLoaded: false,
       versionsLoading: false,
@@ -1968,6 +2008,7 @@ window.__ModuleLoader__.load({
         open: true, sessionId, path: pathFor(sessionId), bp: null, loading: true, missing: false,
         dirty: false, saving: false, selected: null, mode: 'select', connectFrom: null, error: null, lastText: '', tab: 'usecase',
         panel: 'inspector', versions: [], versionsLoaded: false, diff: null, children: [], childrenLoaded: false,
+        exporting: null, check: null, checkLoading: false, checkLoaded: false, checkError: null, checkAt: 0,
         landing: false, canUndo: false, canRedo: false, historyVersion: state.historyVersion + 1,
         lastSaveMode: null, draftSavedAt: 0, generationFailed: false, aiBusy: null, toast: null,
       })
@@ -3247,6 +3288,370 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'bp-btn', onClick: () => restoreVersion(version.id) }, t('restore'))))))
     }
 
+    const CHECK_SEVERITY_ORDER = ['error', 'warn', 'info']
+    const CHECK_SEVERITY_LABEL_KEYS = {
+      error: 'checkError',
+      warn: 'checkWarn',
+      info: 'checkInfo',
+    }
+    const CHECK_SEVERITY_GROUP_KEYS = {
+      error: 'checkGroupError',
+      warn: 'checkGroupWarn',
+      info: 'checkGroupInfo',
+    }
+
+    function isRecord(value) {
+      return value !== null && typeof value === 'object' && !Array.isArray(value)
+    }
+
+    function checkSeverityLabel(severity) {
+      return t(CHECK_SEVERITY_LABEL_KEYS[severity] ?? 'checkInfo')
+    }
+
+    function normalizeCheckResult(value) {
+      if (!isRecord(value)) throw new Error(t('checkInvalid'))
+      const rules = Array.isArray(value.rules) ? value.rules.filter(isRecord) : []
+      const severityByCode = new Map()
+      for (const rule of rules) {
+        const code = typeof rule.code === 'string' ? rule.code : ''
+        const severity = CHECK_SEVERITY_ORDER.includes(rule.severity) ? rule.severity : ''
+        if (code !== '' && severity !== '') severityByCode.set(code, severity)
+      }
+      const issues = (Array.isArray(value.issues) ? value.issues : []).filter(isRecord).map(issue => {
+        const code = typeof issue.code === 'string' ? issue.code : ''
+        const severity = CHECK_SEVERITY_ORDER.includes(issue.severity)
+          ? issue.severity
+          : severityByCode.get(code) ?? 'info'
+        return {
+          ...issue,
+          code,
+          severity,
+          message: typeof issue.message === 'string' ? issue.message : String(issue.message ?? ''),
+        }
+      })
+      const summary = { error: 0, warn: 0, info: 0 }
+      let summaryUsable = isRecord(value.summary)
+      if (summaryUsable) {
+        for (const severity of CHECK_SEVERITY_ORDER) {
+          const count = Number(value.summary[severity])
+          if (!Number.isFinite(count) || count < 0) {
+            summaryUsable = false
+            break
+          }
+          summary[severity] = Math.floor(count)
+        }
+      }
+      if (!summaryUsable) {
+        summary.error = issues.filter(issue => issue.severity === 'error').length
+        summary.warn = issues.filter(issue => issue.severity === 'warn').length
+        summary.info = issues.filter(issue => issue.severity === 'info').length
+      }
+      return {
+        issues,
+        coverage: isRecord(value.coverage) ? value.coverage : null,
+        summary,
+        rules,
+        // The Host already caps the list at 200; the length guard keeps an older or
+        // hand-written payload honest without changing the report itself.
+        truncated: value.truncated === true || issues.length > 200,
+      }
+    }
+
+    function checkCounts(check) {
+      const counts = { error: 0, warn: 0, info: 0 }
+      if (check === null) return counts
+      for (const severity of CHECK_SEVERITY_ORDER) {
+        const count = Number(check.summary?.[severity])
+        counts[severity] = Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0
+      }
+      return counts
+    }
+
+    function coverageItemLabel(entry) {
+      if (!isRecord(entry)) return String(entry ?? '').trim()
+      const code = String(entry.code ?? '').trim()
+      const name = String(entry.name ?? entry.title ?? entry.moduleId ?? '').trim()
+      return [code, name].filter(Boolean).join(' ')
+    }
+
+    function coverageSnapshot(check, bp) {
+      const empty = {
+        total: null, covered: null, unassigned: null, layerCount: null,
+        modulesWithout: null, modulesMissing: null,
+        modulesWithoutNames: [], modulesMissingNames: [], percent: null,
+      }
+      const coverage = check === null ? null : check.coverage
+      if (!isRecord(coverage)) return empty
+      const global = isRecord(coverage.global) ? coverage.global : {}
+      const layers = Array.isArray(coverage.layers) ? coverage.layers.filter(isRecord) : []
+      const modules = Array.isArray(coverage.modules) ? coverage.modules.filter(isRecord) : []
+      const number = value => {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null
+      }
+      const requirementCountOf = module => {
+        const direct = number(module.requirementCount)
+        if (direct !== null) return direct
+        return Array.isArray(module.requirementUids) ? module.requirementUids.length : null
+      }
+      const sum = values => values.reduce((totalValue, value) => totalValue + value, 0)
+      const layerRequirements = layers.map(layer => number(layer.requirementCount)).filter(value => value !== null)
+      const layerCovered = layers.map(layer => number(layer.coveredRequirementCount)).filter(value => value !== null)
+      const unassignedList = Array.isArray(global.unassignedRequirements) ? global.unassignedRequirements : null
+      let total = number(global.totalRequirements)
+      let covered = number(global.coveredRequirements)
+      let unassigned = unassignedList === null ? null : unassignedList.length
+      if (total === null && layerRequirements.length > 0) total = sum(layerRequirements)
+      if (covered === null && layerCovered.length > 0) covered = sum(layerCovered)
+      if (total === null && covered !== null && unassigned !== null) total = covered + unassigned
+      if (covered === null && total !== null && unassigned !== null) covered = Math.max(0, total - unassigned)
+      if (unassigned === null && total !== null && covered !== null) unassigned = Math.max(0, total - covered)
+      const globalWithout = Array.isArray(global.modulesWithoutRequirements) ? global.modulesWithoutRequirements : null
+      const globalMissing = Array.isArray(global.modulesMissingAcceptance) ? global.modulesMissingAcceptance : null
+      const derivedWithout = modules.filter(module => {
+        const count = requirementCountOf(module)
+        return count !== null && count === 0
+      }).map(coverageItemLabel)
+      const derivedMissing = modules.filter(module => module.hasAcceptance === false).map(coverageItemLabel)
+      const modulesWithoutNames = globalWithout === null ? derivedWithout : globalWithout.map(coverageItemLabel)
+      const modulesMissingNames = globalMissing === null ? derivedMissing : globalMissing.map(coverageItemLabel)
+      let modulesWithout = globalWithout === null ? null : globalWithout.length
+      let modulesMissing = globalMissing === null ? null : globalMissing.length
+      if (modulesWithout === null && modules.length > 0) modulesWithout = derivedWithout.length
+      if (modulesMissing === null && modules.length > 0) modulesMissing = derivedMissing.length
+      let layerCount = Array.isArray(coverage.layers) ? coverage.layers.length : null
+      if (layerCount === null && Array.isArray(bp?.layers)) layerCount = bp.layers.length
+      const percent = total !== null && covered !== null
+        ? (total > 0 ? Math.round((covered / total) * 100) : 100)
+        : null
+      return {
+        total, covered, unassigned, layerCount,
+        modulesWithout, modulesMissing,
+        modulesWithoutNames: modulesWithoutNames.filter(name => name !== ''),
+        modulesMissingNames: modulesMissingNames.filter(name => name !== ''),
+        percent,
+      }
+    }
+
+    function findRequirementByUid(bp, uid) {
+      const target = String(uid ?? '').trim()
+      if (target === '' || bp === null) return null
+      for (const section of bp.sections ?? []) {
+        if (!isRecord(section)) continue
+        const items = Array.isArray(section.items) ? section.items : []
+        for (const [index, item] of items.entries()) {
+          if (!isRecord(item)) continue
+          const ref = requirementRef(section.key, item.id ?? index)
+          if (ref === target || String(item.uid ?? '').trim() === target) return { section, item, ref }
+        }
+      }
+      return null
+    }
+
+    function issueCanLocate(bp, issue) {
+      if (bp === null || !isRecord(issue)) return false
+      if (typeof issue.layerId === 'string' && layerByLetter(bp, issue.layerId) !== undefined) return true
+      if (typeof issue.diagramKey === 'string' && (bp.diagrams ?? []).some(diagram => diagram.key === issue.diagramKey)) return true
+      if (typeof issue.moduleId === 'string' && moduleById(bp, issue.moduleId) !== undefined) return true
+      if (typeof issue.requirementUid === 'string' && findRequirementByUid(bp, issue.requirementUid) !== null) return true
+      return false
+    }
+
+    function locateIssue(issue) {
+      const bp = state.bp
+      if (bp === null || !isRecord(issue)) return
+      const module = typeof issue.moduleId === 'string' ? moduleById(bp, issue.moduleId) : undefined
+      const requirement = typeof issue.requirementUid === 'string' ? findRequirementByUid(bp, issue.requirementUid) : null
+      let diagram = typeof issue.diagramKey === 'string'
+        ? (bp.diagrams ?? []).find(item => item.key === issue.diagramKey)
+        : undefined
+      let layerId = diagram === undefined ? null : diagramLayerId(diagram)
+      if (layerId === null && typeof issue.layerId === 'string' && layerByLetter(bp, issue.layerId) !== undefined) layerId = issue.layerId
+      if (layerId === null && module !== undefined && layerByLetter(bp, module.layerId) !== undefined) layerId = module.layerId
+      const focusRequirement = requirement?.ref ?? null
+      if (layerId === null && focusRequirement !== null) {
+        const linkedDiagram = (bp.diagrams ?? []).find(item =>
+          (item.nodes ?? []).some(node => (node.requirementIds ?? []).includes(focusRequirement)))
+        if (linkedDiagram !== undefined) {
+          layerId = diagramLayerId(linkedDiagram)
+          diagram = linkedDiagram
+        } else if (isRecord(requirement?.item) && typeof requirement.item.moduleId === 'string') {
+          const requirementModule = moduleById(bp, requirement.item.moduleId)
+          if (requirementModule !== undefined) layerId = requirementModule.layerId
+        }
+      }
+      if (layerId === null || layerByLetter(bp, layerId) === undefined) {
+        // Nothing locatable: keep the click harmless instead of moving the view at random.
+        if (focusRequirement !== null) set({ focusRequirement })
+        return
+      }
+      const layerDiagrams = diagramsForLayer(bp, layerId)
+      let activeDiagram = diagram === undefined ? undefined : diagram
+      if (activeDiagram === undefined || diagramLayerId(activeDiagram) !== layerId) {
+        activeDiagram = layerDiagrams.find(item => diagramTypeOf(item) === 'module') ?? layerDiagrams[0]
+      }
+      let selected = null
+      const nodeId = isRecord(issue.details) ? issue.details.nodeId : undefined
+      if (activeDiagram !== undefined && typeof nodeId === 'string') {
+        const node = (activeDiagram.nodes ?? []).find(item => item.id === nodeId)
+        if (node !== undefined) selected = { kind: 'node', id: node.id }
+      }
+      if (selected === null && module !== undefined) {
+        const moduleDiagram = layerDiagrams.find(item => diagramTypeOf(item) === 'module')
+        const node = moduleNodeInDiagram(bp, moduleDiagram, module)
+        if (node !== undefined) {
+          activeDiagram = moduleDiagram
+          selected = { kind: 'node', id: node.id }
+        }
+      }
+      if (selected === null && focusRequirement !== null) {
+        const linkedDiagram = layerDiagrams.find(item =>
+          (item.nodes ?? []).some(node => (node.requirementIds ?? []).includes(focusRequirement)))
+        if (linkedDiagram !== undefined) {
+          activeDiagram = linkedDiagram
+          const linkedNode = (linkedDiagram.nodes ?? []).find(node => (node.requirementIds ?? []).includes(focusRequirement))
+          if (linkedNode !== undefined) selected = { kind: 'node', id: linkedNode.id }
+        }
+      }
+      set({
+        activeLayerId: layerId,
+        tab: activeDiagram?.key ?? preferredTabForLayer(bp, layerId) ?? state.tab,
+        selected,
+        mode: 'select',
+        connectFrom: null,
+        focusRequirement,
+      })
+    }
+
+    async function loadChecks() {
+      const sessionId = state.sessionId
+      if (sessionId === null || state.checkLoading) return
+      set({ checkLoading: true, checkError: null })
+      try {
+        const text = await runBlueprintCommand('check')
+        if (state.sessionId !== sessionId) return
+        let parsed
+        try {
+          parsed = JSON.parse(text)
+        } catch {
+          throw new Error(t('checkInvalid'))
+        }
+        const normalized = normalizeCheckResult(parsed)
+        set({ check: normalized, checkLoading: false, checkLoaded: true, checkError: null, checkAt: Date.now() })
+      } catch (error) {
+        if (state.sessionId !== sessionId) return
+        const message = `${t('checkFailed')}: ${String(error?.message ?? error)}`
+        set({ checkLoading: false, checkLoaded: true, checkError: message })
+      }
+    }
+
+    function ChecksPanel({ store }) {
+      const bp = store.bp
+      if (bp === null) return null
+      const check = store.check
+      const counts = checkCounts(check)
+      const coverage = coverageSnapshot(check, bp)
+      const issues = check === null ? [] : check.issues
+      const bySeverity = severity => issues.filter(issue => issue.severity === severity)
+      const groups = CHECK_SEVERITY_ORDER.map(severity => ({ severity, issues: bySeverity(severity) }))
+      const ruleTitleByCode = new Map(
+        (check?.rules ?? [])
+          .filter(rule => typeof rule.code === 'string' && typeof rule.title === 'string')
+          .map(rule => [rule.code, rule.title]),
+      )
+      const gapValue = (count, names) => {
+        if (count === null) return t('checkUnknown')
+        if (count === 0) return t('checkNone')
+        const shown = names.slice(0, 2)
+        return shown.length === 0 ? String(count) : `${count} · ${shown.join(', ')}${names.length > shown.length ? '…' : ''}`
+      }
+      const issueMeta = issue => {
+        const values = []
+        if (typeof issue.layerId === 'string' && issue.layerId !== '') values.push([t('checkLayer'), issue.layerId])
+        if (typeof issue.moduleId === 'string' && issue.moduleId !== '') values.push([t('checkModule'), issue.moduleId])
+        if (typeof issue.diagramKey === 'string' && issue.diagramKey !== '') values.push([t('checkDiagram'), issue.diagramKey])
+        if (typeof issue.requirementUid === 'string' && issue.requirementUid !== '') values.push([t('checkRequirement'), issue.requirementUid])
+        return values
+      }
+      const children = [
+        h('div', { className: 'bp-panel-head' },
+          h('div', { className: 'bp-kicker' }, t('checks')),
+          h('button', {
+            type: 'button', className: 'bp-ghost bp-btn',
+            disabled: store.checkLoading,
+            onClick: loadChecks,
+          }, store.checkLoading ? h('span', { className: 'bp-spinner' }) : t('refresh'))),
+        h('div', { className: 'bp-muted' },
+          store.checkLoading
+            ? t('checkLoading')
+            : store.checkAt > 0
+              ? t('checkCheckedAt', { time: new Date(store.checkAt).toLocaleTimeString() })
+              : t('checksHint')),
+      ]
+      if (store.checkError) children.push(h('div', { className: 'bp-check-error' }, store.checkError))
+      if (check !== null) {
+        children.push(
+          h('div', { className: 'bp-check-counts' },
+            CHECK_SEVERITY_ORDER.map(severity => h('div', { className: `bp-check-count ${severity}`, key: severity },
+              h('span', null, checkSeverityLabel(severity)),
+              h('strong', null, counts[severity])))),
+          h('div', { className: 'bp-check-card' },
+            h('div', { className: 'bp-check-card-head' },
+              h('span', { className: 'bp-check-section-title' }, t('checkCoverage')),
+              coverage.percent === null
+                ? null
+                : h('span', { className: 'bp-check-percent' }, t('checkCoveragePercent', { percent: coverage.percent }))),
+            h('div', { className: 'bp-check-stats' },
+              h('div', { className: 'bp-check-stat' }, h('span', null, t('checkTotalRequirements')), h('strong', null, coverage.total === null ? t('checkUnknown') : coverage.total)),
+              h('div', { className: 'bp-check-stat' }, h('span', null, t('checkCoveredRequirements')), h('strong', null, coverage.covered === null ? t('checkUnknown') : coverage.covered)),
+              h('div', { className: 'bp-check-stat' }, h('span', null, t('checkUncoveredRequirements')), h('strong', null, coverage.unassigned === null ? t('checkUnknown') : coverage.unassigned)),
+              h('div', { className: 'bp-check-stat' }, h('span', null, t('checkLayerCount')), h('strong', null, coverage.layerCount === null ? t('checkUnknown') : coverage.layerCount))),
+            h('div', { className: 'bp-check-gaps' },
+              h('div', {
+                className: 'bp-check-gap',
+                title: coverage.modulesWithoutNames.join(', '),
+              }, h('span', null, t('checkModulesWithoutRequirements')), h('strong', null, gapValue(coverage.modulesWithout, coverage.modulesWithoutNames))),
+              h('div', {
+                className: 'bp-check-gap',
+                title: coverage.modulesMissingNames.join(', '),
+              }, h('span', null, t('checkModulesMissingAcceptance')), h('strong', null, gapValue(coverage.modulesMissing, coverage.modulesMissingNames))))),
+        )
+        if (check.truncated) children.push(h('div', { className: 'bp-check-truncated' }, t('checkTruncated', { shown: issues.length })))
+        if (issues.length === 0) {
+          children.push(h('div', { className: 'bp-check-empty' }, t('checkEmpty')))
+        } else {
+          children.push(h('div', { className: 'bp-check-issues' },
+            groups.filter(group => group.issues.length > 0).map(group => h('div', { className: 'bp-check-group', key: group.severity },
+              h('div', { className: `bp-check-group-title ${group.severity}` },
+                t(CHECK_SEVERITY_GROUP_KEYS[group.severity], { count: group.issues.length })),
+              group.issues.map((issue, index) => {
+                const canLocate = issueCanLocate(bp, issue)
+                const meta = issueMeta(issue)
+                const props = {
+                  key: `${group.severity}-${issue.code}-${index}`,
+                  className: `bp-check-issue ${issue.severity}`,
+                  title: canLocate ? t('checkLocateHint') : undefined,
+                }
+                if (canLocate) {
+                  props.type = 'button'
+                  props.onClick = () => locateIssue(issue)
+                }
+                const ruleTitle = ruleTitleByCode.get(issue.code)
+                return h(canLocate ? 'button' : 'div', props,
+                  h('div', { className: 'bp-check-issue-top' },
+                    h('span', { className: `bp-check-sev ${issue.severity}` }, checkSeverityLabel(issue.severity)),
+                    h('code', { className: 'bp-check-code', title: ruleTitle }, issue.code || '—')),
+                  h('div', { className: 'bp-check-message' }, issue.message || ruleTitle || issue.code || '—'),
+                  meta.length === 0 ? null : h('div', { className: 'bp-check-meta' },
+                    meta.map(([label, value]) => h('span', { key: `${label}-${value}`, title: `${label}: ${value}` }, `${label} ${value}`))))
+              })))))
+        }
+      } else if (!store.checkLoading && !store.checkError) {
+        children.push(h('div', { className: 'bp-check-empty' }, t('checksHint')))
+      }
+      return h('div', { className: 'bp-checks' }, children)
+    }
+
     function diffValueLabel(value) {
       if (value === undefined || value === null) return '—'
       if (Array.isArray(value)) return value.length === 0 ? '—' : value.join(', ')
@@ -3689,15 +4094,18 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bp-panel-tabs' },
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'inspector' ? ' active' : ''}`, onClick: () => set({ panel: 'inspector' }) }, t('inspector')),
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'board' ? ' active' : ''}`, onClick: () => { set({ panel: 'board' }); loadChildren() } }, t('board')),
-          h('button', { type: 'button', className: `bp-panel-tab${panel === 'versions' ? ' active' : ''}`, onClick: () => { set({ panel: 'versions' }); loadVersions() } }, t('versions'))),
+          h('button', { type: 'button', className: `bp-panel-tab${panel === 'versions' ? ' active' : ''}`, onClick: () => { set({ panel: 'versions' }); loadVersions() } }, t('versions')),
+          h('button', { type: 'button', className: `bp-panel-tab${panel === 'checks' ? ' active' : ''}`, onClick: () => { set({ panel: 'checks' }); loadChecks() } }, t('checks'))),
         panel === 'board'
           ? h(BoardPanel, { store })
           : panel === 'versions'
             ? h(VersionsPanel, { store })
-            : h(React.Fragment, null,
-                h(Inspector, { store }),
-                h('div', { className: 'bp-divider' }),
-                h(ModulePanel, { store })))
+            : panel === 'checks'
+              ? h(ChecksPanel, { store })
+              : h(React.Fragment, null,
+                  h(Inspector, { store }),
+                  h('div', { className: 'bp-divider' }),
+                  h(ModulePanel, { store })))
     }
 
     function LayerBreadcrumbs({ store }) {
@@ -3802,6 +4210,66 @@ window.__ModuleLoader__.load({
         })
       })
       set({ selected: { kind: 'node', id }, mode: 'select' })
+    }
+
+    const EXPORT_MAX_BYTES = 5 * 1024 * 1024
+
+    function formatBytes(size) {
+      const value = Number(size)
+      if (!Number.isFinite(value) || value < 0) return '—'
+      if (value < 1024) return `${value} B`
+      if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+      return `${(value / (1024 * 1024)).toFixed(1)} MB`
+    }
+
+    function exportFileStamp(date = new Date()) {
+      const pad = value => String(value).padStart(2, '0')
+      return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+    }
+
+    function safeFilePart(value, fallback) {
+      const cleaned = String(value ?? '')
+        .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^[-.]+|[-.]+$/g, '')
+        .slice(0, 60)
+      return cleaned === '' ? fallback : cleaned
+    }
+
+    function exportFileName(bp, format, scope) {
+      const title = String(bp?.title ?? '').trim() || String(bp?.id ?? '').trim()
+      const name = safeFilePart(title, 'blueprint')
+      const range = scope === 'all' ? 'all' : safeFilePart(scope, 'A')
+      const extension = format === 'html' ? 'html' : 'md'
+      return `${name}-${range}-${exportFileStamp()}.${extension}`
+    }
+
+    async function exportDocument(format, scope) {
+      const bp = state.bp
+      const sessionId = state.sessionId
+      if (bp === null || sessionId === null) return
+      const key = `${format}:${scope}`
+      if (state.exporting !== null) return
+      set({ exporting: key, error: null })
+      try {
+        const text = await runBlueprintCommand(`export ${format} ${scope}`)
+        if (state.sessionId !== sessionId) return
+        if (typeof text !== 'string' || text.trim() === '') throw new Error(t('exportEmpty'))
+        const size = new TextEncoder().encode(text).byteLength
+        if (size > EXPORT_MAX_BYTES) throw new Error(t('exportTooLarge', { size: formatBytes(size) }))
+        const name = exportFileName(state.bp ?? bp, format, scope)
+        download(name, text, format === 'html' ? 'text/html;charset=utf-8' : 'text/markdown;charset=utf-8')
+        set({ error: null })
+        toast(t('exportSaved', { name }), 'success')
+      } catch (error) {
+        if (state.sessionId !== sessionId) return
+        const message = `${t('exportFailed')}: ${String(error?.message ?? error)}`
+        set({ error: message })
+        toast(message, 'error')
+      } finally {
+        if (state.exporting === key) set({ exporting: null })
+      }
     }
 
     function exportJSON() {
@@ -4650,7 +5118,24 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', onClick: exportJSON }, t('exportJSON')),
               h('button', { type: 'button', onClick: exportMermaid }, t('exportMermaid')),
               h('button', { type: 'button', onClick: exportSVG }, t('exportSVG')),
-              h('button', { type: 'button', onClick: exportDrawio }, t('exportDrawio')))) : null,
+              h('button', { type: 'button', onClick: exportDrawio }, t('exportDrawio')),
+              h('div', { className: 'bp-menu-sep' }),
+              h('button', {
+                type: 'button', disabled: store.exporting !== null,
+                onClick: () => exportDocument('md', store.activeLayerId ?? 'A'),
+              }, store.exporting === `md:${store.activeLayerId ?? 'A'}` ? t('exporting') : t('exportMarkdownLayer')),
+              h('button', {
+                type: 'button', disabled: store.exporting !== null,
+                onClick: () => exportDocument('md', 'all'),
+              }, store.exporting === 'md:all' ? t('exporting') : t('exportMarkdownAll')),
+              h('button', {
+                type: 'button', disabled: store.exporting !== null,
+                onClick: () => exportDocument('html', store.activeLayerId ?? 'A'),
+              }, store.exporting === `html:${store.activeLayerId ?? 'A'}` ? t('exporting') : t('exportHtmlLayer')),
+              h('button', {
+                type: 'button', disabled: store.exporting !== null,
+                onClick: () => exportDocument('html', 'all'),
+              }, store.exporting === 'html:all' ? t('exporting') : t('exportHtmlAll')))) : null,
           bp !== null && !store.landing ? h('button', {
             type: 'button',
             className: 'bp-btn bp-primary',
@@ -4957,6 +5442,8 @@ window.__ModuleLoader__.load({
 .bp-menu-pop{position:absolute;right:0;top:36px;z-index:5;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:5px;min-width:160px;box-shadow:0 12px 32px rgba(0,0,0,.2)}
 .bp-menu-pop button{display:block;width:100%;text-align:left;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:7px 9px;border-radius:6px;cursor:pointer}
 .bp-menu-pop button:hover{background:var(--dsw-alias-bg-layer-2)}
+.bp-menu-pop button:disabled{opacity:.5;cursor:not-allowed;background:transparent}
+.bp-menu-sep{height:1px;background:var(--dsw-alias-border-l1);margin:4px 3px}
 .bp-open{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 9px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;position:relative}
 .bp-open:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
 .bp-open.bp-has{color:var(--dsw-alias-brand-primary)}
@@ -4966,6 +5453,53 @@ window.__ModuleLoader__.load({
 .bp-panel-tab:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
 .bp-panel-tab.active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:650}
 .bp-panel-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.bp-checks{display:flex;flex-direction:column;gap:8px}
+.bp-check-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.bp-check-count{display:flex;flex-direction:column;gap:1px;padding:6px 7px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base)}
+.bp-check-count span{font-size:10px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bp-check-count strong{font-size:16px;line-height:1.15;font-weight:700}
+.bp-check-count.error{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 38%,transparent)}
+.bp-check-count.error strong{color:var(--dsw-alias-state-error-primary)}
+.bp-check-count.warn{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 38%,transparent)}
+.bp-check-count.warn strong{color:var(--dsw-alias-state-warn-primary)}
+.bp-check-count.info{border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 32%,transparent)}
+.bp-check-count.info strong{color:var(--dsw-alias-brand-primary)}
+.bp-check-card{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base);padding:8px 9px;display:flex;flex-direction:column;gap:7px}
+.bp-check-card-head{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+.bp-check-section-title{font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--dsw-alias-label-secondary);text-transform:uppercase}
+.bp-check-percent{font-size:10.5px;color:var(--dsw-alias-state-success-primary);font-weight:650;white-space:nowrap}
+.bp-check-stats{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.bp-check-stat{display:flex;flex-direction:column;gap:1px;min-width:0}
+.bp-check-stat span{font-size:9.5px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bp-check-stat strong{font-size:13px;line-height:1.2}
+.bp-check-gaps{display:flex;flex-direction:column;gap:4px;border-top:1px dashed var(--dsw-alias-border-l1);padding-top:6px}
+.bp-check-gap{display:flex;align-items:baseline;justify-content:space-between;gap:6px;font-size:10px;color:var(--dsw-alias-label-secondary);min-width:0}
+.bp-check-gap span{flex:0 0 auto}
+.bp-check-gap strong{font-weight:600;color:var(--dsw-alias-label-primary);font-size:10px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bp-check-truncated{font-size:10.5px;line-height:1.45;color:var(--dsw-alias-state-warn-primary);padding:5px 7px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary) 32%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 8%,transparent)}
+.bp-check-issues{display:flex;flex-direction:column;gap:8px}
+.bp-check-group{display:flex;flex-direction:column;gap:4px}
+.bp-check-group-title{font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--dsw-alias-label-secondary);text-transform:uppercase}
+.bp-check-group-title.error{color:var(--dsw-alias-state-error-primary)}
+.bp-check-group-title.warn{color:var(--dsw-alias-state-warn-primary)}
+.bp-check-group-title.info{color:var(--dsw-alias-brand-primary)}
+.bp-check-issue{display:block;width:100%;box-sizing:border-box;text-align:left;border:1px solid var(--dsw-alias-border-l1);border-left-width:3px;border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;padding:6px 8px}
+button.bp-check-issue{cursor:pointer}
+button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
+.bp-check-issue.error{border-left-color:var(--dsw-alias-state-error-primary)}
+.bp-check-issue.warn{border-left-color:var(--dsw-alias-state-warn-primary)}
+.bp-check-issue.info{border-left-color:var(--dsw-alias-brand-primary)}
+.bp-check-issue-top{display:flex;align-items:center;gap:5px;min-width:0}
+.bp-check-sev{flex:0 0 auto;font-size:9px;font-weight:700;letter-spacing:.03em;padding:0 5px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);text-transform:uppercase}
+.bp-check-sev.error{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 38%,transparent)}
+.bp-check-sev.warn{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 38%,transparent)}
+.bp-check-sev.info{color:var(--dsw-alias-brand-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 32%,transparent)}
+.bp-check-code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9.5px;color:var(--dsw-alias-label-secondary);margin-left:auto}
+.bp-check-message{margin-top:3px;font-size:11px;line-height:1.45;word-break:break-word}
+.bp-check-meta{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.bp-check-meta span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;line-height:1.5;padding:0 4px;border-radius:5px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary)}
+.bp-check-empty{padding:16px 4px;text-align:center;font-size:11.5px;line-height:1.5;color:var(--dsw-alias-state-success-primary)}
+.bp-check-error{font-size:11px;line-height:1.5;white-space:pre-wrap;padding:7px 8px;border-radius:8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 9%,transparent);color:var(--dsw-alias-state-error-primary)}
 .bp-fields{display:flex;flex-direction:column;gap:4px}
 .bp-field-row{display:flex;align-items:center;gap:3px}
 .bp-field-kind{flex:0 0 62px;width:62px;padding:4px 2px}
