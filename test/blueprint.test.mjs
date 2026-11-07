@@ -152,6 +152,86 @@ test('semantic diff reports requirement, diagram and module changes', () => {
   assert.ok(diff.totals.added >= 3)
 })
 
+test('keeps traceability fields and cleans duplicates, blanks and non-strings', () => {
+  const blueprint = normalizeBlueprint({
+    title: 'Traceable',
+    sections: [{ key: 'goals', items: ['one', 'two'] }],
+    diagrams: [{
+      key: 'usecase',
+      nodes: [{
+        id: 'u1', type: 'actor', label: 'User',
+        requirementIds: ['goals:i1', ' goals:i2 ', 'goals:i1', '', 42],
+      }],
+      edges: [],
+    }],
+    modules: [{
+      id: 'auth', name: 'Auth',
+      nodeIds: ['usecase:u1', ' usecase:u1 ', 'dfd:p1'],
+      files: ['lib/auth.js', ' lib/session.js ', ''],
+      acceptance: ['Login succeeds'],
+    }],
+  }, undefined, { sessionId: 's' })
+
+  const node = blueprint.diagrams.find(diagram => diagram.key === 'usecase').nodes[0]
+  assert.deepEqual(node.requirementIds, ['goals:i1', 'goals:i2'])
+  assert.deepEqual(blueprint.modules[0].nodeIds, ['usecase:u1', 'dfd:p1'])
+  assert.deepEqual(blueprint.modules[0].files, ['lib/auth.js', 'lib/session.js'])
+  assert.deepEqual(blueprint.modules[0].acceptance, ['Login succeeds'])
+})
+
+test('defaults missing traceability fields to empty arrays for legacy blueprints', () => {
+  const legacy = normalizeBlueprint({
+    title: 'Legacy',
+    sections: [{ key: 'goals', items: ['one'] }],
+    diagrams: [{ key: 'usecase', nodes: [{ id: 'u1', type: 'actor', label: 'User' }], edges: [] }],
+    modules: [{ id: 'auth', name: 'Auth' }],
+  }, undefined, { sessionId: 's' })
+
+  assert.deepEqual(legacy.diagrams.find(diagram => diagram.key === 'usecase').nodes[0].requirementIds, [])
+  assert.deepEqual(legacy.modules[0].nodeIds, [])
+  assert.deepEqual(legacy.modules[0].files, [])
+  assert.deepEqual(legacy.modules[0].acceptance, [])
+
+  // A raw previous blueprint may be reused on a partial update; defaults still apply.
+  const carried = normalizeBlueprint({}, {
+    title: 'Raw previous',
+    sections: [],
+    diagrams: [{ key: 'usecase', nodes: [{ id: 'u1', type: 'actor', label: 'User' }], edges: [] }],
+    modules: [{ id: 'auth', name: 'Auth' }],
+  }, { sessionId: 's' })
+  assert.deepEqual(carried.diagrams.find(diagram => diagram.key === 'usecase').nodes[0].requirementIds, [])
+  assert.deepEqual(carried.modules[0].nodeIds, [])
+  assert.deepEqual(carried.modules[0].files, [])
+  assert.deepEqual(carried.modules[0].acceptance, [])
+})
+
+test('semantic diff tolerates traceability fields on nodes and modules', () => {
+  const before = normalizeBlueprint({
+    title: 'A',
+    sections: [{ key: 'goals', items: ['one'] }],
+    diagrams: [{ key: 'usecase', nodes: [{ id: 'u1', type: 'actor', label: 'User' }], edges: [] }],
+    modules: [{ id: 'auth', name: 'Auth' }],
+  }, undefined, { sessionId: 's' })
+  const after = normalizeBlueprint({
+    title: 'A',
+    sections: [{ key: 'goals', items: ['one'] }],
+    diagrams: [{
+      key: 'usecase',
+      nodes: [{ id: 'u1', type: 'actor', label: 'User', requirementIds: ['goals:i1'] }],
+      edges: [],
+    }],
+    modules: [{
+      id: 'auth', name: 'Auth',
+      nodeIds: ['usecase:u1'], files: ['lib/auth.js'], acceptance: ['Login succeeds'],
+    }],
+  }, before, { sessionId: 's' })
+
+  const diff = semanticDiff(before, after)
+  assert.ok(Array.isArray(diff.diagrams))
+  assert.ok(Array.isArray(diff.modules.changed))
+  assert.equal(typeof diff.totals.added, 'number')
+})
+
 test('archives versions, refuses duplicates and restores a version file', async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-'))
   try {

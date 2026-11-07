@@ -78,6 +78,11 @@ window.__ModuleLoader__.load({
       tplPipeline: 'Data pipeline', tplPipelineDesc: 'Ingest, clean, store and schedule',
       tplPlugin: 'DSH plugin', tplPluginDesc: 'Host tool, client panel, storage and tests',
       templateApplied: 'Template applied', templateFailed: 'Could not apply the template',
+      linkedRequirements: 'Linked requirements', requirementPickerHint: 'Pick the requirement items this node covers.', noRequirements: 'No requirement items yet.',
+      linkedNodes: 'Linked nodes', noDiagramNodes: 'No nodes in this diagram.', moduleFiles: 'Files', moduleAcceptance: 'Acceptance',
+      moduleFilesHint: 'One file path per line', moduleAcceptanceHint: 'One acceptance item per line',
+      moduleTraceHint: 'Click a module to edit its linked nodes, files and acceptance.',
+      requirementsFocusHint: 'Click a requirement to highlight linked nodes; click again to clear.',
     }
     const ZH = {
       open: '蓝图', title: '工程蓝图', subtitle: '先把系统画清楚，再开始写代码',
@@ -151,6 +156,11 @@ window.__ModuleLoader__.load({
       tplPipeline: '数据管道', tplPipelineDesc: '采集、清洗、存储与调度',
       tplPlugin: 'DSH 插件', tplPluginDesc: 'Host 工具、Client 面板、存储与测试',
       templateApplied: '已应用模板', templateFailed: '模板应用失败',
+      linkedRequirements: '关联需求', requirementPickerHint: '选择该节点实现或覆盖的需求条目。', noRequirements: '还没有需求条目。',
+      linkedNodes: '关联节点', noDiagramNodes: '当前图还没有节点。', moduleFiles: '涉及文件', moduleAcceptance: '验收标准',
+      moduleFilesHint: '每行一个文件路径', moduleAcceptanceHint: '每行一条验收标准',
+      moduleTraceHint: '点击模块可编辑关联节点、涉及文件与验收标准。',
+      requirementsFocusHint: '点击需求条目会高亮关联节点；再次点击取消。',
     }
 
     let dict = ZH
@@ -192,6 +202,7 @@ window.__ModuleLoader__.load({
       toast: null,
       tab: 'usecase',
       selected: null,
+      focusRequirement: null,
       mode: 'select',
       connectFrom: null,
       lastText: '',
@@ -577,7 +588,42 @@ window.__ModuleLoader__.load({
     }
 
     function dispatchPrompt() {
-      return `用户已在蓝图面板确认工程蓝图。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 调用 blueprint(action="dispatch") 标记为已分派；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态。`
+      const base = `用户已在蓝图面板确认工程蓝图。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 调用 blueprint(action="dispatch") 标记为已分派；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态。`
+      const bp = state.bp
+      if (bp === null) return base
+      const blocks = []
+      for (const module of bp.modules ?? []) {
+        const nodeIds = Array.isArray(module.nodeIds) ? module.nodeIds : []
+        const files = Array.isArray(module.files) ? module.files : []
+        const acceptance = Array.isArray(module.acceptance) ? module.acceptance : []
+        if (nodeIds.length === 0 && files.length === 0 && acceptance.length === 0) continue
+        const deps = (module.dependsOn ?? []).map(id => bp.modules.find(item => item.id === id)?.name ?? id)
+        const lines = [`模块「${module.name}」（id=${module.id}${deps.length > 0 ? `，依赖 ${deps.join('、')}` : ''}）`]
+        if (module.summary) lines.push(`  范围摘要：${module.summary}`)
+        if (nodeIds.length > 0) {
+          lines.push('  关联节点：')
+          for (const ref of nodeIds) {
+            const resolved = resolveNodeRef(bp, ref)
+            if (resolved === null) {
+              lines.push(`    - ${ref}`)
+            } else {
+              const detail = resolved.node.description ? `：${resolved.node.description}` : ''
+              lines.push(`    - ${resolved.diagram.title} / ${resolved.node.label}（${ref}）${detail}`)
+            }
+          }
+        }
+        if (files.length > 0) {
+          lines.push('  涉及文件：')
+          for (const file of files) lines.push(`    - ${file}`)
+        }
+        if (acceptance.length > 0) {
+          lines.push('  验收标准：')
+          for (const item of acceptance) lines.push(`    - ${item}`)
+        }
+        blocks.push(lines.join('\n'))
+      }
+      if (blocks.length === 0) return base
+      return `${base}\n\n请把以下模块追踪信息原样带入对应子代理的提示词：\n\n${blocks.join('\n\n')}`
     }
 
     const tplSection = (key, title, items) => ({
@@ -1033,6 +1079,35 @@ window.__ModuleLoader__.load({
         return { w: node.w ?? 210, h: Math.max(96, 58 + node.fields.length * 19) }
       }
       return { w: node.w ?? meta.w, h: node.h ?? meta.h }
+    }
+
+    function requirementRef(sectionKey, itemId) {
+      return `${sectionKey}:${itemId}`
+    }
+    function nodeRef(diagramKey, id) {
+      return `${diagramKey}:${id}`
+    }
+    function splitRef(ref) {
+      const text = String(ref ?? '')
+      const index = text.indexOf(':')
+      if (index <= 0 || index === text.length - 1) return null
+      return { key: text.slice(0, index), id: text.slice(index + 1) }
+    }
+    function resolveNodeRef(blueprint, ref) {
+      const parts = splitRef(ref)
+      if (parts === null) return null
+      const diagram = blueprint.diagrams.find(item => item.key === parts.key)
+      const node = diagram?.nodes.find(item => item.id === parts.id)
+      return node === undefined ? null : { diagram, node }
+    }
+    function linesToList(value) {
+      return String(value ?? '').split(/\r?\n/u).map(line => line.trim()).filter(line => line !== '')
+    }
+    function toggleTraceValue(current, ref) {
+      const next = new Set(Array.isArray(current) ? current : [])
+      if (next.has(ref)) next.delete(ref)
+      else next.add(ref)
+      return [...next]
     }
 
     function layoutDiagram(diagram) {
@@ -1678,7 +1753,7 @@ window.__ModuleLoader__.load({
           store.error ? h('div', { className: 'bp-error' }, store.error) : null))
     }
 
-    function Section({ section, store }) {
+    function Section({ section, store, linkedRefs, focusedRef, traceCounts, onToggleFocus }) {
       const [open, setOpen] = useState(true)
       const [adding, setAdding] = useState(false)
       const [draft, setDraft] = useState('')
@@ -1702,21 +1777,43 @@ window.__ModuleLoader__.load({
             button('bp-ghost', () => setAdding(value => !value), h(Icon, { name: 'plus', size: 14 }), { title: t('addItem') }),
             button('bp-ghost bp-spark', () => expandSection(section), h(Icon, { name: 'spark', size: 14 }), { title: t('expandSection') }))),
         open ? h('div', { className: 'bp-section-body' },
-          section.items.map((item, index) => h('div', { className: 'bp-item', key: item.id ?? index },
-            h('textarea', {
-              className: 'bp-item-input', value: item.text, rows: Math.max(1, Math.ceil((item.text.length * 2 + 8) / 34)),
-              onChange: event => mutate(bp => {
-                const target = bp.sections.find(entry => entry.key === section.key)
-                if (target?.items[index] !== undefined) target.items[index].text = event.target.value
+          section.items.map((item, index) => {
+            const ref = requirementRef(section.key, item.id ?? index)
+            const linked = linkedRefs?.has(ref) === true
+            const focused = focusedRef === ref
+            const traceCount = traceCounts?.get(ref) ?? 0
+            return h('div', {
+              className: `bp-item${linked ? ' linked' : ''}${focused ? ' focused' : ''}`,
+              key: item.id ?? index,
+              title: t('requirementsFocusHint'),
+              onClick: event => {
+                if (event.target?.closest?.('.bp-item-del') !== null) return
+                onToggleFocus?.(ref)
+              },
+            },
+              h('textarea', {
+                className: 'bp-item-input', value: item.text, rows: Math.max(1, Math.ceil((item.text.length * 2 + 8) / 34)),
+                onChange: event => mutate(bp => {
+                  const target = bp.sections.find(entry => entry.key === section.key)
+                  if (target?.items[index] !== undefined) target.items[index].text = event.target.value
+                }),
               }),
-            }),
-            h('button', {
-              type: 'button', className: 'bp-item-del', title: t('delete'),
-              onClick: () => mutate(bp => {
-                const target = bp.sections.find(entry => entry.key === section.key)
-                if (target !== undefined) target.items.splice(index, 1)
-              }),
-            }, h(Icon, { name: 'trash', size: 13 })))),
+              traceCount > 0 ? h('span', {
+                className: `bp-item-trace${focused ? ' active' : ''}`,
+                title: `${t('linkedNodes')}: ${traceCount}`,
+              }, String(traceCount)) : null,
+              h('button', {
+                type: 'button', className: 'bp-item-del', title: t('delete'),
+                onClick: event => {
+                  event.stopPropagation()
+                  mutate(bp => {
+                    const target = bp.sections.find(entry => entry.key === section.key)
+                    if (target !== undefined) target.items.splice(index, 1)
+                  })
+                  if (focused) onToggleFocus?.(ref)
+                },
+              }, h(Icon, { name: 'trash', size: 13 })))
+          }),
           adding ? h('div', { className: 'bp-add-row' },
             h('input', {
               autoFocus: true, className: 'bp-input', value: draft, placeholder: t('addItem'),
@@ -1734,6 +1831,29 @@ window.__ModuleLoader__.load({
       const [addingSection, setAddingSection] = useState(false)
       const [sectionName, setSectionName] = useState('')
       if (bp === null) return null
+      const currentDiagram = bp.diagrams.find(diagram => diagram.key === store.tab)
+      const selectedNode = store.selected?.kind === 'node'
+        ? currentDiagram?.nodes.find(node => node.id === store.selected.id)
+        : undefined
+      const linkedRefs = new Set(Array.isArray(selectedNode?.requirementIds) ? selectedNode.requirementIds : [])
+      const traceCounts = new Map()
+      for (const diagram of bp.diagrams) {
+        for (const node of diagram.nodes ?? []) {
+          for (const ref of node.requirementIds ?? []) traceCounts.set(ref, (traceCounts.get(ref) ?? 0) + 1)
+        }
+      }
+      const toggleRequirementFocus = ref => {
+        if (state.focusRequirement === ref) {
+          set({ focusRequirement: null })
+          return
+        }
+        const linkedDiagram = bp.diagrams.find(diagram =>
+          (diagram.nodes ?? []).some(node => (node.requirementIds ?? []).includes(ref)))
+        set({
+          focusRequirement: ref,
+          tab: linkedDiagram !== undefined && linkedDiagram.key !== state.tab ? linkedDiagram.key : state.tab,
+        })
+      }
       const addSection = () => {
         const title = sectionName.trim()
         if (title === '') { setAddingSection(false); return }
@@ -1757,7 +1877,11 @@ window.__ModuleLoader__.load({
             onChange: event => mutate(current => { current.summary = event.target.value }),
           })),
         h('div', { className: 'bp-sections' },
-          bp.sections.map(section => h(Section, { key: section.key, section, store })),
+          bp.sections.map(section => h(Section, {
+            key: section.key, section, store,
+            linkedRefs, focusedRef: store.focusRequirement, traceCounts,
+            onToggleFocus: toggleRequirementFocus,
+          })),
           addingSection ? h('div', { className: 'bp-add-row' },
             h('input', {
               autoFocus: true, className: 'bp-input', value: sectionName, placeholder: t('addSectionPlaceholder'),
@@ -1772,7 +1896,7 @@ window.__ModuleLoader__.load({
             h(Icon, { name: 'plus', size: 14 }), t('addSection'))))
     }
 
-    function NodeShape({ node, selected, onPointerDown, onClick, diagramKey, index }) {
+    function NodeShape({ node, selected, highlighted, onPointerDown, onClick, diagramKey, index }) {
       const size = sizeOf(node)
       const w = size.w
       const height = size.h
@@ -1927,13 +2051,18 @@ window.__ModuleLoader__.load({
       }
       return h('g', {
         transform: `translate(${node.x ?? 0} ${node.y ?? 0})`,
-        className: `bp-node${selected ? ' selected' : ''}`,
+        className: `bp-node${selected ? ' selected' : ''}${highlighted ? ' linked' : ''}`,
         onPointerDown,
         onClick,
         style: { cursor: 'grab' },
         'data-node-id': node.id,
         'data-node-index': index,
       },
+        highlighted && !selected ? h('rect', {
+          key: 'linked-halo', x: -6, y: -6, width: w + 12, height: height + 12, rx: 12,
+          fill: 'none', stroke: 'var(--dsw-alias-brand-primary)', strokeWidth: 2, strokeDasharray: '4 4',
+          className: 'bp-node-linked',
+        }) : null,
         selected ? h('rect', { x: -6, y: -6, width: w + 12, height: height + 12, rx: 12, fill: 'none', stroke: 'var(--dsw-alias-brand-primary)', strokeWidth: 1.4, strokeDasharray: '5 4' }) : null,
         shape)
     }
@@ -2174,6 +2303,14 @@ window.__ModuleLoader__.load({
       }
 
       const ordered = [...(diagram.nodes ?? [])].sort((a, b) => (a.type === 'system' ? -1 : b.type === 'system' ? 1 : 0))
+      const focusedRequirement = store.focusRequirement
+      const highlightedNodes = new Set(
+        focusedRequirement === null || focusedRequirement === undefined
+          ? []
+          : (diagram.nodes ?? [])
+              .filter(node => (node.requirementIds ?? []).includes(focusedRequirement))
+              .map(node => node.id),
+      )
       const zoom = view.zoom
       return h('div', { className: 'bp-canvas' },
         h('svg', {
@@ -2210,6 +2347,7 @@ window.__ModuleLoader__.load({
               diagramKey: diagram.key,
               index,
               selected: store.selected?.kind === 'node' && store.selected.id === node.id,
+              highlighted: highlightedNodes.has(node.id),
               onPointerDown: event => onNodeDown(node, event),
               onClick: event => onNodeClick(node, event),
             })),
@@ -2271,6 +2409,28 @@ window.__ModuleLoader__.load({
             ? h('label', { className: 'bp-field' }, h('span', null, t('notes')),
                 h('textarea', { className: 'bp-input', rows: 3, value: node.description ?? '', onChange: event => updateNode(found => { found.description = event.target.value }) }))
             : null,
+          h('div', { className: 'bp-field' },
+            h('span', null, t('linkedRequirements')),
+            h('div', { className: 'bp-req-hint' }, t('requirementPickerHint')),
+            bp.sections.some(section => section.items.length > 0)
+              ? h('div', { className: 'bp-req-list' },
+                  bp.sections.map(section => h('div', { className: 'bp-req-group', key: section.key },
+                    h('div', { className: 'bp-req-group-title' }, section.title),
+                    section.items.length === 0
+                      ? h('div', { className: 'bp-req-empty' }, '—')
+                      : section.items.map((item, index) => {
+                          const ref = requirementRef(section.key, item.id ?? index)
+                          const checked = (node.requirementIds ?? []).includes(ref)
+                          return h('label', { className: 'bp-req-option', key: ref, title: item.text },
+                            h('input', {
+                              type: 'checkbox', checked,
+                              onChange: () => updateNode(found => {
+                                found.requirementIds = toggleTraceValue(found.requirementIds, ref)
+                              }),
+                            }),
+                            h('span', { className: 'bp-req-text' }, `${section.title} · ${item.text}`))
+                        }))))
+              : h('div', { className: 'bp-muted' }, t('noRequirements'))),
           isErEntity ? h('div', { className: 'bp-field' },
             h('span', null, t('fields')),
             h('div', { className: 'bp-fields' },
@@ -2361,10 +2521,31 @@ window.__ModuleLoader__.load({
       set({ selected: null })
     }
 
+    function LineListEditor({ value, placeholder, rows, onCommit }) {
+      const serialized = (Array.isArray(value) ? value : []).join('\n')
+      const [draft, setDraft] = useState(serialized)
+      useEffect(() => { setDraft(serialized) }, [serialized])
+      return h('textarea', {
+        className: 'bp-input', rows: rows ?? 3, value: draft, placeholder,
+        onChange: event => setDraft(event.target.value),
+        onBlur: () => onCommit(linesToList(draft)),
+      })
+    }
+
     function ModulePanel({ store }) {
       const bp = store.bp
+      const [selectedModuleId, setSelectedModuleId] = useState(null)
       if (bp === null) return null
+      const currentDiagram = bp.diagrams.find(item => item.key === store.tab)
+      const updateModule = (id, fn) => mutate(current => {
+        const found = current.modules.find(item => item.id === id)
+        if (found !== undefined) fn(found)
+      })
+      const toggleModuleNode = (module, ref) => updateModule(module.id, found => {
+        found.nodeIds = toggleTraceValue(found.nodeIds, ref)
+      })
       const selectModule = module => {
+        setSelectedModuleId(current => current === module.id ? null : module.id)
         const diagram = bp.diagrams.find(item => item.key === 'module')
         const node = diagram?.nodes.find(entry => entry.label === module.name || entry.id === module.id)
         if (node !== undefined) {
@@ -2373,13 +2554,53 @@ window.__ModuleLoader__.load({
       }
       return h('div', { className: 'bp-modules' },
         h('div', { className: 'bp-kicker' }, t('modules')),
+        h('div', { className: 'bp-muted bp-module-hint' }, t('moduleTraceHint')),
         bp.modules.length === 0 ? h('div', { className: 'bp-muted' }, t('noModules')) : null,
-        bp.modules.map(module => h('div', { className: 'bp-module', key: module.id, onClick: () => selectModule(module) },
-          h('div', { className: 'bp-module-top' },
-            h('strong', null, module.name),
-            h('span', { className: `bp-chip bp-chip-${module.status ?? 'pending'}` }, moduleStatusLabel(module.status))),
-          module.summary ? h('p', null, module.summary) : null,
-          module.dependsOn?.length ? h('div', { className: 'bp-module-deps' }, `${t('dependsOn')}: ${module.dependsOn.join(', ')}`) : null)))
+        bp.modules.map(module => {
+          const selected = selectedModuleId === module.id
+          const nodeIds = Array.isArray(module.nodeIds) ? module.nodeIds : []
+          const files = Array.isArray(module.files) ? module.files : []
+          const acceptance = Array.isArray(module.acceptance) ? module.acceptance : []
+          return h('div', {
+            className: `bp-module${selected ? ' selected' : ''}`, key: module.id,
+            onClick: () => selectModule(module),
+          },
+            h('div', { className: 'bp-module-top' },
+              h('strong', null, module.name),
+              h('span', { className: `bp-chip bp-chip-${module.status ?? 'pending'}` }, moduleStatusLabel(module.status))),
+            module.summary ? h('p', null, module.summary) : null,
+            module.dependsOn?.length ? h('div', { className: 'bp-module-deps' }, `${t('dependsOn')}: ${module.dependsOn.join(', ')}`) : null,
+            nodeIds.length > 0 ? h('div', { className: 'bp-module-deps' },
+              `${t('linkedNodes')}: ${nodeIds.map(ref => resolveNodeRef(bp, ref)?.node.label ?? ref).join('、')}`) : null,
+            files.length > 0 ? h('div', { className: 'bp-module-deps' }, `${t('moduleFiles')}: ${files.length}`) : null,
+            acceptance.length > 0 ? h('div', { className: 'bp-module-deps' }, `${t('moduleAcceptance')}: ${acceptance.length}`) : null,
+            selected ? h('div', {
+              className: 'bp-module-editor',
+              onClick: event => event.stopPropagation(),
+            },
+              h('div', { className: 'bp-field' },
+                h('span', null, t('linkedNodes')),
+                (currentDiagram?.nodes ?? []).length === 0
+                  ? h('div', { className: 'bp-muted' }, t('noDiagramNodes'))
+                  : h('div', { className: 'bp-node-picker' },
+                      (currentDiagram?.nodes ?? []).map(node => {
+                        const ref = nodeRef(currentDiagram.key, node.id)
+                        const checked = nodeIds.includes(ref)
+                        return h('label', { className: 'bp-node-option', key: node.id, title: ref },
+                          h('input', { type: 'checkbox', checked, onChange: () => toggleModuleNode(module, ref) }),
+                          h('span', { className: 'bp-node-text' }, `${node.label} · ${ref}`))
+                      }))),
+              h('label', { className: 'bp-field' }, h('span', null, t('moduleFiles')),
+                h(LineListEditor, {
+                  value: files, rows: 3, placeholder: t('moduleFilesHint'),
+                  onCommit: items => updateModule(module.id, found => { found.files = items }),
+                })),
+              h('label', { className: 'bp-field' }, h('span', null, t('moduleAcceptance')),
+                h(LineListEditor, {
+                  value: acceptance, rows: 3, placeholder: t('moduleAcceptanceHint'),
+                  onCommit: items => updateModule(module.id, found => { found.acceptance = items }),
+                }))) : null)
+        }))
     }
 
     function BoardPanel({ store }) {
@@ -3585,7 +3806,11 @@ window.__ModuleLoader__.load({
 .bp-caret.open{transform:rotate(90deg)}
 .bp-section-tools{display:flex;gap:2px}
 .bp-section-tools .bp-btn{width:26px;height:26px;padding:0;justify-content:center}
-.bp-item{display:flex;align-items:flex-start;gap:4px;margin:2px 0}
+.bp-item{display:flex;align-items:flex-start;gap:4px;margin:2px 0;border-radius:8px;transition:background .12s,box-shadow .12s}
+.bp-item.linked{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent);box-shadow:inset 3px 0 0 var(--dsw-alias-brand-primary)}
+.bp-item.focused{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 16%,transparent);box-shadow:inset 3px 0 0 var(--dsw-alias-brand-primary)}
+.bp-item-trace{flex:0 0 auto;min-width:17px;height:17px;margin-top:4px;padding:0 4px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:9px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:9.5px;font-weight:650}
+.bp-item-trace.active{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);color:#fff}
 .bp-item-input{flex:1;box-sizing:border-box;resize:none;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.5;padding:5px 7px;border-radius:7px;overflow:hidden}
 .bp-item-input:hover,.bp-item-input:focus{border-color:var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);outline:none}
 .bp-item-del{opacity:0;border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:4px;border-radius:6px}
@@ -3615,6 +3840,8 @@ window.__ModuleLoader__.load({
 .bp-canvas-svg{width:100%;height:100%;display:block;touch-action:none;user-select:none}
 .bp-canvas-label{font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif}
 .bp-node.selected{filter:drop-shadow(0 0 0 rgba(0,0,0,0))}
+.bp-node-linked{animation:bp-pulse 1.7s ease-in-out infinite;pointer-events:none}
+@keyframes bp-pulse{0%,100%{opacity:.45}50%{opacity:1}}
 .bp-canvas-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--dsw-alias-label-secondary);font-size:13px;pointer-events:none;text-align:center;padding:20px}
 .bp-canvas-hint{position:absolute;left:12px;bottom:10px;font-size:11px;color:var(--dsw-alias-label-secondary);opacity:.8;pointer-events:none}
 .bp-zoom{position:absolute;right:12px;bottom:8px;display:flex;align-items:center;gap:2px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-overlay);padding:2px}
@@ -3624,6 +3851,16 @@ window.__ModuleLoader__.load({
 .bp-inspector .bp-field{display:block;margin-bottom:10px}
 .bp-field span{display:block;font-size:11px;color:var(--dsw-alias-label-secondary);margin-bottom:4px}
 .bp-field textarea{resize:vertical}
+.bp-req-hint{font-size:10px;line-height:1.4;color:var(--dsw-alias-label-secondary);opacity:.85;margin:-1px 0 5px}
+.bp-req-list{max-height:230px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:5px;background:var(--dsw-alias-bg-base)}
+.bp-req-group{margin-bottom:7px}
+.bp-req-group:last-child{margin-bottom:0}
+.bp-req-group-title{font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--dsw-alias-label-secondary);margin:1px 3px 3px}
+.bp-req-option{display:flex;align-items:flex-start;gap:5px;padding:3px 4px;border-radius:5px;cursor:pointer;font-size:11px;line-height:1.4}
+.bp-req-option:hover{background:var(--dsw-alias-bg-layer-2)}
+.bp-req-option input{width:12px;height:12px;margin:1px 0 0;flex:0 0 auto}
+.bp-req-option .bp-req-text{display:inline;margin:0;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word}
+.bp-req-empty{font-size:10.5px;color:var(--dsw-alias-label-secondary);opacity:.7;padding:0 4px}
 .bp-inspector .bp-danger{margin-top:4px}
 .bp-divider{height:1px;background:var(--dsw-alias-border-l1);margin:16px 0}
 .bp-modules{display:flex;flex-direction:column;gap:8px}
@@ -3633,6 +3870,17 @@ window.__ModuleLoader__.load({
 .bp-module strong{font-size:12.5px}
 .bp-module p{margin:5px 0 0;font-size:11.5px;line-height:1.45;color:var(--dsw-alias-label-secondary)}
 .bp-module-deps{margin-top:6px;font-size:10.5px;color:var(--dsw-alias-label-secondary);opacity:.85}
+.bp-module-hint{margin-bottom:2px}
+.bp-module.selected{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-brand-primary) 35%,transparent)}
+.bp-module-editor{margin-top:8px;padding-top:8px;border-top:1px dashed var(--dsw-alias-border-l2);cursor:default}
+.bp-module-editor .bp-field{display:block;margin-bottom:8px}
+.bp-module-editor .bp-field span{display:block;font-size:11px;color:var(--dsw-alias-label-secondary);margin-bottom:4px}
+.bp-module-editor .bp-field textarea{font-size:11px}
+.bp-node-picker{max-height:180px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:5px;background:var(--dsw-alias-bg-layer-1)}
+.bp-node-option{display:flex;align-items:flex-start;gap:5px;padding:3px 4px;border-radius:5px;cursor:pointer;font-size:11px;line-height:1.4}
+.bp-node-option:hover{background:var(--dsw-alias-bg-layer-2)}
+.bp-node-option input{width:12px;height:12px;margin:1px 0 0;flex:0 0 auto}
+.bp-node-option .bp-node-text{display:inline;margin:0;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word}
 .bp-chip{font-size:10px;padding:1px 6px;border-radius:9px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .bp-chip-confirmed{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 35%,transparent)}
 .bp-chip-dispatched,.bp-chip-done{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}
@@ -3742,7 +3990,7 @@ window.__ModuleLoader__.load({
 @media (max-width:1180px){.bp-right{display:none}.bp-left{width:300px;flex-basis:300px}}
 @media (max-width:860px){.bp-left{display:none}.bp-shell{width:100vw;height:100vh;border-radius:0}.bp-open-label{display:none}}
 @media (max-width:520px){.bp-empty-card{padding:20px}.bp-template-grid{grid-template-columns:1fr 1fr}}
-@media (prefers-reduced-motion:reduce){.bp-spinner{animation:none}}
+@media (prefers-reduced-motion:reduce){.bp-spinner{animation:none}.bp-node-linked{animation:none;opacity:.85}}
 `
 
     function apply(ctx) {
