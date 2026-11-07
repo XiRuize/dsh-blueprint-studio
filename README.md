@@ -64,6 +64,19 @@ Install the workspace bundle with the Harness plugin manager:
 plugin_manager(action="install_bundle", target="<absolute path to dsh-blueprint-studio>")
 ```
 
+### Install without git
+
+A GitHub URL is a **git dependency**: pnpm shells out to `git ls-remote`, so it fails on machines without Git in `PATH` (`'git' is not recognized`). Install the packaged tarball instead — it is a plain HTTPS download and needs no Git or build step:
+
+```bash
+dsh plugin --profile <profile> add \
+  https://github.com/XiRuize/dsh-blueprint-studio/releases/download/v0.2.1/dsh-blueprint-studio-0.2.1.tgz
+```
+
+Or download `dsh-blueprint-studio-0.2.1.tgz` from [Releases](https://github.com/XiRuize/dsh-blueprint-studio/releases) and point `install_bundle` at the local `.tgz` / extracted directory.
+
+If you prefer the git URL, install Git for Windows first (`winget install --id Git.Git -e`) and reopen the terminal. Behind a proxy, set `HTTPS_PROXY` for pnpm, or configure Git's proxy/SSH transport separately.
+
 The bundle inserts two rows: a Host plugin (`blueprint` tool, `/blueprint` command, system-prompt section) and a Web client half (composer button + full-screen studio). No build step and no runtime dependencies are required.
 
 After installation, open any conversation. A **Blueprint / 蓝图** button appears in the composer tool row. The agent is also instructed to create a blueprint before multi-step implementation work.
