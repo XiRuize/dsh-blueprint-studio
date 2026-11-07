@@ -41,6 +41,17 @@ window.__ModuleLoader__.load({
       editedByYou: 'Edited by you', aiUpdated: 'The agent updated this blueprint', reload: 'Reload',
       zoom: 'Zoom', fitView: 'Fit', allDiagrams: 'All diagrams', edgeKind: 'Kind', addEdge: 'Add edge',
       statusPending: 'Pending', statusRunning: 'Running', statusDone: 'Done', statusBlocked: 'Blocked',
+      statusNeedsRework: 'Needs rework',
+      verification: 'Verification', verificationTests: 'Tests', verificationReviewer: 'Review', verificationHuman: 'Human',
+      verificationPassed: 'Passed', verificationFailed: 'Failed', verificationPending: 'Pending',
+      verificationAllPassed: 'All layers passed', verificationIncomplete: 'Not all layers passed',
+      verificationEvidence: 'Evidence', verificationNoEvidence: 'No evidence yet',
+      verificationRecord: 'Record verification', verificationRole: 'Layer', verificationResult: 'Result',
+      verificationEvidencePlaceholder: 'Optional evidence, e.g. test command or review note',
+      verificationSaved: 'Verification recorded', verificationSaveFailed: 'Could not record verification',
+      verificationRequiredForDone: 'All three verification layers must pass before a module can be marked done.',
+      verificationHint: 'Verification is recorded by the Host verify command; it cannot be bypassed with a status change.',
+      moduleAcceptanceMissing: 'No acceptance criteria yet',
       sequence: 'Sequence', er: 'ER', c4: 'C4', participant: 'Participant', relationship: 'Relationship',
       person: 'Person', container: 'Container', component: 'Component', database: 'Database',
       message: 'Message', cardinality: 'Cardinality', order: 'Order', technology: 'Technology',
@@ -63,7 +74,7 @@ window.__ModuleLoader__.load({
       checkModule: 'Module', checkLayer: 'Layer',
       children: 'Subagents', noChildren: 'No child subagents yet.', running: 'running', idle: 'idle', refresh: 'Refresh',
       openSession: 'Open session', copyId: 'Copy session id', importDrawio: 'Import draw.io', importFailed: 'Import failed',
-      openChild: 'Open child session', cancelChild: 'Cancel', runModule: 'Retry / run module', moduleStatusHint: 'Change module status; the draft saves automatically.',
+      openChild: 'Open child session', cancelChild: 'Cancel', runModule: 'Retry / run module', moduleStatusHint: 'Change module status; done requires all three verification layers. Draft saves automatically.',
       cancelRequested: 'Cancel request sent to the subagent', cancelFailed: 'Could not cancel the subagent',
       modulePromptSent: 'The agent will restart this module only.',
       importDiagram: 'Import diagram', importSource: 'Source', importSourceAuto: 'Auto detect', importSourceDrawio: 'draw.io',
@@ -158,6 +169,17 @@ window.__ModuleLoader__.load({
       editedByYou: '已手工修改', aiUpdated: 'AI 已更新这份蓝图', reload: '重新加载',
       zoom: '缩放', fitView: '适应', allDiagrams: '全部图解', edgeKind: '类型', addEdge: '新增连线',
       statusPending: '待处理', statusRunning: '进行中', statusDone: '已完成', statusBlocked: '受阻',
+      statusNeedsRework: '需返工',
+      verification: '分层验证', verificationTests: '测试', verificationReviewer: '评审', verificationHuman: '人工',
+      verificationPassed: '通过', verificationFailed: '失败', verificationPending: '待验证',
+      verificationAllPassed: '三层全部通过', verificationIncomplete: '未全部通过',
+      verificationEvidence: '证据', verificationNoEvidence: '暂无证据',
+      verificationRecord: '记录验证', verificationRole: '层级', verificationResult: '结果',
+      verificationEvidencePlaceholder: '可选证据，例如测试命令或评审意见',
+      verificationSaved: '验证已记录', verificationSaveFailed: '记录验证失败',
+      verificationRequiredForDone: '三层验证全部通过后才能把模块标记为完成。',
+      verificationHint: '验证由 Host 的 verify 命令写入，不能通过修改状态绕过。',
+      moduleAcceptanceMissing: '还没有验收标准',
       sequence: '时序图', er: 'ER 图', c4: 'C4 图', participant: '参与者', relationship: '关系',
       person: '角色', container: '容器', component: '组件', database: '数据库',
       message: '消息', cardinality: '基数', order: '顺序', technology: '技术栈',
@@ -180,7 +202,7 @@ window.__ModuleLoader__.load({
       checkModule: '模块', checkLayer: '层',
       children: '子代理', noChildren: '还没有子代理。', running: '运行中', idle: '空闲', refresh: '刷新',
       openSession: '打开会话', copyId: '复制会话 ID', importDrawio: '导入 draw.io', importFailed: '导入失败',
-      openChild: '打开子会话', cancelChild: '取消', runModule: '重试/执行模块', moduleStatusHint: '修改模块状态，草稿会自动保存。',
+      openChild: '打开子会话', cancelChild: '取消', runModule: '重试/执行模块', moduleStatusHint: '修改模块状态；标记完成需三层验证通过。草稿会自动保存。',
       cancelRequested: '已向子代理发送取消信号', cancelFailed: '取消子代理失败',
       modulePromptSent: '已请求 AI 只重新启动该模块的子代理。',
       importDiagram: '导入图', importSource: '来源', importSourceAuto: '自动识别', importSourceDrawio: 'draw.io',
@@ -1950,7 +1972,47 @@ window.__ModuleLoader__.load({
       if (status === 'running' || status === 'in-progress') return t('statusRunning')
       if (status === 'done' || status === 'completed') return t('statusDone')
       if (status === 'blocked' || status === 'failed') return t('statusBlocked')
+      if (status === 'needs-rework' || status === 'needs_rework') return t('statusNeedsRework')
       return t('statusPending')
+    }
+
+    const VERIFICATION_ROLES = ['tests', 'reviewer', 'human']
+    const VERIFICATION_STATUSES = ['pending', 'passed', 'failed']
+    const VERIFICATION_ROLE_KEYS = { tests: 'verificationTests', reviewer: 'verificationReviewer', human: 'verificationHuman' }
+    const VERIFICATION_STATUS_KEYS = { passed: 'verificationPassed', failed: 'verificationFailed', pending: 'verificationPending' }
+
+    function moduleVerification(module) {
+      const raw = module?.verification
+      const source = raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+      const verification = {}
+      for (const role of VERIFICATION_ROLES) {
+        const entry = source[role] !== null && typeof source[role] === 'object' && !Array.isArray(source[role])
+          ? source[role]
+          : {}
+        const status = typeof entry.status === 'string' ? entry.status.toLowerCase() : 'pending'
+        const evidence = Array.isArray(entry.evidence)
+          ? entry.evidence.filter(item => typeof item === 'string' && item.trim() !== '')
+          : []
+        verification[role] = {
+          status: VERIFICATION_STATUSES.includes(status) ? status : 'pending',
+          evidence,
+          at: typeof entry.at === 'number' && Number.isFinite(entry.at) ? entry.at : undefined,
+        }
+      }
+      return verification
+    }
+
+    function verificationAllPassed(module) {
+      const verification = moduleVerification(module)
+      return VERIFICATION_ROLES.every(role => verification[role].status === 'passed')
+    }
+
+    function verificationRoleLabel(role) {
+      return t(VERIFICATION_ROLE_KEYS[role] ?? 'verification')
+    }
+
+    function verificationStatusLabel(status) {
+      return t(VERIFICATION_STATUS_KEYS[status] ?? 'verificationPending')
     }
 
     function button(className, onClick, children, options = {}) {
@@ -3057,6 +3119,66 @@ window.__ModuleLoader__.load({
       })
     }
 
+    function VerificationBadges({ module }) {
+      const verification = moduleVerification(module)
+      const complete = verificationAllPassed(module)
+      return h('div', { className: 'bp-verification' },
+        h('div', { className: 'bp-verification-head' },
+          h('span', { className: 'bp-verification-title' }, t('verification')),
+          h('span', { className: `bp-chip ${complete ? 'bp-chip-verify-passed' : 'bp-chip-verify-pending'}` },
+            complete ? t('verificationAllPassed') : t('verificationIncomplete'))),
+        h('div', { className: 'bp-verification-layers' },
+          VERIFICATION_ROLES.map(role => {
+            const entry = verification[role]
+            const last = entry.evidence.length > 0 ? entry.evidence[entry.evidence.length - 1] : ''
+            const title = entry.evidence.length > 0 ? entry.evidence.join('\n') : t('verificationNoEvidence')
+            return h('div', { className: 'bp-verification-layer', key: role, title },
+              h('span', { className: 'bp-verification-role' }, verificationRoleLabel(role)),
+              h('span', { className: `bp-chip bp-chip-verify-${entry.status}` }, verificationStatusLabel(entry.status)),
+              h('span', { className: 'bp-verification-evidence' },
+                last === '' ? t('verificationNoEvidence') : `${t('verificationEvidence')}: ${last}`))
+          })))
+    }
+
+    function VerificationEditor({ module, onRecord }) {
+      const [role, setRole] = useState('tests')
+      const [status, setStatus] = useState('passed')
+      const [evidence, setEvidence] = useState('')
+      const [busy, setBusy] = useState(false)
+      const submit = async () => {
+        if (busy) return
+        setBusy(true)
+        const saved = await onRecord(module, role, status, evidence.trim())
+        setBusy(false)
+        if (saved) setEvidence('')
+      }
+      return h('div', { className: 'bp-verification-editor', onClick: event => event.stopPropagation() },
+        h('div', { className: 'bp-verification-title' }, t('verificationRecord')),
+        h('div', { className: 'bp-verification-form' },
+          h('label', { className: 'bp-verification-field' }, h('span', null, t('verificationRole')),
+            h('select', {
+              className: 'bp-input', value: role,
+              onChange: event => setRole(event.target.value),
+            }, VERIFICATION_ROLES.map(item => h('option', { key: item, value: item }, verificationRoleLabel(item))))),
+          h('label', { className: 'bp-verification-field' }, h('span', null, t('verificationResult')),
+            h('select', {
+              className: 'bp-input', value: status,
+              onChange: event => setStatus(event.target.value),
+            }, ['passed', 'failed', 'pending'].map(item => h('option', { key: item, value: item }, verificationStatusLabel(item))))),
+          h('input', {
+            className: 'bp-input bp-verification-evidence-input',
+            value: evidence,
+            placeholder: t('verificationEvidencePlaceholder'),
+            onChange: event => setEvidence(event.target.value),
+            onKeyDown: event => { if (event.key === 'Enter') submit() },
+          }),
+          h('button', {
+            type: 'button', className: 'bp-btn bp-primary bp-verification-submit',
+            disabled: busy, onClick: submit,
+          }, busy ? t('saving') : t('verificationRecord'))),
+        h('div', { className: 'bp-muted bp-verification-hint' }, t('verificationHint')))
+    }
+
     function ModulePanel({ store }) {
       const bp = store.bp
       const [selectedModuleId, setSelectedModuleId] = useState(null)
@@ -3095,6 +3217,24 @@ window.__ModuleLoader__.load({
           connectFrom: null,
         })
       }
+      // Verification is written by the Host command, never by local mutation: save
+      // pending edits first, run `/blueprint verify`, then reload the authoritative file.
+      const recordVerification = async (module, role, status, evidence) => {
+        try {
+          if (state.dirty) {
+            const saved = await saveBlueprint({ silent: true })
+            if (!saved) return false
+          }
+          const suffix = evidence === '' ? '' : ` ${evidence}`
+          await runBlueprintCommand(`verify ${module.id} ${role} ${status}${suffix}`)
+          await loadBlueprint()
+          toast(t('verificationSaved'), 'success')
+          return true
+        } catch (error) {
+          toast(`${t('verificationSaveFailed')}: ${String(error?.message ?? error)}`, 'error')
+          return false
+        }
+      }
       return h('div', { className: 'bp-modules' },
         h('div', { className: 'bp-kicker' }, t('modules')),
         h('div', { className: 'bp-muted bp-module-hint' }, t('moduleTraceHint')),
@@ -3116,7 +3256,13 @@ window.__ModuleLoader__.load({
             nodeIds.length > 0 ? h('div', { className: 'bp-module-deps' },
               `${t('linkedNodes')}: ${nodeIds.map(ref => resolveNodeRef(bp, ref)?.node.label ?? ref).join('、')}`) : null,
             files.length > 0 ? h('div', { className: 'bp-module-deps' }, `${t('moduleFiles')}: ${files.length}`) : null,
-            acceptance.length > 0 ? h('div', { className: 'bp-module-deps' }, `${t('moduleAcceptance')}: ${acceptance.length}`) : null,
+            h('div', { className: 'bp-module-acceptance' },
+              h('div', { className: 'bp-module-deps' }, t('moduleAcceptance')),
+              acceptance.length === 0
+                ? h('div', { className: 'bp-muted bp-acceptance-empty' }, t('moduleAcceptanceMissing'))
+                : h('ul', { className: 'bp-acceptance-list' },
+                    acceptance.map((item, index) => h('li', { key: index }, item)))),
+            h(VerificationBadges, { module }),
             selected ? h('div', {
               className: 'bp-module-editor',
               onClick: event => event.stopPropagation(),
@@ -3156,7 +3302,8 @@ window.__ModuleLoader__.load({
                 h(LineListEditor, {
                   value: acceptance, rows: 3, placeholder: t('moduleAcceptanceHint'),
                   onCommit: items => updateModule(module.id, found => { found.acceptance = items }),
-                }))) : null)
+                })),
+              h(VerificationEditor, { module, onRecord: recordVerification })) : null)
         }))
     }
 
@@ -3179,6 +3326,11 @@ window.__ModuleLoader__.load({
         try { await navigator.clipboard.writeText(child.sessionId); toast(t('copyId'), 'success') } catch {}
       }
       const setModuleStatus = (module, status) => {
+        // done is a verified claim, not a free-form label. The Host aggregation owns it.
+        if (status === 'done' && !verificationAllPassed(module)) {
+          toast(t('verificationRequiredForDone'), 'error')
+          return
+        }
         mutate(current => {
           const target = current.modules.find(item => item.id === module.id)
           if (target !== undefined) target.status = status
@@ -3240,7 +3392,11 @@ window.__ModuleLoader__.load({
                 value: module.status ?? 'pending',
                 title: t('moduleStatusHint'),
                 onChange: event => setModuleStatus(module, event.target.value),
-              }, ['pending', 'running', 'done', 'blocked'].map(status => h('option', { key: status, value: status }, moduleStatusLabel(status))))),
+              }, ['pending', 'running', 'done', 'blocked', 'needs-rework'].map(status => h('option', {
+                key: status,
+                value: status,
+                disabled: status === 'done' && !verificationAllPassed(module),
+              }, moduleStatusLabel(status))))),
             h('div', { className: 'bp-child-actions' },
               module.subagentSessionId
                 ? h(React.Fragment, null,
@@ -5401,6 +5557,29 @@ window.__ModuleLoader__.load({
 .bp-node-option .bp-node-text{display:inline;margin:0;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word}
 .bp-module-status-label{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
 .bp-module-status{width:auto;min-width:84px;max-width:118px;height:24px;padding:0 4px;font-size:10.5px}
+.bp-module-acceptance{margin-top:6px}
+.bp-acceptance-list{margin:3px 0 0;padding-left:16px;font-size:10.5px;line-height:1.45;color:var(--dsw-alias-label-secondary)}
+.bp-acceptance-list li{margin:1px 0}
+.bp-acceptance-empty{font-size:10px;opacity:.7;margin-top:2px}
+.bp-verification{margin-top:7px;padding:6px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}
+.bp-verification-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}
+.bp-verification-title{font-size:10.5px;font-weight:650;color:var(--dsw-alias-label-secondary)}
+.bp-verification-layers{display:flex;flex-direction:column;gap:3px}
+.bp-verification-layer{display:flex;align-items:center;gap:5px;min-width:0;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.bp-verification-role{flex:0 0 auto;min-width:28px}
+.bp-verification-evidence{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.75}
+.bp-verification-editor{margin-top:8px;padding-top:8px;border-top:1px dashed var(--dsw-alias-border-l2)}
+.bp-verification-form{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.bp-verification-field{display:block;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.bp-verification-field span{display:block;margin-bottom:3px}
+.bp-verification-field .bp-input{height:26px;padding:0 5px;font-size:10.5px}
+.bp-verification-evidence-input{grid-column:1 / -1;height:26px;padding:0 5px;font-size:10.5px}
+.bp-verification-submit{grid-column:1 / -1;justify-content:center;height:26px;font-size:10.5px}
+.bp-verification-hint{font-size:10px;line-height:1.4;margin-top:5px;opacity:.75}
+.bp-chip-needs-rework{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 35%,transparent)}
+.bp-chip-verify-passed{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}
+.bp-chip-verify-failed{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent)}
+.bp-chip-verify-pending{color:var(--dsw-alias-label-secondary)}
 .bp-chip{font-size:10px;padding:1px 6px;border-radius:9px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .bp-chip-running{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}
 .bp-chip-blocked{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent)}
