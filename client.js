@@ -60,6 +60,12 @@ window.__ModuleLoader__.load({
       field: 'Field', method: 'Method', addMethod: 'Add method', transition: 'Transition',
       extends: 'Extends', implements: 'Implements', association: 'Association', dependency: 'Dependency',
       draftSaved: 'Draft saved', generationTimeout: 'The AI did not return a blueprint within 60 seconds. Retry, or check the connection and keep waiting.', retry: 'Retry', cancelWaiting: 'Cancel waiting',
+      templatesTitle: 'Start from a template', templatesHint: 'One click creates a full draft — no AI call needed.',
+      tplWeb: 'Web application', tplWebDesc: 'Frontend, backend, database and auth',
+      tplCli: 'CLI tool', tplCliDesc: 'Command parsing, execution, config and output',
+      tplPipeline: 'Data pipeline', tplPipelineDesc: 'Ingest, clean, store and schedule',
+      tplPlugin: 'DSH plugin', tplPluginDesc: 'Host tool, client panel, storage and tests',
+      templateApplied: 'Template applied', templateFailed: 'Could not apply the template',
     }
     const ZH = {
       open: '蓝图', title: '工程蓝图', subtitle: '先把系统画清楚，再开始写代码',
@@ -115,6 +121,12 @@ window.__ModuleLoader__.load({
       field: '字段', method: '方法', addMethod: '新增方法', transition: '转移',
       extends: '继承', implements: '实现', association: '关联', dependency: '依赖',
       draftSaved: '草稿已保存', generationTimeout: 'AI 未在 60 秒内返回蓝图。可以重试，或检查网络后继续等待。', retry: '重试', cancelWaiting: '取消等待',
+      templatesTitle: '从模板开始', templatesHint: '一键生成完整草稿，不调用 AI。',
+      tplWeb: 'Web 应用', tplWebDesc: '前端、后端、数据库与鉴权',
+      tplCli: 'CLI 工具', tplCliDesc: '命令解析、执行、配置与输出',
+      tplPipeline: '数据管道', tplPipelineDesc: '采集、清洗、存储与调度',
+      tplPlugin: 'DSH 插件', tplPluginDesc: 'Host 工具、Client 面板、存储与测试',
+      templateApplied: '已应用模板', templateFailed: '模板应用失败',
     }
 
     let dict = ZH
@@ -543,6 +555,388 @@ window.__ModuleLoader__.load({
     function dispatchPrompt() {
       return `用户已在蓝图面板确认工程蓝图。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 调用 blueprint(action="dispatch") 标记为已分派；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态。`
     }
+
+    const tplSection = (key, title, items) => ({
+      key, title, items: items.map((text, index) => ({ id: `${key}-${index + 1}`, text })),
+    })
+    const tplDiagram = (key, title, nodes, edges) => ({
+      key, title,
+      nodes: nodes.map(([id, type, label]) => ({ id, type, label })),
+      edges: edges.map(([from, to, label, kind]) => ({ from, to, label, kind })),
+    })
+    const tplModule = (id, name, summary, dependsOn) => ({ id, name, summary, dependsOn, status: 'pending' })
+    function tplBlueprint({ title, summary, prompt, sections, diagrams, modules }) {
+      const now = Date.now()
+      return {
+        version: 1, id: `bp-${now.toString(36)}`, sessionId: state.sessionId,
+        title, summary, prompt, status: 'draft',
+        sections, diagrams, modules,
+        createdAt: now, updatedAt: now,
+      }
+    }
+
+    // Welcome-page starters. Each one is a complete draft blueprint; layout is
+    // left to ensureLayout() so templates never carry x/y/w/h.
+    const TEMPLATES = [
+      {
+        key: 'web', nameKey: 'tplWeb', descKey: 'tplWebDesc',
+        build: () => tplBlueprint({
+          title: 'Web 应用',
+          summary: '前后端分离的 Web 应用：React 前端、Node API、关系型数据库与统一鉴权，先跑通核心浏览与项目流程。',
+          prompt: '构建一个 Web 应用，支持注册登录、项目管理与仪表盘；前端 React，后端 Node API，数据库使用 PostgreSQL。',
+          sections: [
+            tplSection('goals', '目标与价值', [
+              '新用户能在 3 分钟内完成注册并进入首个项目。',
+              '核心页面首屏在常规网络下 2 秒内可交互。',
+              '管理员能查看用户与项目的基础运营数据。',
+            ]),
+            tplSection('actors', '角色与场景', [
+              '访客：浏览落地页、注册与登录。',
+              '注册用户：创建和管理自己的项目。',
+              '管理员：查看用户与项目并处理异常账号。',
+            ]),
+            tplSection('functional', '功能需求', [
+              '支持邮箱注册、登录、退出与密码重置。',
+              '用户可创建、重命名、归档项目并按名称搜索。',
+              '仪表盘展示项目数量、最近活动和待办摘要。',
+            ]),
+            tplSection('nonfunctional', '非功能需求', [
+              '接口 P95 延迟低于 300ms，错误率低于 0.5%。',
+              '密码只存哈希，会话令牌 7 天过期并可主动吊销。',
+              '关键操作写审计日志，保留至少 90 天。',
+            ]),
+            tplSection('constraints', '约束与依赖', [
+              '前端使用 React，后端提供 REST/JSON 接口。',
+              '数据存储使用 PostgreSQL，通过迁移脚本管理表结构。',
+              '首版不接入第三方 OAuth，仅邮箱密码登录。',
+            ]),
+            tplSection('acceptance', '验收标准', [
+              '新用户可完成注册→登录→创建项目→刷新后数据仍在。',
+              '未登录访问受限页面会跳转登录并保留回跳地址。',
+              '管理员能禁用账号，被禁用账号立即无法登录。',
+            ]),
+            tplSection('risks', '风险与开放问题', [
+              '鉴权边界（前端守卫 vs 后端校验）需明确，避免只做前端拦截。',
+              '是否支持多租户尚未确定，可能影响数据模型。',
+              '仪表盘统计口径未定，需产品确认。',
+            ]),
+          ],
+          diagrams: [
+            tplDiagram('usecase', '用例图', [
+              ['a-user', 'actor', '用户'], ['a-admin', 'actor', '管理员'],
+              ['sys', 'system', 'Web 应用'],
+              ['uc-signin', 'usecase', '注册 / 登录'], ['uc-project', 'usecase', '管理项目'],
+              ['uc-dash', 'usecase', '查看仪表盘'],
+            ], [
+              ['a-user', 'uc-signin', '关联', 'association'],
+              ['a-user', 'uc-project', '关联', 'association'],
+              ['a-admin', 'uc-project', '管理', 'association'],
+              ['a-admin', 'uc-dash', '查看', 'association'],
+            ]),
+            tplDiagram('dfd', '数据流图', [
+              ['ext-browser', 'entity', '浏览器'], ['ext-admin', 'entity', '管理员'],
+              ['p-auth', 'process', '鉴权服务'], ['p-api', 'process', '业务 API'], ['p-dash', 'process', '统计服务'],
+              ['s-user', 'store', '用户库'], ['s-project', 'store', '项目库'],
+            ], [
+              ['ext-browser', 'p-auth', '邮箱 / 密码', 'flow'],
+              ['ext-browser', 'p-api', '项目操作', 'flow'],
+              ['ext-admin', 'p-dash', '统计查询', 'flow'],
+              ['p-auth', 's-user', '账号与令牌', 'flow'],
+              ['p-api', 's-project', '项目记录', 'flow'],
+              ['p-api', 'p-dash', '活动事件', 'flow'],
+              ['p-dash', 's-project', '聚合结果', 'flow'],
+            ]),
+            tplDiagram('module', '模块图', [
+              ['m-ui', 'module', '前端应用'], ['m-api', 'module', '后端 API'],
+              ['m-auth', 'module', '鉴权'], ['m-db', 'module', '数据层'],
+            ], [
+              ['m-ui', 'm-api', 'REST', 'depends'],
+              ['m-api', 'm-auth', '校验令牌', 'depends'],
+              ['m-api', 'm-db', '读写数据', 'depends'],
+              ['m-auth', 'm-db', '账号存储', 'depends'],
+            ]),
+            tplDiagram('sequence', '时序图', [], []),
+            tplDiagram('er', 'ER 图', [], []),
+            tplDiagram('c4', 'C4 图', [], []),
+          ],
+          modules: [
+            tplModule('web-ui', '前端应用', '实现登录、项目列表与仪表盘页面，接入后端 REST 接口；验收：核心流程可点通且刷新不丢数据。', []),
+            tplModule('web-api', '后端接口', '提供鉴权、项目与仪表盘 REST 接口，包含参数校验与错误码；验收：接口契约测试通过。', ['web-auth', 'web-db']),
+            tplModule('web-auth', '鉴权', '实现注册、登录、会话令牌与吊销，密码哈希存储；验收：未授权请求返回 401。', ['web-db']),
+            tplModule('web-db', '数据层', '设计用户与项目表、迁移脚本和查询封装；验收：迁移可在空库执行且可回滚。', []),
+          ],
+        }),
+      },
+      {
+        key: 'cli', nameKey: 'tplCli', descKey: 'tplCliDesc',
+        build: () => tplBlueprint({
+          title: 'CLI 工具',
+          summary: '零依赖命令行工具：命令解析、执行器、配置读取与格式化输出，支持脚本化调用和机器可读结果。',
+          prompt: '构建一个 CLI 工具，支持子命令、配置文件和机器可读输出，覆盖命令解析、执行、配置与输出。',
+          sections: [
+            tplSection('goals', '目标与价值', [
+              '开发者能用一个命令完成核心任务。',
+              '非法参数给出可操作错误并以非零退出码结束。',
+              '输出支持 text 与 json 两种格式，便于脚本消费。',
+            ]),
+            tplSection('actors', '角色与场景', [
+              '开发者：交互式执行命令并查看帮助。',
+              'CI 脚本：非交互调用并依赖退出码判断结果。',
+              '维护者：发布版本并排查运行问题。',
+            ]),
+            tplSection('functional', '功能需求', [
+              '支持子命令与全局选项解析，未知选项报错并提示用法。',
+              '从用户配置与项目配置合并配置，CLI 参数优先级最高。',
+              '执行结果写 stdout，诊断与错误写 stderr。',
+            ]),
+            tplSection('nonfunctional', '非功能需求', [
+              '启动到输出帮助信息低于 200ms。',
+              '单条命令常驻内存低于 100MB。',
+              '退出码遵循 0 成功、1 运行失败、2 用法错误的约定。',
+            ]),
+            tplSection('constraints', '约束与依赖', [
+              '仅使用 Node 标准库，零运行时依赖。',
+              '要求 Node 18 及以上版本。',
+              '配置格式固定为 JSON，首版不做远程配置。',
+            ]),
+            tplSection('acceptance', '验收标准', [
+              '`tool --help` 退出码为 0 并列出全部子命令。',
+              '`tool run --bad` 退出码为 2 并输出用法提示。',
+              '`--json` 输出可被 jq 解析，且不混入日志文本。',
+            ]),
+            tplSection('risks', '风险与开放问题', [
+              '子命令命名可能与未来扩展冲突，需要预留命名空间。',
+              '配置文件合并顺序需写入文档并加测试。',
+              'Windows 路径与换行差异需要额外测试覆盖。',
+            ]),
+          ],
+          diagrams: [
+            tplDiagram('usecase', '用例图', [
+              ['a-dev', 'actor', '开发者'], ['a-ci', 'actor', 'CI 脚本'],
+              ['sys', 'system', 'CLI 工具'],
+              ['uc-parse', 'usecase', '解析命令'], ['uc-run', 'usecase', '执行命令'],
+              ['uc-config', 'usecase', '读取配置'], ['uc-out', 'usecase', '输出结果'],
+            ], [
+              ['a-dev', 'uc-parse', '输入参数', 'association'],
+              ['a-dev', 'uc-config', '配置覆盖', 'association'],
+              ['a-dev', 'uc-out', '查看结果', 'association'],
+              ['a-ci', 'uc-run', '脚本调用', 'association'],
+              ['a-ci', 'uc-out', '解析输出', 'association'],
+            ]),
+            tplDiagram('dfd', '数据流图', [
+              ['ext-shell', 'entity', '终端'], ['p-parse', 'process', '命令解析器'],
+              ['p-exec', 'process', '命令执行器'], ['p-config', 'process', '配置加载器'],
+              ['p-format', 'process', '输出格式化'],
+              ['s-config', 'store', '配置文件'], ['s-log', 'store', '运行日志'],
+            ], [
+              ['ext-shell', 'p-parse', 'argv', 'flow'],
+              ['p-parse', 'p-config', '命令上下文', 'flow'],
+              ['p-parse', 'p-exec', '执行计划', 'flow'],
+              ['p-exec', 'p-format', '执行结果', 'flow'],
+              ['p-config', 's-config', '读取配置', 'flow'],
+              ['p-format', 'ext-shell', 'stdout / stderr', 'flow'],
+              ['p-exec', 's-log', '诊断信息', 'flow'],
+            ]),
+            tplDiagram('module', '模块图', [
+              ['m-cli', 'module', '命令解析'], ['m-core', 'module', '执行引擎'],
+              ['m-config', 'module', '配置'], ['m-output', 'module', '输出'],
+            ], [
+              ['m-cli', 'm-core', '执行计划', 'depends'],
+              ['m-cli', 'm-config', '选项合并', 'depends'],
+              ['m-core', 'm-output', '结果', 'depends'],
+              ['m-output', 'm-config', '格式偏好', 'depends'],
+            ]),
+            tplDiagram('sequence', '时序图', [], []),
+            tplDiagram('er', 'ER 图', [], []),
+            tplDiagram('c4', 'C4 图', [], []),
+          ],
+          modules: [
+            tplModule('cli-parser', '命令解析', '解析子命令、选项与位置参数，生成执行计划并处理用法错误；验收：未知选项退出码为 2。', []),
+            tplModule('cli-core', '执行引擎', '按执行计划调度子命令、处理异常与退出码；验收：成功与失败路径都有测试。', ['cli-parser']),
+            tplModule('cli-config', '配置', '加载并合并用户级与项目级 JSON 配置，参数优先；验收：合并顺序符合文档。', []),
+            tplModule('cli-output', '输出', '实现 text/json 渲染与 stdout/stderr 分流；验收：json 输出可被 jq 解析。', ['cli-config']),
+          ],
+        }),
+      },
+      {
+        key: 'pipeline', nameKey: 'tplPipeline', descKey: 'tplPipelineDesc',
+        build: () => tplBlueprint({
+          title: '数据管道',
+          summary: '采集 → 清洗 → 存储 → 调度 的批处理数据管道，先保证可重跑、可观测、数据质量可定位。',
+          prompt: '构建一个数据管道：从多个数据源采集、清洗、写入数仓，并由定时任务调度，支持失败重试与质量检查。',
+          sections: [
+            tplSection('goals', '目标与价值', [
+              '每日自动采集并产出可直接分析的数据。',
+              '失败任务可一键重跑且不产生重复数据。',
+              '数据质量问题能在运行报告中快速定位。',
+            ]),
+            tplSection('actors', '角色与场景', [
+              '数据工程师：配置任务、查看运行状态并排障。',
+              '分析师：查询数仓中的分区表。',
+              '调度器：按计划触发任务并重试失败任务。',
+            ]),
+            tplSection('functional', '功能需求', [
+              '支持 HTTP 与文件数据源，配置增量采集游标。',
+              '清洗规则可配置：去重、类型转换与空值处理。',
+              '按日期分区写入数仓，并提供任务状态查询。',
+            ]),
+            tplSection('nonfunctional', '非功能需求', [
+              '单批处理 100 万行低于 15 分钟。',
+              '失败自动重试 3 次并采用指数退避。',
+              '每次运行记录行数、耗时与质量指标。',
+            ]),
+            tplSection('constraints', '约束与依赖', [
+              '首版只做批处理，暂不引入流式框架。',
+              '数据落地 PostgreSQL 并复用现有 cron 调度。',
+              '敏感字段在入库前脱敏。',
+            ]),
+            tplSection('acceptance', '验收标准', [
+              '同一分区连续运行两天不产生重复记录。',
+              '注入脏数据后质量检查能拦截并在报告中标记。',
+              '失败任务重跑后结果幂等且状态可追踪。',
+            ]),
+            tplSection('risks', '风险与开放问题', [
+              '数据源限流策略未知，可能需要退避与配额。',
+              '清洗规则变更后需要回填策略与影响评估。',
+              '时区与分区边界需与分析师确认。',
+            ]),
+          ],
+          diagrams: [
+            tplDiagram('usecase', '用例图', [
+              ['a-engineer', 'actor', '数据工程师'], ['a-analyst', 'actor', '分析师'], ['a-scheduler', 'actor', '调度器'],
+              ['sys', 'system', '数据管道'],
+              ['uc-ingest', 'usecase', '配置采集任务'], ['uc-run', 'usecase', '触发任务'],
+              ['uc-monitor', 'usecase', '查看运行与质量'], ['uc-query', 'usecase', '查询数仓'],
+            ], [
+              ['a-engineer', 'uc-ingest', '配置', 'association'],
+              ['a-engineer', 'uc-monitor', '排障', 'association'],
+              ['a-scheduler', 'uc-run', '定时触发', 'association'],
+              ['a-analyst', 'uc-query', '分析', 'association'],
+            ]),
+            tplDiagram('dfd', '数据流图', [
+              ['ext-source', 'entity', '数据源'], ['p-schedule', 'process', '调度器'],
+              ['p-ingest', 'process', '采集器'], ['p-clean', 'process', '清洗器'], ['p-load', 'process', '加载器'],
+              ['s-raw', 'store', '原始数据'], ['s-dw', 'store', '数仓'],
+            ], [
+              ['p-schedule', 'p-ingest', '触发任务', 'flow'],
+              ['ext-source', 'p-ingest', '原始记录', 'flow'],
+              ['p-ingest', 's-raw', '原始分区', 'flow'],
+              ['s-raw', 'p-clean', '待清洗数据', 'flow'],
+              ['p-clean', 'p-load', '干净记录', 'flow'],
+              ['p-load', 's-dw', '数仓分区', 'flow'],
+              ['p-clean', 'p-schedule', '质量报告', 'flow'],
+            ]),
+            tplDiagram('module', '模块图', [
+              ['m-ingest', 'module', '采集'], ['m-clean', 'module', '清洗'],
+              ['m-store', 'module', '存储'], ['m-schedule', 'module', '调度'],
+            ], [
+              ['m-schedule', 'm-ingest', '触发', 'depends'],
+              ['m-ingest', 'm-clean', '原始数据', 'depends'],
+              ['m-clean', 'm-store', '干净数据', 'depends'],
+              ['m-schedule', 'm-store', '运行状态', 'depends'],
+            ]),
+            tplDiagram('sequence', '时序图', [], []),
+            tplDiagram('er', 'ER 图', [], []),
+            tplDiagram('c4', 'C4 图', [], []),
+          ],
+          modules: [
+            tplModule('pipe-ingest', '采集', '实现数据源配置、增量游标与原始数据落地；验收：重复运行不重复采集。', []),
+            tplModule('pipe-clean', '清洗', '实现去重、类型转换、空值处理与质量检查；验收：脏数据被拦截并记录原因。', ['pipe-ingest']),
+            tplModule('pipe-store', '存储', '负责分区写入、幂等 upsert 与查询视图；验收：同分区重复写入结果一致。', ['pipe-clean']),
+            tplModule('pipe-schedule', '调度', '接入 cron、实现重试与运行报告；验收：失败任务自动重试且状态可查。', ['pipe-ingest', 'pipe-store']),
+          ],
+        }),
+      },
+      {
+        key: 'plugin', nameKey: 'tplPlugin', descKey: 'tplPluginDesc',
+        build: () => tplBlueprint({
+          title: 'DSH 插件',
+          summary: '一个 DSH 插件：Host 端注册工具、Client 端提供面板、读写工作区存储并补齐测试，遵循插件清单与零构建客户端。',
+          prompt: '为 DSH 开发一个插件：Host 端注册工具、Client 端提供面板、读写工作区存储，并补齐单元测试。',
+          sections: [
+            tplSection('goals', '目标与价值', [
+              '用户在会话中能直接使用插件工具与面板。',
+              '插件安装后无需额外构建即可加载。',
+              '核心逻辑有回归测试，升级宿主后能快速验证。',
+            ]),
+            tplSection('actors', '角色与场景', [
+              'DSH 用户：通过工具与面板完成任务。',
+              '宿主 Agent：按工具 schema 调用并消费结果。',
+              '插件维护者：发布版本并处理兼容问题。',
+            ]),
+            tplSection('functional', '功能需求', [
+              'Host 端注册带参数 schema 的工具并返回结构化结果。',
+              'Client 端注册面板并订阅宿主状态。',
+              '插件读写工作区文件，缺失文件时自动初始化。',
+            ]),
+            tplSection('nonfunctional', '非功能需求', [
+              '工具调用 P95 低于 500ms。',
+              '客户端零运行时依赖、无构建步骤。',
+              '安装或加载失败时给出明确错误信息。',
+            ]),
+            tplSection('constraints', '约束与依赖', [
+              '客户端只能通过 module-loader 工厂加载。',
+              '不得 import 本地 Node 文件，React 来自宿主模块表。',
+              '遵循插件清单与宿主版本兼容要求。',
+            ]),
+            tplSection('acceptance', '验收标准', [
+              '安装后工具出现在会话工具列表并可调用。',
+              '面板能随会话打开且不破坏宿主布局。',
+              '`node --check` 与现有单元测试通过。',
+            ]),
+            tplSection('risks', '风险与开放问题', [
+              '宿主 API 变更可能影响兼容性，需要版本约束。',
+              '面板样式依赖宿主主题变量，深浅主题都需检查。',
+              '文件权限边界需在真实工作区验证。',
+            ]),
+          ],
+          diagrams: [
+            tplDiagram('usecase', '用例图', [
+              ['a-user', 'actor', 'DSH 用户'], ['a-agent', 'actor', '宿主 Agent'],
+              ['sys', 'system', 'DSH 插件'],
+              ['uc-tool', 'usecase', '调用 Host 工具'], ['uc-panel', 'usecase', '打开 Client 面板'],
+              ['uc-store', 'usecase', '读写工作区'], ['uc-test', 'usecase', '运行测试'],
+            ], [
+              ['a-agent', 'uc-tool', '调用', 'association'],
+              ['a-agent', 'uc-store', '读写', 'association'],
+              ['a-user', 'uc-panel', '查看', 'association'],
+              ['a-user', 'uc-test', '验证', 'association'],
+            ]),
+            tplDiagram('dfd', '数据流图', [
+              ['ext-session', 'entity', '会话'], ['ext-work', 'entity', '工作区'],
+              ['p-host', 'process', 'Host 工具'], ['p-client', 'process', 'Client 面板'],
+              ['p-store', 'process', '存储服务'],
+              ['s-file', 'store', '插件数据文件'],
+            ], [
+              ['ext-session', 'p-host', '工具参数', 'flow'],
+              ['p-host', 'p-store', '读写请求', 'flow'],
+              ['p-store', 's-file', 'JSON 数据', 'flow'],
+              ['p-store', 'p-client', '状态快照', 'flow'],
+              ['p-client', 'ext-session', '渲染面板', 'flow'],
+              ['ext-work', 'p-store', '文件路径', 'flow'],
+            ]),
+            tplDiagram('module', '模块图', [
+              ['m-host', 'module', 'Host 工具'], ['m-client', 'module', 'Client 面板'],
+              ['m-store', 'module', '存储'], ['m-test', 'module', '测试'],
+            ], [
+              ['m-host', 'm-store', '数据读写', 'depends'],
+              ['m-client', 'm-store', '状态读取', 'depends'],
+              ['m-test', 'm-host', '覆盖', 'depends'],
+              ['m-test', 'm-client', '覆盖', 'depends'],
+            ]),
+            tplDiagram('sequence', '时序图', [], []),
+            tplDiagram('er', 'ER 图', [], []),
+            tplDiagram('c4', 'C4 图', [], []),
+          ],
+          modules: [
+            tplModule('plugin-host', 'Host 工具', '注册带 schema 的工具并实现业务处理；验收：工具可被 Agent 调用且返回结构化结果。', []),
+            tplModule('plugin-client', 'Client 面板', '通过 module-loader 注册面板、订阅状态并适配主题；验收：面板打开正常且无构建步骤。', ['plugin-host']),
+            tplModule('plugin-store', '存储', '封装工作区文件读写、缺失初始化与原子写入；验收：并发写不产生半截文件。', []),
+            tplModule('plugin-test', '测试', '补齐语法检查与单元测试，覆盖工具与存储边界；验收：`node --check` 与测试全部通过。', ['plugin-host', 'plugin-store']),
+          ],
+        }),
+      },
+    ]
 
     const TYPE_META = {
       actor: { label: 'actor', color: '#f59e0b', w: 90, h: 104 },
@@ -1150,6 +1544,28 @@ window.__ModuleLoader__.load({
           set({ loading: false, error: String(error?.message ?? error), generationFailed: false })
         }
       }
+      const applyTemplate = template => {
+        try {
+          const bp = template.build()
+          ensureLayout(bp)
+          resetHistory()
+          set({
+            bp, missing: false, dirty: true, tab: 'usecase', landing: false,
+            canUndo: false, canRedo: false, error: null, selected: null,
+            mode: 'select', connectFrom: null, panel: 'inspector',
+          })
+          const pending = saveBlueprint({ silent: true })
+          pending.then(ok => {
+            if (ok) toast(t('templateApplied'), 'success')
+          }).catch(error => {
+            set({ error: String(error?.message ?? error) })
+          })
+        } catch (error) {
+          const message = String(error?.message ?? error)
+          set({ error: message })
+          toast(`${t('templateFailed')}: ${message}`, 'error')
+        }
+      }
       const continueOrStart = () => {
         if (existing) {
           set({ landing: false, selected: null })
@@ -1204,6 +1620,20 @@ window.__ModuleLoader__.load({
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') start()
             },
           }),
+          h('div', { className: 'bp-templates' },
+            h('div', { className: 'bp-templates-head' },
+              h('strong', null, t('templatesTitle')),
+              h('span', null, t('templatesHint'))),
+            h('div', { className: 'bp-template-grid' },
+              TEMPLATES.map(template => h('button', {
+                key: template.key,
+                type: 'button',
+                className: 'bp-template-card',
+                title: t(template.descKey),
+                onClick: () => applyTemplate(template),
+              },
+                h('strong', null, t(template.nameKey)),
+                h('span', null, t(template.descKey)))))),
           h('div', { className: 'bp-empty-actions' },
             h('button', { className: 'bp-btn bp-primary', disabled: task.trim() === '' || store.aiBusy !== null, onClick: start },
               h(Icon, { name: 'spark', size: 15 }), store.aiBusy ? t('generating') : t('generate')),
@@ -2748,6 +3178,15 @@ window.__ModuleLoader__.load({
 .bp-empty p{margin:0 0 14px;font-size:12.5px;line-height:1.6;color:var(--dsw-alias-label-secondary)}
 .bp-empty-input{width:100%;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:1.55;padding:10px 12px;border-radius:10px;resize:vertical;outline:none}
 .bp-empty-input:focus{border-color:var(--dsw-alias-brand-primary)}
+.bp-templates{margin-top:12px}
+.bp-templates-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:6px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.bp-templates-head strong{font-size:11px;font-weight:650}
+.bp-templates-head span{font-size:10.5px;opacity:.8}
+.bp-template-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px}
+.bp-template-card{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}
+.bp-template-card:hover,.bp-template-card:focus-visible{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-layer-2);outline:none}
+.bp-template-card strong{font-size:12px;font-weight:600}
+.bp-template-card span{font-size:10.5px;line-height:1.4;color:var(--dsw-alias-label-secondary)}
 .bp-empty-actions{display:flex;gap:8px;margin-top:12px;align-items:center}
 .bp-waiting{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:var(--dsw-alias-label-secondary)}
 .bp-error{color:var(--dsw-alias-state-error-primary);font-size:12px;margin-top:10px;white-space:pre-wrap}
@@ -2830,6 +3269,7 @@ window.__ModuleLoader__.load({
 @media (max-width:1400px){.bp-back-label{display:none}}
 @media (max-width:1180px){.bp-right{display:none}.bp-left{width:300px;flex-basis:300px}}
 @media (max-width:860px){.bp-left{display:none}.bp-shell{width:100vw;height:100vh;border-radius:0}.bp-open-label{display:none}}
+@media (max-width:520px){.bp-empty-card{padding:20px}.bp-template-grid{grid-template-columns:1fr 1fr}}
 @media (prefers-reduced-motion:reduce){.bp-spinner{animation:none}}
 `
 

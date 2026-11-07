@@ -47,6 +47,7 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
 - **Visual editing on an SVG canvas** — drag nodes, pan/zoom, connect nodes, edit labels and edge kinds, ER field editor, delete, deterministic auto-layout.
 - **Undo / redo** — `Ctrl+Z` and `Ctrl+Shift+Z` / `Ctrl+Y`, plus toolbar buttons. Fast typing and dragging coalesce into one step; a save or an agent update does not silently discard the local undo stack.
 - **Welcome screen round-trip** — one click returns from the manual editor to the initial generate screen; “继续编辑当前蓝图” brings you back without losing the file.
+- **Offline welcome templates** — four starters (web app, CLI, data pipeline, DSH plugin) create a complete draft with requirements, three populated diagrams and 3–4 dependent modules in one click, without calling the agent.
 - **AI generate / expand** — one button sends a focused instruction to the agent; the studio refreshes when the agent writes the blueprint.
 - **Version history** — every agent or human save archives the previous content. Compare any two versions with a semantic diff (requirements, nodes, edges, fields, modules); restore a version with one click; create manual snapshots.
 - **Live dispatch board** — child subagent sessions of the current conversation, refreshed every five seconds, with module status and one-click navigation.
@@ -100,7 +101,7 @@ After installation, open any conversation. A **Blueprint / 蓝图** button appea
 ## Usage
 
 1. Send a task prompt. For a non-trivial coding task the agent calls `blueprint(action="create")` before touching files.
-2. Click **蓝图** in the composer. The studio opens on the **welcome screen** when no blueprint exists: type the task and click **生成蓝图**, or choose **手动开始** for a blank canvas.
+2. Click **蓝图** in the composer. The studio opens on the **welcome screen** when no blueprint exists: type the task and click **生成蓝图**, pick one of the four templates, or choose **手动开始** for a blank canvas.
 3. Refine:
    - edit any requirement inline, add items or whole sections;
    - undo mistakes with `Ctrl+Z`, redo with `Ctrl+Y` / `Ctrl+Shift+Z`;
@@ -116,6 +117,22 @@ After installation, open any conversation. A **Blueprint / 蓝图** button appea
    - mark it `dispatched`,
    - start one subagent per module (dependencies first, independent modules in parallel),
    - write each child session id back to the module and update status.
+
+### Welcome templates
+
+Four offline starters create a complete draft in one click — no agent call and no network:
+
+| Template | Scope |
+| --- | --- |
+| Web application | frontend, backend, database, auth |
+| CLI tool | command parsing, execution, config, output |
+| Data pipeline | ingest, clean, store, schedule |
+| DSH plugin | host tool, client panel, storage, tests |
+
+Each starter fills all seven requirement columns, keeps the six diagram slots (use case, data flow and module populated; sequence/ER/C4 left empty for you or the agent) and adds 3–4 modules with dependencies. Positions are computed by the existing auto-layout, so templates never hard-code geometry. Applying a template resets the undo stack, saves silently and shows a toast; save errors stay visible in the panel.
+
+![Welcome with templates](docs/template-welcome.png)
+![Template editor](docs/template-editor.png)
 
 ### Undo, welcome and versions
 
@@ -261,7 +278,7 @@ Blueprint Studio deliberately ships a **small self-contained SVG canvas**: zero 
 - [ ] Richer DFD: level-1 decomposition, balancing checks, data dictionary.
 - [ ] More C4 levels and automatic boundary inference.
 - [ ] Import: Mermaid, PlantUML.
-- [ ] Blueprint templates per domain (web app, CLI, data pipeline, agent tool).
+- [x] Blueprint templates per domain (web app, CLI, data pipeline, agent tool).
 - [ ] Publish to npm as `dsh-blueprint-studio`.
 
 ## Publishing
