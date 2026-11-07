@@ -15,6 +15,7 @@ All notable changes to Blueprint Studio are documented here. The format follows 
 - Opening a saved blueprint no longer resets the local undo history when the file content is unchanged.
 - The header hides editing actions (save/export/dispatch/undo) while on the welcome screen.
 - Package version raised to `0.2.1`.
+- Relicensed to Apache-2.0 for the public repository; the source and README are unchanged apart from the license.
 
 ### Fixed
 

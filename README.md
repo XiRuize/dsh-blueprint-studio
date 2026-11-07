@@ -254,6 +254,6 @@ Host files: `index.js`, `lib/blueprint.js`. Client: `client.js` (module-loader f
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+Apache License 2.0. See [LICENSE](./LICENSE).
 
 The icon is original artwork for this project.

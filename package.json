@@ -4,8 +4,16 @@
   "private": false,
   "description": "Plan requirements and software-engineering diagrams with the agent before coding, review versioned blueprints, then confirm and dispatch module subagents.",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Blueprint Studio contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/XiRuize/dsh-blueprint-studio.git"
+  },
+  "homepage": "https://github.com/XiRuize/dsh-blueprint-studio#readme",
+  "bugs": {
+    "url": "https://github.com/XiRuize/dsh-blueprint-studio/issues"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",
