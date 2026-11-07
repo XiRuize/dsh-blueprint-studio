@@ -58,15 +58,21 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
 
 ## Install
 
-Install the workspace bundle with the Harness plugin manager:
+### Install from npm
 
-```text
-plugin_manager(action="install_bundle", target="<absolute path to dsh-blueprint-studio>")
+Once the package is published to the public npm registry, add it to a profile with the Harness CLI:
+
+```bash
+dsh plugin --profile <profile> add dsh-blueprint-studio
 ```
 
-### Install without git
+This is the shortest path when npm is available. The package has no runtime dependencies and no build step, so installation is a plain registry download.
 
-A GitHub URL is a **git dependency**: pnpm shells out to `git ls-remote`, so it fails on machines without Git in `PATH` (`'git' is not recognized`). Install the packaged tarball instead — it is a plain HTTPS download and needs no Git or build step:
+> **Package name availability.** Before the first npm release, `dsh-blueprint-studio` must still be unclaimed on [npm](https://www.npmjs.com/package/dsh-blueprint-studio). If install reports a 404, the release has not been published yet — use one of the fallbacks below. See [Publishing](#publishing) for the CI setup.
+
+### Install from a release tarball (no npm, no git)
+
+A GitHub URL is a **git dependency**: pnpm shells out to `git ls-remote`, so it fails on machines without Git in `PATH` (`'git' is not recognized`). Install the packaged tarball instead — it is a plain HTTPS download and needs no npm, Git or build step:
 
 ```bash
 dsh plugin --profile <profile> add \
@@ -76,6 +82,14 @@ dsh plugin --profile <profile> add \
 Or download `dsh-blueprint-studio-0.2.1.tgz` from [Releases](https://github.com/XiRuize/dsh-blueprint-studio/releases) and point `install_bundle` at the local `.tgz` / extracted directory.
 
 If you prefer the git URL, install Git for Windows first (`winget install --id Git.Git -e`) and reopen the terminal. Behind a proxy, set `HTTPS_PROXY` for pnpm, or configure Git's proxy/SSH transport separately.
+
+### Install from a local checkout
+
+Install the workspace bundle with the Harness plugin manager:
+
+```text
+plugin_manager(action="install_bundle", target="<absolute path to dsh-blueprint-studio>")
+```
 
 The bundle inserts two rows: a Host plugin (`blueprint` tool, `/blueprint` command, system-prompt section) and a Web client half (composer button + full-screen studio). No build step and no runtime dependencies are required.
 
@@ -249,6 +263,19 @@ Blueprint Studio deliberately ships a **small self-contained SVG canvas**: zero 
 - [ ] Import: Mermaid, PlantUML.
 - [ ] Blueprint templates per domain (web app, CLI, data pipeline, agent tool).
 - [ ] Publish to npm as `dsh-blueprint-studio`.
+
+## Publishing
+
+npm releases are automated by [`.github/workflows/publish.yml`](.github/workflows/publish.yml). It runs on a published GitHub Release (create one for a `v*` tag) or manually via **workflow_dispatch**, and performs `npm publish --provenance --access public` after `npm run check` and `npm test`.
+
+Repository setup:
+
+1. **Required — `NPM_TOKEN`.** Create an npm [automation access token](https://docs.npmjs.com/creating-and-viewing-access-tokens) that can publish `dsh-blueprint-studio`, then add it under **GitHub → Settings → Secrets and variables → Actions → New repository secret** as `NPM_TOKEN`. The workflow injects it as `NODE_AUTH_TOKEN`; no token is committed to the repository.
+2. **npm 2FA.** If the publishing account enforces two-factor authentication, use an **automation** token (or a granular token allowed to bypass 2FA for publishing). Interactive OTP prompts cannot be answered in CI.
+3. **Confirm the name is still free.** The first publish fails with `403` if `dsh-blueprint-studio` is already owned by another account. Check `https://registry.npmjs.org/dsh-blueprint-studio` (404 means available).
+4. **Workflow permissions.** The workflow already declares `contents: read` and `id-token: write`; the latter is what lets npm attach a provenance attestation.
+
+**Trusted Publishing (optional, recommended).** Instead of a long-lived token, configure a [trusted publisher](https://docs.npmjs.com/trusted-publishers) on npm for repository `XiRuize/dsh-blueprint-studio`, workflow filename `publish.yml`, environment left blank. Then remove the `NODE_AUTH_TOKEN` env entry from the publish step (and the `NPM_TOKEN` secret). Keep `id-token: write`; npm exchanges the GitHub OIDC token for a short-lived credential. The first-ever publish of a brand-new package still needs a token or a manual `npm publish` from an authenticated machine.
 
 ## Development
 

@@ -49,7 +49,8 @@
   ],
   "scripts": {
     "check": "node --check index.js && node --check client.js && node --check lib/blueprint.js",
-    "test": "node --test test/blueprint.test.mjs"
+    "test": "node --test test/blueprint.test.mjs",
+    "prepublishOnly": "npm run check && npm test"
   },
   "engines": {
     "dsh": ">=0.2.1-rc.5"
