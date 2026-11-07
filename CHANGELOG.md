@@ -2,6 +2,29 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.3.0] — 2026-11-07
+
+### Added
+
+- **Eight diagrams.** Added class diagrams (classes/interfaces, fields, methods, extends/implements/association/dependency) and state diagrams (states, initial/final, choice, labelled transitions), with deterministic layout, inspector editing, SVG/JSON/Mermaid export and draw.io fallback.
+- **Mermaid import.** Auto-detects draw.io vs Mermaid and imports `classDiagram`, `stateDiagram-v2` and `flowchart`/`graph`; 200 KB / 200-node limits with typed errors.
+- **Traceability.** Nodes carry `requirementIds`; modules carry `nodeIds`, `files` and `acceptance`. The inspector links them, the requirement list highlights related nodes, and dispatch prompts include the linked scope.
+- **Actionable dispatch board.** Open a child session, cancel an active child, retry a module, and edit module status. `/blueprint cancel <childSessionId>` uses the public subagent interrupt API.
+- **Draft autosave and generation recovery.** 1.8 s debounced drafts write without archiving a version; explicit saves still archive. Generation waits 60 s, then offers retry/cancel. Closing the studio awaits the save result.
+- **Welcome templates.** Four offline starters (web app, CLI, data pipeline, DSH plugin) with requirements, populated use case/data flow/module diagrams, and dependent modules.
+- **Richer version diff.** Diagram-level diff lists concrete added/removed nodes, changed node fields, and added/removed edges.
+- **npm distribution.** `publish.yml` (provenance, `NPM_TOKEN`/Trusted Publishing), npm install documentation and a fresh release workflow; the release tarball remains the Git-free install path.
+
+### Changed
+
+- Manual blueprints and templates now create all eight diagram slots; applying a template clears previous class/state content.
+- README examples, roadmap and package metadata updated for 0.3.0.
+
+### Fixed
+
+- `Ctrl+Z` and welcome-screen round-trip remain stable across autosave.
+- Header diagram tabs scroll horizontally instead of overflowing at eight views.
+
 ## [0.2.1] — 2026-11-07
 
 ### Added

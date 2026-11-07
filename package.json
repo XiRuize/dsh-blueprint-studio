@@ -1,6 +1,6 @@
 {
   "name": "dsh-blueprint-studio",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": false,
   "description": "Plan requirements and software-engineering diagrams with the agent before coding, review versioned blueprints, then confirm and dispatch module subagents.",
   "type": "module",

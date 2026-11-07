@@ -5,7 +5,7 @@
 
 **Draw the system before you build it.**
 
-Blueprint Studio is a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that turns a one-line request into a collaborative software-engineering blueprint: requirement columns, six kinds of diagram, version history, and a live dispatch board for per-module subagents. You edit the blueprint by hand or ask the agent to expand it, then confirm — and the agent dispatches **one subagent per module**.
+Blueprint Studio is a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that turns a one-line request into a collaborative software-engineering blueprint: requirement columns, eight kinds of diagram, version history, and a live dispatch board for per-module subagents. You edit the blueprint by hand or ask the agent to expand it, then confirm — and the agent dispatches **one subagent per module**.
 
 > 中文简介：写代码前先让 AI 把需求、用例、数据流、时序、ER、C4 和模块关系画清楚；人可以逐条修改、补图、一键扩充，确认后由 AI 按模块分派子代理并行实施。每次保存自动归档版本，可对比、可恢复。
 
@@ -21,7 +21,7 @@ Blueprint Studio is a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 
 ```
 prompt ──▶ requirements ──▶ diagrams ──▶ human review ──▶ confirm ──▶ N subagents
-             (7 columns)     (6 views)    edit / expand / diff            (per module)
+             (7 columns)     (8 views)    edit / expand / diff            (per module)
 ```
 
 ## Why
@@ -37,20 +37,23 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
 ## Features
 
 - **Seven requirement columns** — goals, actors, functional, non-functional, constraints, acceptance, risks; every item is editable, addable and removable.
-- **Six editable diagrams**
+- **Eight editable diagrams**
   - UML use case: actors, use cases, system boundary;
   - data flow: external entity, process, data store, labelled flows;
   - module dependency;
   - sequence: participants, ordered sync/async/return messages;
   - ER: entities with typed fields and primary keys, relationship diamonds, cardinality;
-  - C4: person, system, container, component, database, external system, with technology and responsibility labels.
+  - C4: person, system, container, component, database, external system, with technology and responsibility labels;
+  - class: classes/interfaces, fields and methods, extends/implements/association/dependency;
+  - state: states, initial/final, choice, labelled transitions.
 - **Visual editing on an SVG canvas** — drag nodes, pan/zoom, connect nodes, edit labels and edge kinds, ER field editor, delete, deterministic auto-layout.
 - **Undo / redo** — `Ctrl+Z` and `Ctrl+Shift+Z` / `Ctrl+Y`, plus toolbar buttons. Fast typing and dragging coalesce into one step; a save or an agent update does not silently discard the local undo stack.
 - **Welcome screen round-trip** — one click returns from the manual editor to the initial generate screen; “继续编辑当前蓝图” brings you back without losing the file.
 - **Offline welcome templates** — four starters (web app, CLI, data pipeline, DSH plugin) create a complete draft with requirements, three populated diagrams and 3–4 dependent modules in one click, without calling the agent.
 - **AI generate / expand** — one button sends a focused instruction to the agent; the studio refreshes when the agent writes the blueprint.
-- **Version history** — every agent or human save archives the previous content. Compare any two versions with a semantic diff (requirements, nodes, edges, fields, modules); restore a version with one click; create manual snapshots.
-- **Live dispatch board** — child subagent sessions of the current conversation, refreshed every five seconds, with module status and one-click navigation.
+- **Version history** — every agent or human save archives the previous content. Compare any two versions with a semantic diff (requirements, nodes, edges, fields, modules) including concrete added/removed node and edge labels; restore a version with one click; create manual snapshots.
+- **Requirement ↔ node ↔ module traceability** — link any diagram node to one or more requirement items, attach nodes/files/acceptance criteria to a module, highlight linked nodes from the requirement list, and pass the linked scope into dispatch prompts.
+- **Live dispatch board** — child subagent sessions of the current conversation, refreshed every five seconds, with module status, one-click navigation, cancel, retry, and manual status updates.
 - **draw.io & Mermaid interop** — import `.drawio`/XML or Mermaid by paste or file, replacing or appending to the target diagram; export the current diagram back to draw.io XML or Mermaid.
 - **One-click dispatch** — confirmation marks the blueprint `confirmed` and asks the agent to spawn one subagent per module, respecting dependencies.
 - **Local-first storage** — `<workspace>/.dsh/blueprints/<sessionId>.json`, reviewable and diffable in Git.
@@ -129,7 +132,7 @@ Four offline starters create a complete draft in one click — no agent call and
 | Data pipeline | ingest, clean, store, schedule |
 | DSH plugin | host tool, client panel, storage, tests |
 
-Each starter fills all seven requirement columns, keeps the six diagram slots (use case, data flow and module populated; sequence/ER/C4 left empty for you or the agent) and adds 3–4 modules with dependencies. Positions are computed by the existing auto-layout, so templates never hard-code geometry. Applying a template resets the undo stack, saves silently and shows a toast; save errors stay visible in the panel.
+Each starter fills all seven requirement columns, keeps the eight diagram slots (use case, data flow and module populated; sequence/ER/C4/class/state left empty for you or the agent) and adds 3–4 modules with dependencies. Positions are computed by the existing auto-layout, so templates never hard-code geometry. Applying a template resets the undo stack, saves silently and shows a toast; save errors stay visible in the panel.
 
 ![Welcome with templates](docs/template-welcome.png)
 ![Template editor](docs/template-editor.png)
@@ -284,15 +287,18 @@ Blueprint Studio deliberately ships a **small self-contained SVG canvas**: zero 
 ## Roadmap
 
 - [x] Sequence diagram, ER diagram, C4 context/container.
-- [x] Version history, semantic diff, restore and manual snapshots.
-- [x] Live subagent dispatch board.
+- [x] Class and state diagrams with Mermaid export.
+- [x] Version history, semantic diff with node/edge changes, restore and manual snapshots.
+- [x] Requirement ↔ node ↔ module traceability and dispatch scope.
+- [x] Live subagent dispatch board with open/cancel/retry/status.
 - [x] draw.io import/export.
 - [x] Mermaid import (class, state, flowchart) and export.
+- [x] Blueprint templates per domain (web app, CLI, data pipeline, agent tool).
+- [x] Draft autosave, generation timeout/cancel/retry.
 - [ ] Collaboration: presence, comments and change proposals on requirement items.
 - [ ] Richer DFD: level-1 decomposition, balancing checks, data dictionary.
 - [ ] More C4 levels and automatic boundary inference.
 - [ ] Import: PlantUML, sequence and ER Mermaid.
-- [x] Blueprint templates per domain (web app, CLI, data pipeline, agent tool).
 - [ ] Publish to npm as `dsh-blueprint-studio`.
 
 ## Publishing
