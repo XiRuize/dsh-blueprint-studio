@@ -5,9 +5,12 @@ import path from 'node:path'
 import test from 'node:test'
 import {
   archiveBlueprintVersion,
+  blueprintAbsolutePath,
+  blueprintContentHash,
   blueprintRelativePath,
   blueprintVersionsRelativeDir,
   mergeBlueprintForUpdate,
+  createConfirmTokenStore,
   normalizeBlueprint,
   parseBlueprintSaveInput,
   readBlueprintFile,
@@ -16,7 +19,10 @@ import {
   saveBlueprintFromCommand,
   semanticDiff,
   mermaidFor,
+  verifyBlueprintToken,
+  writeBlueprintFile,
 } from '../lib/blueprint.js'
+import { apply } from '../index.js'
 
 test('normalizes all eight diagram kinds and keeps typed fields, messages and cardinality', () => {
   const blueprint = normalizeBlueprint({
@@ -560,6 +566,254 @@ test('archive failure still writes the blueprint and reports a readable warning'
     assert.ok(saved.archiveErrors.length > 0)
     const onDisk = await readBlueprintFile(path.join(cwd, blueprintRelativePath('session-broken')))
     assert.equal(onDisk.title, 'survives archive failure')
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+function setupPlugin(cwd) {
+  const tools = []
+  const commands = []
+  const disposers = []
+  const toolService = { register(definition) { tools.push(definition); return () => {} } }
+  const ctx = {
+    tools: toolService,
+    get(name) {
+      if (name === 'tools') return toolService
+      if (name === 'commands') {
+        return { register(command) { commands.push(command); return () => {} } }
+      }
+      return undefined
+    },
+    effect(fn) {
+      const dispose = fn()
+      if (typeof dispose === 'function') disposers.push(dispose)
+      return () => {}
+    },
+    logger: { warn() {} },
+  }
+  apply(ctx, { promptSection: false })
+  const agent = { id: 'session-gate', session: { header: { cwd, id: 'session-gate' } } }
+  return { tools, commands, agent, dispose: () => { for (const dispose of disposers) dispose() } }
+}
+
+async function seedBlueprint(cwd, sessionId, input) {
+  const file = blueprintAbsolutePath(cwd, sessionId)
+  const blueprint = normalizeBlueprint(input, undefined, { sessionId })
+  await writeBlueprintFile(file, blueprint)
+  return { file, blueprint }
+}
+
+test('blueprint content hash ignores updatedAt and object key order', () => {
+  const blueprint = normalizeBlueprint({
+    title: 'Gate',
+    sections: [{ key: 'goals', items: ['one'] }],
+    modules: [{ id: 'api', name: 'API' }],
+  }, undefined, { sessionId: 's' })
+  const newer = { ...blueprint, updatedAt: blueprint.updatedAt + 60_000 }
+  assert.equal(blueprintContentHash(blueprint), blueprintContentHash(newer))
+
+  const reordered = {}
+  for (const key of Object.keys(blueprint).reverse()) reordered[key] = blueprint[key]
+  assert.equal(blueprintContentHash(blueprint), blueprintContentHash(reordered))
+
+  assert.notEqual(blueprintContentHash(blueprint), blueprintContentHash({ ...blueprint, title: 'Changed' }))
+})
+
+test('confirmation tokens are one-time, session-scoped and expire', () => {
+  let clock = 10_000
+  let counter = 0
+  const store = createConfirmTokenStore({
+    ttlMs: 1_000,
+    now: () => clock,
+    randomUUID: () => `token-${++counter}`,
+  })
+
+  const issued = store.issue('s1', 'hash-1')
+  assert.equal(issued.token, 'token-1')
+  assert.equal(issued.expiresAt, 11_000)
+
+  assert.equal(store.verify('s2', issued.token).code, 'missing')
+  assert.equal(store.verify('s1', 'token-other').code, 'mismatch')
+  assert.equal(store.verify('s1', issued.token).ok, true)
+
+  assert.equal(store.consume('s1', issued.token).ok, true)
+  assert.equal(store.verify('s1', issued.token).code, 'missing')
+  assert.equal(store.consume('s1', issued.token).ok, false)
+
+  const expiring = store.issue('s1', 'hash-2')
+  clock += 1_001
+  assert.equal(store.verify('s1', expiring.token).code, 'expired')
+  assert.equal(store.size, 0)
+})
+
+test('verifyBlueprintToken rejects stale hashes and non-confirmed status', () => {
+  const store = createConfirmTokenStore({ randomUUID: () => 'token-ok' })
+  const blueprint = normalizeBlueprint({
+    title: 'Gate',
+    status: 'confirmed',
+    modules: [{ id: 'api', name: 'API' }],
+  }, undefined, { sessionId: 's' })
+  const issued = store.issue('s', blueprintContentHash(blueprint))
+  assert.equal(store.verify('s', issued.token).ok, true)
+
+  const stale = verifyBlueprintToken(store, 's', issued.token, { ...blueprint, title: 'Edited' })
+  assert.equal(stale.ok, false)
+  assert.equal(stale.code, 'stale')
+
+  const draft = normalizeBlueprint({ ...blueprint, status: 'draft' }, undefined, { sessionId: 's' })
+  const draftStore = createConfirmTokenStore({ randomUUID: () => 'token-draft' })
+  const draftIssued = draftStore.issue('s', blueprintContentHash(draft))
+  const wrongStatus = verifyBlueprintToken(draftStore, 's', draftIssued.token, draft)
+  assert.equal(wrongStatus.ok, false)
+  assert.equal(wrongStatus.code, 'status')
+
+  assert.equal(store.consume('s', issued.token).ok, true)
+})
+
+test('tool confirm and dispatch are rejected without changing the blueprint', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-tool-gate-'))
+  try {
+    const plugin = setupPlugin(cwd)
+    const tool = plugin.tools[0]
+    const { file } = await seedBlueprint(cwd, plugin.agent.id, {
+      title: 'Tool gate',
+      status: 'confirmed',
+      modules: [{ id: 'api', name: 'API' }],
+    })
+
+    await assert.rejects(
+      () => tool.execute({ action: 'confirm' }, { agent: plugin.agent }),
+      /禁用|面板/,
+    )
+    await assert.rejects(
+      () => tool.execute({ action: 'dispatch' }, { agent: plugin.agent }),
+      /禁用|面板/,
+    )
+    const onDisk = await readBlueprintFile(file)
+    assert.equal(onDisk.status, 'confirmed')
+    plugin.dispose()
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('tool update preserves status and create forces draft', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-tool-status-'))
+  try {
+    const plugin = setupPlugin(cwd)
+    const tool = plugin.tools[0]
+    const { file } = await seedBlueprint(cwd, plugin.agent.id, {
+      title: 'Status gate',
+      status: 'confirmed',
+      modules: [{ id: 'api', name: 'API' }],
+    })
+
+    await tool.execute({
+      action: 'update',
+      blueprint: { status: 'dispatched', title: 'Updated' },
+    }, { agent: plugin.agent })
+    let onDisk = await readBlueprintFile(file)
+    assert.equal(onDisk.title, 'Updated')
+    assert.equal(onDisk.status, 'confirmed')
+
+    await tool.execute({
+      action: 'create',
+      blueprint: { status: 'dispatched', title: 'Created' },
+    }, { agent: plugin.agent })
+    onDisk = await readBlueprintFile(file)
+    assert.equal(onDisk.title, 'Created')
+    assert.equal(onDisk.status, 'draft')
+    plugin.dispose()
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('/blueprint confirm issues a token and /blueprint dispatch spends it once', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-command-gate-'))
+  try {
+    const plugin = setupPlugin(cwd)
+    const handler = plugin.commands[0].handler
+    const { file } = await seedBlueprint(cwd, plugin.agent.id, {
+      title: 'Command gate',
+      status: 'draft',
+      modules: [{ id: 'api', name: 'API', dependsOn: [] }],
+    })
+
+    const confirmed = await handler({ rawInput: 'confirm', agent: plugin.agent })
+    assert.equal(confirmed.kind, 'success')
+    const confirmation = JSON.parse(confirmed.text)
+    assert.equal(confirmation.ok, true)
+    assert.equal(confirmation.status, 'confirmed')
+    assert.equal(typeof confirmation.token, 'string')
+    assert.ok(confirmation.token.length > 0)
+    assert.ok(confirmation.expiresAt > confirmation.createdAt)
+    let onDisk = await readBlueprintFile(file)
+    assert.equal(onDisk.status, 'confirmed')
+    assert.equal(onDisk.token, undefined, 'the token must never be written into the blueprint')
+
+    const dispatched = await handler({ rawInput: `dispatch ${confirmation.token}`, agent: plugin.agent })
+    assert.equal(dispatched.kind, 'success')
+    const receipt = JSON.parse(dispatched.text)
+    assert.equal(receipt.ok, true)
+    assert.equal(receipt.status, 'dispatched')
+    assert.equal(receipt.modules[0].id, 'api')
+    onDisk = await readBlueprintFile(file)
+    assert.equal(onDisk.status, 'dispatched')
+
+    const replay = await handler({ rawInput: `dispatch ${confirmation.token}`, agent: plugin.agent })
+    assert.equal(replay.kind, 'error')
+    assert.match(replay.text, /不存在|使用/)
+    onDisk = await readBlueprintFile(file)
+    assert.equal(onDisk.status, 'dispatched')
+
+    const secondConfirm = await handler({ rawInput: 'confirm', agent: plugin.agent })
+    assert.equal(secondConfirm.kind, 'error')
+    assert.match(secondConfirm.text, /已分派/)
+    plugin.dispose()
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('editing the blueprint after confirm invalidates the token', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-command-stale-'))
+  try {
+    const plugin = setupPlugin(cwd)
+    const handler = plugin.commands[0].handler
+    const { file, blueprint } = await seedBlueprint(cwd, plugin.agent.id, {
+      title: 'Stale gate',
+      status: 'draft',
+      modules: [{ id: 'api', name: 'API' }],
+    })
+
+    const confirmed = await handler({ rawInput: 'confirm', agent: plugin.agent })
+    assert.equal(confirmed.kind, 'success')
+    const token = JSON.parse(confirmed.text).token
+
+    const edited = JSON.stringify({ ...blueprint, title: 'Edited after confirm', status: 'confirmed' })
+    const saved = await handler({
+      rawInput: `save ${Buffer.from(edited, 'utf8').toString('base64')}`,
+      agent: plugin.agent,
+    })
+    assert.notEqual(saved.kind, 'error')
+
+    const dispatch = await handler({ rawInput: `dispatch ${token}`, agent: plugin.agent })
+    assert.equal(dispatch.kind, 'error')
+    assert.match(dispatch.text, /变更|失效/)
+    let onDisk = await readBlueprintFile(file)
+    assert.equal(onDisk.status, 'confirmed')
+
+    const reconfirmed = await handler({ rawInput: 'confirm', agent: plugin.agent })
+    assert.equal(reconfirmed.kind, 'success')
+    const newToken = JSON.parse(reconfirmed.text).token
+    assert.notEqual(newToken, token)
+    const dispatched = await handler({ rawInput: `dispatch ${newToken}`, agent: plugin.agent })
+    assert.equal(dispatched.kind, 'success')
+    onDisk = await readBlueprintFile(file)
+    assert.equal(onDisk.status, 'dispatched')
+    plugin.dispose()
   } finally {
     await fs.rm(cwd, { recursive: true, force: true })
   }

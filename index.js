@@ -2,9 +2,11 @@ import {
   ALL_NODE_TYPES,
   archiveBlueprintVersion,
   blueprintAbsolutePath,
+  blueprintContentHash,
   blueprintDigest,
   blueprintRelativePath,
   blueprintVersionsIndexRelativePath,
+  createConfirmTokenStore,
   deleteBlueprintFile,
   mergeBlueprintForUpdate,
   normalizeBlueprint,
@@ -14,6 +16,7 @@ import {
   readVersionsIndex,
   saveBlueprintFromCommand,
   semanticDiff,
+  verifyBlueprintToken,
   writeBlueprintFile,
   DIAGRAM_DEFS,
   SECTION_DEFS,
@@ -30,8 +33,8 @@ action:
 - create：创建或整体覆盖蓝图（需要 blueprint 对象）。
 - update：在已有蓝图上合并更新：sections 未提交的 items 沿用旧值，显式 items: [] 会清空；diagrams 按 key 对齐，节点/边按 id 合并，未提交的节点/边保留，用 removedNodeIds / removedEdgeIds 显式删除。
 - get：读取当前蓝图全文；用户确认后、分派模块前必须先 get。
-- confirm：把状态改为 confirmed（用户已确认）。
-- dispatch：把状态改为 dispatched，并返回按依赖排序的模块清单。
+- confirm：已禁用。确认只能由用户在「蓝图」面板发起，Host 会校验一次性确认令牌。
+- dispatch：已禁用。分派只能由用户在「蓝图」面板完成，Host 会校验一次性确认令牌。
 - snapshot：把当前蓝图归档为一个手工版本（可传 label）。
 - delete：删除当前会话的蓝图文件。
 
@@ -99,6 +102,11 @@ function summaryText(blueprint, path) {
 export function apply(ctx, rawConfig) {
   const config = objectArgs(rawConfig)
   const workingDirectory = ctx.get('workingDirectory')
+  // Host-side gate: only the /blueprint confirm + dispatch commands can issue and spend
+  // confirmation tokens. The tool handlers below can never create or consume one.
+  const confirmTokens = createConfirmTokenStore({
+    ttlMs: Number.isFinite(config.confirmTokenTtlMs) ? config.confirmTokenTtlMs : undefined,
+  })
 
   const cwdOf = async agent => {
     const sessionCwd = agent?.session?.header?.cwd
@@ -240,7 +248,10 @@ export function apply(ctx, rawConfig) {
         if (input.title !== undefined) merged.title = input.title
         if (input.summary !== undefined) merged.summary = input.summary
         if (input.prompt !== undefined) merged.prompt = input.prompt
-        if (action === 'create') merged.status = 'draft'
+        // Status is not part of the agent-writable surface: create always starts a draft,
+        // and update keeps whatever status the Host/user flow already established. This
+        // prevents passing status="confirmed"/"dispatched" through the tool.
+        merged.status = action === 'create' ? 'draft' : (previous?.status ?? 'draft')
         const blueprint = action === 'update'
           ? mergeBlueprintForUpdate(previous, merged, { sessionId: file.sessionId })
           : normalizeBlueprint(merged, undefined, { sessionId: file.sessionId })
@@ -257,25 +268,11 @@ export function apply(ctx, rawConfig) {
       }
 
       if (action === 'confirm' || action === 'dispatch') {
-        const { file, raw } = await readCurrent(agent)
-        if (raw === undefined) throw new Error('还没有工程蓝图，先 action=create。')
-        const previous = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
-        const blueprint = normalizeBlueprint(previous, undefined, { sessionId: file.sessionId })
-        blueprint.status = action === 'confirm' ? 'confirmed' : 'dispatched'
-        blueprint.updatedAt = Date.now()
-        await archive(file, previous, 'agent', `before ${action}`)
-        await writeBlueprintFile(file.absolute, blueprint)
-        return {
-          ok: true,
-          status: blueprint.status,
-          path: file.relative,
-          modules: blueprint.modules,
-          digest: blueprintDigest(blueprint),
-          message:
-            action === 'confirm'
-              ? `蓝图已标记为已确认：${file.relative}`
-              : `蓝图已标记为已分派。请按 modules 逐个启动子代理，有依赖的按依赖顺序执行。\n\n${summaryText(blueprint, file.relative)}`,
-        }
+        // Deliberately stateless and source-rejecting: the agent must not be able to mark
+        // its own blueprint as confirmed/dispatched. Only the user-driven command flow does.
+        throw new Error(
+          `工具 action="${action}" 已被禁用：确认与分派必须由用户在「蓝图」面板完成，Host 会校验一次性确认令牌。请让用户点击「确认并分派」。`,
+        )
       }
 
       throw new Error(`不支持的 action：${action}`)
@@ -291,7 +288,7 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比和恢复当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -324,6 +321,64 @@ export function apply(ctx, rawConfig) {
               }
             }
             return { kind: 'success', text: `蓝图已保存并归档（archived）：${file.relative}` }
+          }
+          if (sub === 'confirm') {
+            const { file, raw } = await readCurrent(invocation.agent)
+            if (raw === undefined) return { kind: 'error', text: '还没有工程蓝图，无法确认。' }
+            const previous = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            if (previous.status === 'dispatched') {
+              return { kind: 'error', text: '蓝图已分派，不能再次确认；如需重新分派请先创建新蓝图或恢复版本。' }
+            }
+            const blueprint = normalizeBlueprint(previous, undefined, { sessionId: file.sessionId })
+            blueprint.status = 'confirmed'
+            blueprint.updatedAt = Date.now()
+            const hash = blueprintContentHash(blueprint)
+            await archive(file, previous, 'ui', 'before confirm')
+            await writeBlueprintFile(file.absolute, blueprint)
+            const issued = confirmTokens.issue(file.sessionId, hash)
+            return {
+              kind: 'success',
+              text: JSON.stringify({
+                ok: true,
+                status: blueprint.status,
+                token: issued.token,
+                hash: issued.hash,
+                createdAt: issued.createdAt,
+                expiresAt: issued.expiresAt,
+                path: file.relative,
+              }),
+            }
+          }
+          if (sub === 'dispatch') {
+            const token = String(rest[0] ?? '').trim()
+            if (token === '') {
+              return {
+                kind: 'error',
+                text: '缺少确认令牌。用法：/blueprint dispatch <token>（请先由用户执行 /blueprint confirm）。',
+              }
+            }
+            const { file, raw } = await readCurrent(invocation.agent)
+            if (raw === undefined) return { kind: 'error', text: '还没有工程蓝图，无法分派。' }
+            const previous = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            const blueprint = normalizeBlueprint(previous, undefined, { sessionId: file.sessionId })
+            const checked = verifyBlueprintToken(confirmTokens, file.sessionId, token, blueprint)
+            if (!checked.ok) return { kind: 'error', text: checked.message }
+            const consumed = confirmTokens.consume(file.sessionId, token)
+            if (!consumed.ok) return { kind: 'error', text: consumed.message }
+            blueprint.status = 'dispatched'
+            blueprint.updatedAt = Date.now()
+            await archive(file, previous, 'ui', 'before dispatch')
+            await writeBlueprintFile(file.absolute, blueprint)
+            return {
+              kind: 'success',
+              text: JSON.stringify({
+                ok: true,
+                status: blueprint.status,
+                path: file.relative,
+                modules: blueprint.modules,
+                summary: summaryText(blueprint, file.relative),
+              }),
+            }
           }
           if (sub === 'snapshot') {
             const { file, raw } = await readCurrent(invocation.agent)
@@ -418,7 +473,7 @@ export function apply(ctx, rawConfig) {
               return { kind: 'error', text: `取消子代理失败：${String(error?.message ?? error)}` }
             }
           }
-          return { kind: 'error', text: '可用：/blueprint save | versions | diff | restore | snapshot | path | get | cancel' }
+          return { kind: 'error', text: '可用：/blueprint save | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | cancel' }
         },
       }),
     )
@@ -435,7 +490,7 @@ export function apply(ctx, rawConfig) {
 
 当用户提出需要多步骤实现、跨文件改动或新功能的任务时，在写代码之前：
 1. 调用 blueprint(action="create") 生成结构化蓝图：7 个需求栏目、usecase / dfd / module 三张基础图，按需补 sequence / er / c4，以及可独立分派的 modules。把原始需求写进 prompt。
-2. 用两三句话向用户说明方案，并请他在「蓝图」面板中检查、增删改；在用户明确确认之前，不要开始实现，也不要调用文件编辑工具。
+2. 用两三句话向用户说明方案，并请他在「蓝图」面板中检查、增删改；在用户明确确认之前，不要开始实现，也不要调用文件编辑工具。确认与分派由用户在面板发起，Host 会校验一次性令牌；不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")，它们会被拒绝。
 3. 用户确认后，调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过），再按 modules 为每个模块启动一个子代理：有依赖的按依赖顺序，无依赖的并行。子代理提示词必须包含模块范围、依赖、验收标准，以及相关图表中的接口/数据流。
 4. 启动子代理后，把子代理 sessionId 写回对应 module 的 subagentSessionId 字段，并用 module.status 标记 running；每个子代理完成后把状态改为 done 或 blocked，并在 summary 里补一行结果。
 5. 全部完成后汇总改动、验证结果与剩余风险。用户可以在「版本」面板对比每次保存并恢复旧版本。
