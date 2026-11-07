@@ -99,6 +99,12 @@ window.__ModuleLoader__.load({
       moduleFilesHint: 'One file path per line', moduleAcceptanceHint: 'One acceptance item per line',
       moduleTraceHint: 'Click a module to edit its linked nodes, files and acceptance.',
       requirementsFocusHint: 'Click a requirement to highlight linked nodes; click again to clear.',
+      includeDescendants: 'Include descendant modules', layerSummary: '{visible} items in this layer · {unassigned} unassigned · {subtree} in subtree',
+      layerGap: '{count} items belong to other layers', createLayer: 'Create sublayer', enterChildLayer: 'Open sublayer',
+      layerCreated: 'Created layer {letter}', layerExists: 'This module already has a sublayer.', maxDepth: 'Maximum layer depth reached',
+      backToParentLayer: 'Back to parent layer', currentLayer: 'Current layer', searchPlaceholder: 'Search requirements, modules and layers…',
+      searchNoResults: 'No matches', searchRequirements: 'Requirements', searchModules: 'Modules', searchLayers: 'Layers',
+      searchHint: '↑↓ to choose · Enter to open · Esc to close', layer: 'Layer', sublayerOf: 'Sublayer of',
     }
     const ZH = {
       open: '蓝图', title: '工程蓝图', subtitle: '先把系统画清楚，再开始写代码',
@@ -193,6 +199,12 @@ window.__ModuleLoader__.load({
       moduleFilesHint: '每行一个文件路径', moduleAcceptanceHint: '每行一条验收标准',
       moduleTraceHint: '点击模块可编辑关联节点、涉及文件与验收标准。',
       requirementsFocusHint: '点击需求条目会高亮关联节点；再次点击取消。',
+      includeDescendants: '包含子孙模块', layerSummary: '本层 {visible} 条 · 未归属 {unassigned} · 子树 {subtree}',
+      layerGap: '另有 {count} 条属于其他层', createLayer: '创建子层', enterChildLayer: '进入子层',
+      layerCreated: '已创建层 {letter}', layerExists: '该模块已有子层。', maxDepth: '已达到最大层深',
+      backToParentLayer: '返回上一层', currentLayer: '当前层', searchPlaceholder: '检索需求、模块与层…',
+      searchNoResults: '没有匹配结果', searchRequirements: '需求', searchModules: '模块', searchLayers: '层',
+      searchHint: '↑↓ 选择 · Enter 定位 · Esc 关闭', layer: '层', sublayerOf: '子层，父模块',
     }
 
     let dict = ZH
@@ -233,6 +245,7 @@ window.__ModuleLoader__.load({
       error: null,
       toast: null,
       tab: 'usecase',
+      activeLayerId: 'A',
       selected: null,
       focusRequirement: null,
       mode: 'select',
@@ -447,6 +460,13 @@ window.__ModuleLoader__.load({
           return
         }
         resetHistory()
+        const layers = layerList(parsed)
+        const activeLayerId = layers.some(layer => layer.letter === state.activeLayerId) ? state.activeLayerId : layers[0]?.letter ?? 'A'
+        const layerDiagrams = diagramsForLayer(parsed, activeLayerId)
+        const keepTab = layerDiagrams.some(diagram => diagram.key === state.tab)
+        const tab = keepTab
+          ? state.tab
+          : (layerDiagrams.find(diagram => diagramTypeOf(diagram) === 'module')?.key ?? layerDiagrams[0]?.key ?? null)
         set({
           bp: parsed,
           loading: false,
@@ -462,7 +482,8 @@ window.__ModuleLoader__.load({
           canRedo: false,
           generationFailed: false,
           lastSaveMode: null,
-          tab: parsed.diagrams.some(diagram => diagram.key === state.tab) ? state.tab : parsed.diagrams[0]?.key ?? 'usecase',
+          activeLayerId,
+          tab,
         })
       } catch (error) {
         set({ loading: false, error: String(error?.message ?? error) })
@@ -615,7 +636,8 @@ window.__ModuleLoader__.load({
 
     function expandDiagramPrompt(diagram) {
       const names = { usecase: '用例图', dfd: '数据流图', module: '模块图', sequence: '时序图', er: 'ER 图', c4: 'C4 图', class: '类图', state: '状态图' }
-      const kind = names[diagram.key] ?? diagram.title
+      const type = diagramTypeOf(diagram)
+      const kind = names[type] ?? diagram.title
       return `当前会话已有工程蓝图。请先调用 blueprint(action="get") 读取用户可能手工修改过的最新版本，然后只扩充「${kind}」（key=${diagram.key}）：补齐缺失的节点、连线、字段或消息，保留现有内容和用户修改。最后调用 blueprint(action="update") 保存完整蓝图，不要删除其他栏目、图解或模块。完成后用一句话说明新增了什么。`
     }
 
@@ -1076,32 +1098,336 @@ window.__ModuleLoader__.load({
       choice: { label: 'choice', color: '#f59e0b', w: 48, h: 44 },
     }
 
+    const DIAGRAM_TYPE_ORDER = ['usecase', 'dfd', 'module', 'sequence', 'er', 'c4', 'class', 'state']
+    const DIAGRAM_TITLE_KEYS = {
+      usecase: 'usecase', dfd: 'dfd', module: 'module', sequence: 'sequence', er: 'er', c4: 'c4',
+      class: 'classDiagram', state: 'stateDiagram',
+    }
+
+    // Root diagrams keep their legacy key ("usecase"); child layers use
+    // "<letter>:<type>" ("B:module"). Everything downstream keys off the type.
+    function deriveType(key) {
+      const value = String(key ?? '').trim().toLowerCase()
+      const index = value.indexOf(':')
+      return index >= 0 ? value.slice(index + 1) : value
+    }
+    function diagramTypeOf(diagram) {
+      if (diagram === null || diagram === undefined) return ''
+      return String(diagram.type ?? deriveType(diagram.key)).trim().toLowerCase()
+    }
+    function diagramLayerId(diagram) {
+      if (diagram === null || diagram === undefined) return 'A'
+      const explicit = String(diagram.layerId ?? '').trim().toUpperCase()
+      if (explicit !== '') return explicit
+      const key = String(diagram.key ?? '')
+      const index = key.indexOf(':')
+      return index > 0 ? key.slice(0, index).trim().toUpperCase() : 'A'
+    }
+    function diagramKeyFor(layerId, type) {
+      return layerId === 'A' ? type : `${layerId}:${type}`
+    }
+    function layerList(bp) {
+      const layers = Array.isArray(bp?.layers) ? bp.layers : []
+      const root = layers.find(layer => (layer.letter ?? layer.id) === 'A')
+      if (root !== undefined) return layers
+      return [{ id: 'A', letter: 'A', title: 'A', parentModuleId: null }, ...layers]
+    }
+    function layerByLetter(bp, letter) {
+      return layerList(bp).find(layer => (layer.letter ?? layer.id) === letter)
+    }
+    function diagramsForLayer(bp, layerId) {
+      return (bp?.diagrams ?? []).filter(diagram => diagramLayerId(diagram) === layerId)
+    }
+    function diagramTypeTitle(type) {
+      return t(DIAGRAM_TITLE_KEYS[type] ?? type)
+    }
+    function preferredTabForLayer(bp, layerId) {
+      const list = diagramsForLayer(bp, layerId)
+      return list.find(diagram => diagramTypeOf(diagram) === 'module')?.key
+        ?? list.find(diagram => diagramTypeOf(diagram) === 'usecase')?.key
+        ?? list[0]?.key
+        ?? null
+    }
+    function currentDiagramFor(bp, tab, layerId) {
+      const byKey = (bp?.diagrams ?? []).find(diagram => diagram.key === tab)
+      if (byKey !== undefined && (layerId === undefined || diagramLayerId(byKey) === layerId)) return byKey
+      const list = diagramsForLayer(bp, layerId)
+      return list.find(diagram => diagramTypeOf(diagram) === 'module')
+        ?? list.find(diagram => diagramTypeOf(diagram) === 'usecase')
+        ?? list[0]
+    }
+    function moduleById(bp, id) {
+      return (bp?.modules ?? []).find(module => module.id === id)
+    }
+    function moduleForNode(bp, node, layerId) {
+      if (node === null || node === undefined) return undefined
+      const modules = bp?.modules ?? []
+      if (node.moduleId !== undefined && node.moduleId !== null) {
+        const direct = moduleById(bp, node.moduleId)
+        if (direct !== undefined && (layerId === undefined || direct.layerId === layerId)) return direct
+      }
+      const label = String(node.label ?? '').trim().toLowerCase()
+      if (label === '') return undefined
+      const match = list => list.find(module => {
+        const candidates = [module.id, module.name, module.code, `${module.code ?? ''} ${module.name ?? ''}`]
+        return candidates.some(candidate => String(candidate ?? '').trim().toLowerCase() === label)
+      })
+      if (layerId !== undefined) {
+        const local = match(modules.filter(module => module.layerId === layerId))
+        if (local !== undefined) return local
+      }
+      return match(modules)
+    }
+    function ensureModuleLinks(bp) {
+      for (const diagram of bp?.diagrams ?? []) {
+        const layerId = diagramLayerId(diagram)
+        for (const node of diagram.nodes ?? []) {
+          if (node.type !== 'module') continue
+          const module = moduleForNode(bp, node, layerId)
+          if (module !== undefined && node.moduleId !== module.id) node.moduleId = module.id
+        }
+      }
+    }
+    function moduleNodeInDiagram(bp, diagram, module) {
+      if (diagram === undefined || module === undefined) return undefined
+      return (diagram.nodes ?? []).find(node => node.type === 'module' && moduleForNode(bp, node, diagramLayerId(diagram))?.id === module.id)
+    }
+    function letterForIndex(index) {
+      let value = index
+      let result = ''
+      while (value > 0) {
+        value -= 1
+        result = String.fromCharCode(65 + (value % 26)) + result
+        value = Math.floor(value / 26)
+      }
+      return result
+    }
+    function nextLayerLetter(layers) {
+      const used = new Set((layers ?? []).map(layer => String(layer.letter ?? layer.id ?? '').toUpperCase()))
+      let index = 1
+      while (used.has(letterForIndex(index))) index += 1
+      return letterForIndex(index)
+    }
+    function parentLayerId(bp, layerId) {
+      const layer = layerByLetter(bp, layerId)
+      if (layer === undefined || layer.parentModuleId === null || layer.parentModuleId === undefined) return null
+      const module = moduleById(bp, layer.parentModuleId)
+      return module?.layerId ?? null
+    }
+    function layerDepth(bp, layerId) {
+      let depth = 1
+      let current = layerByLetter(bp, layerId)
+      const seen = new Set()
+      while (current !== undefined && current.parentModuleId !== null && current.parentModuleId !== undefined) {
+        if (seen.has(current.letter)) break
+        seen.add(current.letter)
+        const module = moduleById(bp, current.parentModuleId)
+        if (module === undefined) break
+        const parent = layerByLetter(bp, module.layerId)
+        if (parent === undefined) break
+        depth += 1
+        current = parent
+      }
+      return depth
+    }
+    function layerPath(bp, layerId) {
+      const path = []
+      const seen = new Set()
+      let current = layerByLetter(bp, layerId)
+      while (current !== undefined && !seen.has(current.letter)) {
+        seen.add(current.letter)
+        path.unshift(current)
+        const parent = parentLayerId(bp, current.letter)
+        current = parent === null ? undefined : layerByLetter(bp, parent)
+      }
+      if (path.length === 0) path.push(layerList(bp)[0])
+      return path
+    }
+    function descendantLayerIds(bp, rootId) {
+      const children = new Map()
+      for (const layer of layerList(bp)) {
+        if (layer.parentModuleId === null || layer.parentModuleId === undefined) continue
+        const module = moduleById(bp, layer.parentModuleId)
+        if (module === undefined) continue
+        const key = module.layerId ?? 'A'
+        if (!children.has(key)) children.set(key, [])
+        children.get(key).push(layer.letter)
+      }
+      const seen = new Set([rootId])
+      const queue = [rootId]
+      while (queue.length > 0) {
+        const id = queue.shift()
+        for (const child of children.get(id) ?? []) {
+          if (seen.has(child)) continue
+          seen.add(child)
+          queue.push(child)
+        }
+      }
+      return seen
+    }
+    function ensureLayerDiagram(layerId, type) {
+      const bp = state.bp
+      if (bp === null) return null
+      const existing = diagramsForLayer(bp, layerId).find(diagram => diagramTypeOf(diagram) === type)
+      if (existing !== undefined) return existing.key
+      const key = diagramKeyFor(layerId, type)
+      mutate(current => {
+        if ((current.diagrams ?? []).some(diagram => diagram.key === key)) return
+        current.diagrams = current.diagrams ?? []
+        current.diagrams.push({ key, layerId, type, title: diagramTypeTitle(type), nodes: [], edges: [] })
+      }, { undoLabel: 'add-diagram' })
+      return key
+    }
+    function activateLayer(layerId, options = {}) {
+      const bp = state.bp
+      if (bp === null) return
+      const layers = layerList(bp)
+      const target = layers.find(layer => layer.letter === layerId) ?? layers[0]
+      if (target === undefined) return
+      let tab = options.tab
+      if (tab !== undefined) {
+        const found = (bp.diagrams ?? []).find(diagram => diagram.key === tab && diagramLayerId(diagram) === target.letter)
+        if (found === undefined) tab = undefined
+      }
+      if (tab === undefined) tab = preferredTabForLayer(bp, target.letter)
+      if (tab === null && options.ensure !== false) tab = ensureLayerDiagram(target.letter, 'module')
+      set({
+        activeLayerId: target.letter,
+        tab,
+        selected: options.selected ?? null,
+        mode: 'select',
+        connectFrom: null,
+        ...(options.focusRequirement !== undefined ? { focusRequirement: options.focusRequirement } : {}),
+      })
+    }
+    function createChildLayer(module) {
+      const bp = state.bp
+      if (bp === null || module === undefined) return
+      const existing = (bp.layers ?? []).find(layer => layer.parentModuleId === module.id)
+      if (existing !== undefined) {
+        activateLayer(existing.letter)
+        toast(t('layerExists'), 'info')
+        return
+      }
+      if (layerDepth(bp, module.layerId) >= 4) {
+        toast(t('maxDepth'), 'error')
+        return
+      }
+      const letter = nextLayerLetter(bp.layers ?? [])
+      const key = diagramKeyFor(letter, 'module')
+      mutate(current => {
+        current.layers = current.layers ?? []
+        current.layers.push({ id: letter, letter, title: module.name || letter, parentModuleId: module.id })
+        current.diagrams = current.diagrams ?? []
+        current.diagrams.push({ key, layerId: letter, type: 'module', title: diagramTypeTitle('module'), nodes: [], edges: [] })
+      }, { undoLabel: 'create-layer' })
+      set({ activeLayerId: letter, tab: key, selected: null, focusRequirement: null, mode: 'select', connectFrom: null })
+      toast(t('layerCreated', { letter }), 'success')
+    }
+    function searchGroups(bp, query) {
+      const needle = String(query ?? '').trim().toLowerCase()
+      if (bp === null || needle === '') return []
+      const matches = (...values) => values.some(value => String(value ?? '').toLowerCase().includes(needle))
+      const requirements = []
+      for (const section of bp.sections ?? []) {
+        for (const [index, item] of (section.items ?? []).entries()) {
+          const module = item.moduleId === undefined ? undefined : moduleById(bp, item.moduleId)
+          if (!matches(item.code, item.uid, item.text, section.title, module?.code)) continue
+          requirements.push({
+            kind: 'requirement',
+            ref: requirementRef(section.key, item.id ?? index),
+            module,
+            label: `${item.code ?? ''} ${item.text ?? ''}`.trim(),
+            sub: module === undefined ? section.title : `${section.title} · ${module.code ?? ''} ${module.name ?? ''}`.trim(),
+          })
+        }
+      }
+      const modules = []
+      for (const module of bp.modules ?? []) {
+        if (!matches(module.code, module.name, module.summary)) continue
+        modules.push({
+          kind: 'module',
+          module,
+          label: `${module.code ?? ''} ${module.name ?? ''}`.trim(),
+          sub: module.summary || `${t('layer')} ${module.layerId ?? 'A'}`,
+        })
+      }
+      const layers = []
+      for (const layer of layerList(bp)) {
+        if (!matches(layer.letter, layer.title)) continue
+        const anchor = layer.parentModuleId === null || layer.parentModuleId === undefined ? undefined : moduleById(bp, layer.parentModuleId)
+        layers.push({
+          kind: 'layer',
+          layer,
+          label: `${layer.letter ?? layer.id}${layer.title ? ` · ${layer.title}` : ''}`,
+          sub: anchor === undefined ? t('currentLayer') : `${t('sublayerOf')} ${anchor.code ?? ''} ${anchor.name ?? ''}`.trim(),
+        })
+      }
+      const groups = [
+        { key: 'requirements', title: t('searchRequirements'), items: requirements },
+        { key: 'modules', title: t('searchModules'), items: modules },
+        { key: 'layers', title: t('searchLayers'), items: layers },
+      ].filter(group => group.items.length > 0)
+      let remaining = 20
+      for (const group of groups) {
+        group.items = group.items.slice(0, Math.max(0, remaining))
+        remaining -= group.items.length
+      }
+      return groups.filter(group => group.items.length > 0)
+    }
+    function navigateSearch(store, result) {
+      const bp = store.bp
+      if (bp === null || result === undefined) return
+      if (result.kind === 'layer') {
+        activateLayer(result.layer.letter)
+        return
+      }
+      const module = result.module
+      let layerId = module?.layerId ?? 'A'
+      if (layerByLetter(bp, layerId) === undefined) layerId = 'A'
+      const tab = ensureLayerDiagram(layerId, 'module')
+      const latest = state.bp
+      const diagram = (latest?.diagrams ?? []).find(item => item.key === tab)
+      const node = module === undefined ? undefined : moduleNodeInDiagram(latest, diagram, module)
+      set({
+        activeLayerId: layerId,
+        tab,
+        selected: node === undefined ? null : { kind: 'node', id: node.id },
+        mode: 'select',
+        connectFrom: null,
+        ...(result.kind === 'requirement' ? { focusRequirement: result.ref } : {}),
+      })
+    }
+
     function typesFor(key) {
-      if (key === 'usecase') return ['actor', 'usecase', 'system']
-      if (key === 'dfd') return ['entity', 'process', 'store']
-      if (key === 'sequence') return ['participant', 'actor']
-      if (key === 'er') return ['entity', 'relationship']
-      if (key === 'c4') return ['person', 'system', 'container', 'component', 'database', 'external']
-      if (key === 'class') return ['class', 'interface']
-      if (key === 'state') return ['state', 'initial', 'final', 'choice']
+      const type = deriveType(key)
+      if (type === 'usecase') return ['actor', 'usecase', 'system']
+      if (type === 'dfd') return ['entity', 'process', 'store']
+      if (type === 'sequence') return ['participant', 'actor']
+      if (type === 'er') return ['entity', 'relationship']
+      if (type === 'c4') return ['person', 'system', 'container', 'component', 'database', 'external']
+      if (type === 'class') return ['class', 'interface']
+      if (type === 'state') return ['state', 'initial', 'final', 'choice']
       return ['module', 'external']
     }
     function defaultEdgeKind(key) {
-      if (key === 'usecase') return 'association'
-      if (key === 'dfd') return 'flow'
-      if (key === 'sequence') return 'sync'
-      if (key === 'er') return 'relationship'
-      if (key === 'c4') return 'uses'
-      if (key === 'class') return 'association'
-      if (key === 'state') return 'transition'
+      const type = deriveType(key)
+      if (type === 'usecase') return 'association'
+      if (type === 'dfd') return 'flow'
+      if (type === 'sequence') return 'sync'
+      if (type === 'er') return 'relationship'
+      if (type === 'c4') return 'uses'
+      if (type === 'class') return 'association'
+      if (type === 'state') return 'transition'
       return 'depends'
     }
     function edgeKindsFor(key) {
-      if (key === 'sequence') return ['sync', 'async', 'return']
-      if (key === 'er') return ['relationship']
-      if (key === 'c4') return ['uses', 'contains', 'realizes', 'depends']
-      if (key === 'class') return ['extends', 'implements', 'association', 'dependency']
-      if (key === 'state') return ['transition']
+      const type = deriveType(key)
+      if (type === 'sequence') return ['sync', 'async', 'return']
+      if (type === 'er') return ['relationship']
+      if (type === 'c4') return ['uses', 'contains', 'realizes', 'depends']
+      if (type === 'class') return ['extends', 'implements', 'association', 'dependency']
+      if (type === 'state') return ['transition']
       return ['association', 'include', 'extend', 'flow', 'depends']
     }
     function classGeometry(node) {
@@ -1126,7 +1452,9 @@ window.__ModuleLoader__.load({
     }
     function splitRef(ref) {
       const text = String(ref ?? '')
-      const index = text.indexOf(':')
+      // Child-layer diagram keys contain a colon ("B:module"), so split on the last
+      // colon to keep "<layer>:<type>:<nodeId>" resolvable.
+      const index = text.lastIndexOf(':')
       if (index <= 0 || index === text.length - 1) return null
       return { key: text.slice(0, index), id: text.slice(index + 1) }
     }
@@ -1150,10 +1478,11 @@ window.__ModuleLoader__.load({
     function layoutDiagram(diagram) {
       const nodes = diagram.nodes ?? []
       if (nodes.length === 0) return
+      const type = diagramTypeOf(diagram)
       const system = nodes.find(node => node.type === 'system')
       const gapX = 70
       const gapY = 56
-      if (diagram.key === 'usecase') {
+      if (type === 'usecase') {
         const actors = nodes.filter(node => node.type === 'actor')
         const usecases = nodes.filter(node => node.type === 'usecase')
         let x = 70
@@ -1183,7 +1512,7 @@ window.__ModuleLoader__.load({
           system.w = Math.max(420, maxRight - startX + 80)
           system.h = Math.max(300, ...usecases.map(node => node.y + sizeOf(node).h - 44 + 40))
         }
-      } else if (diagram.key === 'dfd') {
+      } else if (type === 'dfd') {
         const groups = {
           entity: nodes.filter(node => node.type === 'entity'),
           process: nodes.filter(node => node.type === 'process'),
@@ -1199,7 +1528,7 @@ window.__ModuleLoader__.load({
             node.h = size.h
           })
         }
-      } else if (diagram.key === 'module') {
+      } else if (type === 'module') {
         const byId = new Map(nodes.map(node => [node.id, node]))
         const level = new Map(nodes.map(node => [node.id, 0]))
         for (let round = 0; round < 12; round += 1) {
@@ -1232,7 +1561,7 @@ window.__ModuleLoader__.load({
             node.h = size.h
           })
         }
-      } else if (diagram.key === 'sequence') {
+      } else if (type === 'sequence') {
         nodes.forEach((node, index) => {
           node.x = 80 + index * 230
           node.y = 64
@@ -1243,7 +1572,7 @@ window.__ModuleLoader__.load({
           if (typeof edge.order !== 'number') edge.order = index + 1
         })
         diagram.height = 170 + Math.max(1, (diagram.edges ?? []).length) * 56 + 90
-      } else if (diagram.key === 'er') {
+      } else if (type === 'er') {
         const entities = nodes.filter(node => node.type === 'entity')
         const relationships = nodes.filter(node => node.type === 'relationship')
         const columns = entities.length > 3 ? 2 : 1
@@ -1263,7 +1592,7 @@ window.__ModuleLoader__.load({
           node.w = size.w
           node.h = size.h
         })
-      } else if (diagram.key === 'c4') {
+      } else if (type === 'c4') {
         const people = nodes.filter(node => node.type === 'person')
         const externals = nodes.filter(node => node.type === 'external')
         const cores = nodes.filter(node => !['person', 'external'].includes(node.type))
@@ -1291,7 +1620,7 @@ window.__ModuleLoader__.load({
           node.w = size.w
           node.h = size.h
         })
-      } else if (diagram.key === 'class') {
+      } else if (type === 'class') {
         const byId = new Map(nodes.map(node => [node.id, node]))
         const level = new Map(nodes.map(node => [node.id, 0]))
         for (let round = 0; round < 12; round += 1) {
@@ -1334,7 +1663,7 @@ window.__ModuleLoader__.load({
           }
           y = rowY + 12
         }
-      } else if (diagram.key === 'state') {
+      } else if (type === 'state') {
         const rank = new Map(nodes.map(node => [node.id, 0]))
         for (let round = 0; round < 20; round += 1) {
           let changed = false
@@ -1387,7 +1716,9 @@ window.__ModuleLoader__.load({
     }
 
     function ensureLayout(blueprint) {
+      ensureModuleLinks(blueprint)
       for (const diagram of blueprint.diagrams ?? []) {
+        const type = diagramTypeOf(diagram)
         const nodes = diagram.nodes ?? []
         const missing = nodes.some(node => typeof node.x !== 'number' || typeof node.y !== 'number')
         if (missing) {
@@ -1411,7 +1742,7 @@ window.__ModuleLoader__.load({
             if (typeof saved.h === 'number') saved.node.h = saved.h
           }
         }
-        if (diagram.key === 'sequence') {
+        if (type === 'sequence') {
           ;(diagram.edges ?? []).forEach((edge, index) => {
             if (typeof edge.order !== 'number') edge.order = index + 1
           })
@@ -1495,7 +1826,7 @@ window.__ModuleLoader__.load({
       if (undo) recordUndo(bp, undoLabel)
       fn(bp)
       if (layout) {
-        const diagram = bp.diagrams.find(item => item.key === state.tab)
+        const diagram = currentDiagramFor(bp, state.tab, state.activeLayerId)
         if (diagram !== undefined) layoutDiagram(diagram)
       }
       bp.updatedAt = Date.now()
@@ -1565,6 +1896,7 @@ window.__ModuleLoader__.load({
       if (name === 'back') return h('svg', common, h('path', { d: 'M19 12H5M11 6l-6 6 6 6' }))
       if (name === 'undo') return h('svg', common, h('path', { d: 'M9 14L4 9l5-5' }), h('path', { d: 'M4 9h9a7 7 0 1 1 0 14h-3' }))
       if (name === 'redo') return h('svg', common, h('path', { d: 'M15 14l5-5-5-5' }), h('path', { d: 'M20 9h-9a7 7 0 1 0 0 14h3' }))
+      if (name === 'search') return h('svg', common, h('circle', { cx: 10.5, cy: 10.5, r: 6.5 }), h('path', { d: 'M15.5 15.5L21 21' }))
       return h('svg', common, h('circle', { cx: 12, cy: 12, r: 8 }))
     }
 
@@ -1715,7 +2047,7 @@ window.__ModuleLoader__.load({
           ensureLayout(bp)
           resetHistory()
           set({
-            bp, missing: false, dirty: true, tab: 'usecase', landing: false,
+            bp, missing: false, dirty: true, tab: 'usecase', activeLayerId: 'A', landing: false,
             canUndo: false, canRedo: false, error: null, selected: null,
             mode: 'select', connectFrom: null, panel: 'inspector',
           })
@@ -1769,7 +2101,7 @@ window.__ModuleLoader__.load({
           updatedAt: now,
         }
         resetHistory()
-        set({ bp, missing: false, dirty: true, tab: 'usecase', landing: false, canUndo: false, canRedo: false })
+        set({ bp, missing: false, dirty: true, tab: 'usecase', activeLayerId: 'A', landing: false, canUndo: false, canRedo: false })
         saveBlueprint({ silent: true })
       }
       return h('div', { className: 'bp-empty' },
@@ -1811,10 +2143,12 @@ window.__ModuleLoader__.load({
           store.error ? h('div', { className: 'bp-error' }, store.error) : null))
     }
 
-    function Section({ section, store, linkedRefs, focusedRef, traceCounts, onToggleFocus }) {
+    function Section({ section, store, linkedRefs, focusedRef, traceCounts, onToggleFocus, items, indices, moduleLabels }) {
       const [open, setOpen] = useState(true)
       const [adding, setAdding] = useState(false)
       const [draft, setDraft] = useState('')
+      const visibleItems = Array.isArray(items) ? items : section.items
+      const sourceIndices = Array.isArray(indices) ? indices : visibleItems.map((_, index) => index)
       const addItem = () => {
         const body = draft.trim()
         if (body === '') { setAdding(false); return }
@@ -1830,19 +2164,21 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'bp-section-title', onClick: () => setOpen(!open) },
             h('span', { className: `bp-caret${open ? ' open' : ''}` }, '▸'),
             h('span', null, section.title),
-            h('em', null, t('sectionCount', { count: section.items.length }))),
+            h('em', null, t('sectionCount', { count: visibleItems.length }))),
           h('div', { className: 'bp-section-tools' },
             button('bp-ghost', () => setAdding(value => !value), h(Icon, { name: 'plus', size: 14 }), { title: t('addItem') }),
             button('bp-ghost bp-spark', () => expandSection(section), h(Icon, { name: 'spark', size: 14 }), { title: t('expandSection') }))),
         open ? h('div', { className: 'bp-section-body' },
-          section.items.map((item, index) => {
-            const ref = requirementRef(section.key, item.id ?? index)
+          visibleItems.map((item, index) => {
+            const sourceIndex = sourceIndices[index] ?? index
+            const ref = requirementRef(section.key, item.id ?? sourceIndex)
             const linked = linkedRefs?.has(ref) === true
             const focused = focusedRef === ref
             const traceCount = traceCounts?.get(ref) ?? 0
+            const moduleLabel = moduleLabels?.get(ref)
             return h('div', {
               className: `bp-item${linked ? ' linked' : ''}${focused ? ' focused' : ''}`,
-              key: item.id ?? index,
+              key: item.id ?? sourceIndex,
               title: t('requirementsFocusHint'),
               onClick: event => {
                 if (event.target?.closest?.('.bp-item-del') !== null) return
@@ -1850,12 +2186,13 @@ window.__ModuleLoader__.load({
               },
             },
               h('textarea', {
-                className: 'bp-item-input', value: item.text, rows: Math.max(1, Math.ceil((item.text.length * 2 + 8) / 34)),
+                className: 'bp-item-input', value: item.text, rows: Math.max(1, Math.ceil((String(item.text ?? '').length * 2 + 8) / 34)),
                 onChange: event => mutate(bp => {
                   const target = bp.sections.find(entry => entry.key === section.key)
-                  if (target?.items[index] !== undefined) target.items[index].text = event.target.value
+                  if (target?.items[sourceIndex] !== undefined) target.items[sourceIndex].text = event.target.value
                 }),
               }),
+              moduleLabel ? h('span', { className: 'bp-item-module', title: moduleLabel }, moduleLabel) : null,
               traceCount > 0 ? h('span', {
                 className: `bp-item-trace${focused ? ' active' : ''}`,
                 title: `${t('linkedNodes')}: ${traceCount}`,
@@ -1866,7 +2203,7 @@ window.__ModuleLoader__.load({
                   event.stopPropagation()
                   mutate(bp => {
                     const target = bp.sections.find(entry => entry.key === section.key)
-                    if (target !== undefined) target.items.splice(index, 1)
+                    if (target !== undefined) target.items.splice(sourceIndex, 1)
                   })
                   if (focused) onToggleFocus?.(ref)
                 },
@@ -1888,8 +2225,11 @@ window.__ModuleLoader__.load({
       const bp = store.bp
       const [addingSection, setAddingSection] = useState(false)
       const [sectionName, setSectionName] = useState('')
+      const [includeDescendants, setIncludeDescendants] = useState(false)
       if (bp === null) return null
-      const currentDiagram = bp.diagrams.find(diagram => diagram.key === store.tab)
+      const activeLayerId = store.activeLayerId ?? 'A'
+      const currentLayer = layerByLetter(bp, activeLayerId) ?? layerList(bp)[0]
+      const currentDiagram = currentDiagramFor(bp, store.tab, activeLayerId)
       const selectedNode = store.selected?.kind === 'node'
         ? currentDiagram?.nodes.find(node => node.id === store.selected.id)
         : undefined
@@ -1900,16 +2240,56 @@ window.__ModuleLoader__.load({
           for (const ref of node.requirementIds ?? []) traceCounts.set(ref, (traceCounts.get(ref) ?? 0) + 1)
         }
       }
+      const layerIds = includeDescendants ? descendantLayerIds(bp, activeLayerId) : new Set([activeLayerId])
+      const moduleForItem = item => item?.moduleId === undefined ? undefined : moduleById(bp, item.moduleId)
+      const itemLayer = item => {
+        const module = moduleForItem(item)
+        return module?.layerId ?? null
+      }
+      const isUnassigned = item => moduleForItem(item) === undefined
+      const visibleItem = item => isUnassigned(item) || layerIds.has(itemLayer(item))
+      const moduleLabels = new Map()
+      let visibleCount = 0
+      let unassignedCount = 0
+      let subtreeCount = 0
+      let foreignCount = 0
+      const visibleSections = bp.sections.map(section => {
+        const items = []
+        const indices = []
+        ;(section.items ?? []).forEach((item, index) => {
+          const layerId = itemLayer(item)
+          if (isUnassigned(item)) unassignedCount += 1
+          else if (layerId !== activeLayerId && layerIds.has(layerId)) subtreeCount += 1
+          else if (layerId !== null && !layerIds.has(layerId)) foreignCount += 1
+          if (!visibleItem(item)) return
+          items.push(item)
+          indices.push(index)
+          visibleCount += 1
+          const module = moduleForItem(item)
+          if (module !== undefined) moduleLabels.set(requirementRef(section.key, item.id ?? index), `${module.code ?? ''} ${module.name ?? ''}`.trim())
+        })
+        return { section, items, indices }
+      })
       const toggleRequirementFocus = ref => {
         if (state.focusRequirement === ref) {
           set({ focusRequirement: null })
           return
         }
-        const linkedDiagram = bp.diagrams.find(diagram =>
+        const linkedDiagram = diagramsForLayer(bp, activeLayerId).find(diagram =>
           (diagram.nodes ?? []).some(node => (node.requirementIds ?? []).includes(ref)))
+          ?? bp.diagrams.find(diagram =>
+            (diagram.nodes ?? []).some(node => (node.requirementIds ?? []).includes(ref)))
+        if (linkedDiagram === undefined) {
+          set({ focusRequirement: ref })
+          return
+        }
         set({
           focusRequirement: ref,
-          tab: linkedDiagram !== undefined && linkedDiagram.key !== state.tab ? linkedDiagram.key : state.tab,
+          activeLayerId: diagramLayerId(linkedDiagram),
+          tab: linkedDiagram.key,
+          selected: null,
+          mode: 'select',
+          connectFrom: null,
         })
       }
       const addSection = () => {
@@ -1925,6 +2305,9 @@ window.__ModuleLoader__.load({
       return h('aside', { className: 'bp-left' },
         h('div', { className: 'bp-left-head' },
           h('div', { className: 'bp-kicker' }, t('requirements')),
+          h('div', { className: 'bp-layer-chip', title: currentLayer.title ?? currentLayer.letter },
+            h('strong', null, currentLayer.letter ?? currentLayer.id),
+            h('span', null, currentLayer.title ?? '')),
           h('input', {
             className: 'bp-title-input', value: bp.title, placeholder: t('titlePlaceholder'),
             onChange: event => mutate(current => { current.title = event.target.value }),
@@ -1933,12 +2316,19 @@ window.__ModuleLoader__.load({
             className: 'bp-summary-input', value: bp.summary ?? '', rows: 2,
             placeholder: t('summaryPlaceholder'),
             onChange: event => mutate(current => { current.summary = event.target.value }),
-          })),
+          }),
+          h('div', { className: 'bp-layer-summary' },
+            h('div', null, t('layerSummary', { visible: visibleCount, unassigned: unassignedCount, subtree: subtreeCount })),
+            h('label', { className: 'bp-check' },
+              h('input', { type: 'checkbox', checked: includeDescendants, onChange: event => setIncludeDescendants(event.target.checked) }),
+              t('includeDescendants')),
+            foreignCount > 0 ? h('div', { className: 'bp-layer-gap' }, t('layerGap', { count: foreignCount })) : null)),
         h('div', { className: 'bp-sections' },
-          bp.sections.map(section => h(Section, {
-            key: section.key, section, store,
+          visibleSections.map(entry => h(Section, {
+            key: entry.section.key, section: entry.section, store,
             linkedRefs, focusedRef: store.focusRequirement, traceCounts,
             onToggleFocus: toggleRequirementFocus,
+            items: entry.items, indices: entry.indices, moduleLabels,
           })),
           addingSection ? h('div', { className: 'bp-add-row' },
             h('input', {
@@ -1954,7 +2344,7 @@ window.__ModuleLoader__.load({
             h(Icon, { name: 'plus', size: 14 }), t('addSection'))))
     }
 
-    function NodeShape({ node, selected, highlighted, onPointerDown, onClick, diagramKey, index }) {
+    function NodeShape({ node, selected, highlighted, onPointerDown, onClick, onDoubleClick, onEnterChild, childLayer, diagramType, index }) {
       const size = sizeOf(node)
       const w = size.w
       const height = size.h
@@ -1980,7 +2370,7 @@ window.__ModuleLoader__.load({
         shape.push(
           h('polygon', { key: 'shape', points: `${w / 2},2 ${w - 2},${height / 2} ${w / 2},${height - 2} 2,${height / 2}`, fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 1.8 }),
           labelText(w / 2, height / 2 + 4, lines, { weight: 600 }))
-      } else if (node.type === 'entity' && diagramKey === 'er') {
+      } else if (node.type === 'entity' && diagramType === 'er') {
         const rowHeight = 19
         const headerHeight = 34
         shape.push(
@@ -2056,7 +2446,7 @@ window.__ModuleLoader__.load({
           h('path', { key: 'body', d: `M${cx - 11} 48c0-8 5-13 11-13s11 5 11 13`, fill: 'none', stroke: color, strokeWidth: 1.8 }),
           h('text', { key: 'label', x: 46, y: 28, fill: 'var(--dsw-alias-label-primary)', fontSize: 13, fontWeight: 650 }, node.label))
         if (node.technology) shape.push(h('text', { key: 'tech', x: 46, y: 46, fill: 'var(--dsw-alias-label-secondary)', fontSize: 10.5 }, node.technology))
-      } else if (node.type === 'container' || node.type === 'component' || node.type === 'database' || (node.type === 'external' && diagramKey === 'c4')) {
+      } else if (node.type === 'container' || node.type === 'component' || node.type === 'database' || (node.type === 'external' && diagramType === 'c4')) {
         const dash = node.type === 'external' ? '6 4' : undefined
         shape.push(
           h('rect', { key: 'shape', x: 0, y: 0, width: w, height, rx: 10, fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 1.8, strokeDasharray: dash }),
@@ -2069,7 +2459,7 @@ window.__ModuleLoader__.load({
             key: `d-${index}`, x: 12, y: 70 + index * 14, fill: 'var(--dsw-alias-label-secondary)', fontSize: 10.5,
           }, line)))
         }
-      } else if (node.type === 'system' && diagramKey === 'c4') {
+      } else if (node.type === 'system' && diagramType === 'c4') {
         shape.push(
           h('rect', { key: 'shape', x: 0, y: 0, width: w, height, rx: 12, fill: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent)', stroke: color, strokeWidth: 2 }),
           h('text', { key: 'label', x: 12, y: 30, fill: 'var(--dsw-alias-label-primary)', fontSize: 14, fontWeight: 700 }, node.label))
@@ -2112,9 +2502,11 @@ window.__ModuleLoader__.load({
         className: `bp-node${selected ? ' selected' : ''}${highlighted ? ' linked' : ''}`,
         onPointerDown,
         onClick,
-        style: { cursor: 'grab' },
+        onDoubleClick: childLayer !== undefined && childLayer !== null ? onDoubleClick : undefined,
+        style: { cursor: childLayer !== undefined && childLayer !== null ? 'pointer' : 'grab' },
         'data-node-id': node.id,
         'data-node-index': index,
+        'data-module-id': node.moduleId,
       },
         highlighted && !selected ? h('rect', {
           key: 'linked-halo', x: -6, y: -6, width: w + 12, height: height + 12, rx: 12,
@@ -2122,7 +2514,20 @@ window.__ModuleLoader__.load({
           className: 'bp-node-linked',
         }) : null,
         selected ? h('rect', { x: -6, y: -6, width: w + 12, height: height + 12, rx: 12, fill: 'none', stroke: 'var(--dsw-alias-brand-primary)', strokeWidth: 1.4, strokeDasharray: '5 4' }) : null,
-        shape)
+        shape,
+        childLayer !== undefined && childLayer !== null ? h('g', {
+          key: 'enter-child',
+          className: 'bp-node-enter',
+          transform: `translate(${w - 18} 4)`,
+          onPointerDown: event => event.stopPropagation(),
+          onClick: event => {
+            event.stopPropagation()
+            onEnterChild?.(childLayer)
+          },
+        },
+          h('title', null, t('enterChildLayer')),
+          h('circle', { cx: 10, cy: 10, r: 10, fill: 'var(--dsw-alias-brand-primary)', opacity: 0.92 }),
+          h('text', { x: 10, y: 14, textAnchor: 'middle', fontSize: 11, fontWeight: 700, fill: '#fff' }, '↗')) : null)
     }
 
     function rectEdgePoint(node, size, towardX, towardY) {
@@ -2147,7 +2552,7 @@ window.__ModuleLoader__.load({
       const y1 = (from.y ?? 0) + a.h / 2
       const x2 = (to.x ?? 0) + b.w / 2
       const y2 = (to.y ?? 0) + b.h / 2
-      if (diagram.key === 'class' || diagram.key === 'state') {
+      if (diagramTypeOf(diagram) === 'class' || diagramTypeOf(diagram) === 'state') {
         const start = rectEdgePoint(from, a, x2, y2)
         const end = rectEdgePoint(to, b, x1, y1)
         return { x1: start.x, y1: start.y, x2: end.x, y2: end.y, mx: (start.x + end.x) / 2, my: (start.y + end.y) / 2 }
@@ -2162,7 +2567,7 @@ window.__ModuleLoader__.load({
       const geo = edgeGeometry(diagram, edge)
       if (geo === null) return null
       const dashed = ['depends', 'include', 'return', 'implements', 'dependency'].includes(edge.kind)
-      const relationKind = diagram.key === 'class' && ['extends', 'implements', 'association', 'dependency'].includes(edge.kind)
+      const relationKind = diagramTypeOf(diagram) === 'class' && ['extends', 'implements', 'association', 'dependency'].includes(edge.kind)
       const displayLabel = typeof edge.label === 'string' && edge.label.trim() !== ''
         ? edge.label
         : relationKind ? t(edge.kind) : ''
@@ -2263,7 +2668,9 @@ window.__ModuleLoader__.load({
 
     function Canvas({ store }) {
       const bp = store.bp
-      const diagram = bp?.diagrams.find(item => item.key === store.tab) ?? bp?.diagrams[0]
+      const diagram = currentDiagramFor(bp, store.tab, store.activeLayerId)
+        ?? (bp?.diagrams ?? []).find(item => item.key === store.tab)
+        ?? bp?.diagrams[0]
       const [view, setView] = useState({ x: 70, y: 30, zoom: 1 })
       const viewRef = useRef(view)
       viewRef.current = view
@@ -2275,9 +2682,11 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         setView(fitViewFor(diagram))
         setHoverPoint(null)
-      }, [store.tab])
+      }, [store.tab, store.activeLayerId])
 
       if (diagram === undefined) return null
+      const tabKey = diagram.key
+      const diagramType = diagramTypeOf(diagram)
 
       const W = 2000
       const H = 1200
@@ -2316,7 +2725,7 @@ window.__ModuleLoader__.load({
         }
         const world = toWorld(event)
         mutate(current => {
-          const target = current.diagrams.find(item => item.key === store.tab)
+          const target = current.diagrams.find(item => item.key === tabKey)
           const node = target?.nodes.find(item => item.id === drag.id)
           if (node === undefined) return
           node.x = drag.x + (world.x - drag.start.x)
@@ -2351,10 +2760,10 @@ window.__ModuleLoader__.load({
       const addEdge = (from, to) => {
         const id = `e${Date.now().toString(36)}`
         mutate(current => {
-          const target = current.diagrams.find(item => item.key === store.tab)
+          const target = current.diagrams.find(item => item.key === tabKey)
           if (target === undefined) return
-          const edge = { id, from, to, kind: defaultEdgeKind(store.tab) }
-          if (store.tab === 'sequence') edge.order = (target.edges?.length ?? 0) + 1
+          const edge = { id, from, to, kind: defaultEdgeKind(diagramType) }
+          if (diagramType === 'sequence') edge.order = (target.edges?.length ?? 0) + 1
           target.edges.push(edge)
         })
         set({ connectFrom: null, mode: 'select', selected: { kind: 'edge', id } })
@@ -2389,7 +2798,7 @@ window.__ModuleLoader__.load({
               h('path', { d: 'M0 0L10 5L0 10z', fill: 'var(--dsw-alias-label-secondary)' }))),
           h('rect', { width: W, height: H, fill: 'transparent' }),
           h('g', { transform: `translate(${view.x} ${view.y}) scale(${zoom})` },
-            diagram.key === 'sequence'
+            diagramType === 'sequence'
               ? h(SequenceLayer, {
                   diagram,
                   selectedId: store.selected?.kind === 'edge' ? store.selected.id : null,
@@ -2400,15 +2809,30 @@ window.__ModuleLoader__.load({
                   selected: store.selected?.kind === 'edge' && store.selected.id === edge.id,
                   onSelect: () => set({ selected: { kind: 'edge', id: edge.id } }),
                 })),
-            ordered.map((node, index) => h(NodeShape, {
-              key: node.id, node,
-              diagramKey: diagram.key,
-              index,
-              selected: store.selected?.kind === 'node' && store.selected.id === node.id,
-              highlighted: highlightedNodes.has(node.id),
-              onPointerDown: event => onNodeDown(node, event),
-              onClick: event => onNodeClick(node, event),
-            })),
+            ordered.map((node, index) => {
+              const module = node.type === 'module' ? moduleForNode(bp, node, diagramLayerId(diagram)) : undefined
+              const displayNode = module === undefined
+                ? node
+                : { ...node, moduleId: module.id, label: `${module.code ?? ''} ${module.name ?? ''}`.trim() }
+              const childLayer = module === undefined
+                ? undefined
+                : (bp.layers ?? []).find(layer => layer.parentModuleId === module.id)
+              return h(NodeShape, {
+                key: node.id, node: displayNode,
+                diagramType,
+                childLayer,
+                onEnterChild: childLayer === undefined ? undefined : () => activateLayer(childLayer.letter),
+                onDoubleClick: childLayer === undefined ? undefined : event => {
+                  event.stopPropagation()
+                  activateLayer(childLayer.letter)
+                },
+                index,
+                selected: store.selected?.kind === 'node' && store.selected.id === node.id,
+                highlighted: highlightedNodes.has(node.id),
+                onPointerDown: event => onNodeDown(displayNode, event),
+                onClick: event => onNodeClick(displayNode, event),
+              })
+            }),
             store.mode === 'connect' && store.connectFrom !== null && hoverPoint !== null ? (() => {
               const from = diagram.nodes.find(node => node.id === store.connectFrom)
               if (from === undefined) return null
@@ -2432,25 +2856,27 @@ window.__ModuleLoader__.load({
       const bp = store.bp
       if (bp === null) return null
       const selected = store.selected
-      const diagram = bp.diagrams.find(item => item.key === store.tab)
+      const diagram = currentDiagramFor(bp, store.tab, store.activeLayerId)
+      const diagramType = diagramTypeOf(diagram)
+      const tabKey = diagram?.key ?? store.tab
       const node = selected?.kind === 'node' ? diagram?.nodes.find(item => item.id === selected.id) : undefined
       const edge = selected?.kind === 'edge' ? diagram?.edges.find(item => item.id === selected.id) : undefined
 
       const updateNode = patchFn => mutate(current => {
-        const target = current.diagrams.find(item => item.key === store.tab)
+        const target = current.diagrams.find(item => item.key === tabKey)
         const found = target?.nodes.find(item => item.id === selected.id)
         if (found !== undefined) patchFn(found)
       })
       const updateEdge = patchFn => mutate(current => {
-        const target = current.diagrams.find(item => item.key === store.tab)
+        const target = current.diagrams.find(item => item.key === tabKey)
         const found = target?.edges.find(item => item.id === selected.id)
         if (found !== undefined) patchFn(found)
       })
 
       if (node !== undefined) {
-        const isErEntity = store.tab === 'er' && node.type === 'entity'
-        const isClassNode = store.tab === 'class' && (node.type === 'class' || node.type === 'interface')
-        const isC4 = store.tab === 'c4'
+        const isErEntity = diagramType === 'er' && node.type === 'entity'
+        const isClassNode = diagramType === 'class' && (node.type === 'class' || node.type === 'interface')
+        const isC4 = diagramType === 'c4'
         return h('div', { className: 'bp-inspector' },
           h('div', { className: 'bp-kicker' }, t('inspector')),
           h('label', { className: 'bp-field' }, h('span', null, t('nodeLabel')),
@@ -2460,7 +2886,7 @@ window.__ModuleLoader__.load({
               found.type = event.target.value
               const meta = TYPE_META[event.target.value]
               if (meta) { found.w = meta.w; found.h = meta.h }
-            }) }, typesFor(store.tab).map(type => h('option', { key: type, value: type }, t(TYPE_META[type]?.label ?? type))))),
+            }) }, typesFor(diagramType).map(type => h('option', { key: type, value: type }, t(TYPE_META[type]?.label ?? type))))),
           isC4 ? h('label', { className: 'bp-field' }, h('span', null, t('technology')),
             h('input', { className: 'bp-input', value: node.technology ?? '', onChange: event => updateNode(found => { found.technology = event.target.value }) })) : null,
           node.type === 'system' || node.type === 'module' || node.type === 'usecase' || isC4
@@ -2544,19 +2970,19 @@ window.__ModuleLoader__.load({
           h('button', { className: 'bp-btn bp-danger', onClick: deleteSelection }, h(Icon, { name: 'trash', size: 14 }), t('deleteNode')))
       }
       if (edge !== undefined) {
-        const edgeKinds = edgeKindsFor(store.tab)
+        const edgeKinds = edgeKindsFor(diagramType)
         return h('div', { className: 'bp-inspector' },
           h('div', { className: 'bp-kicker' }, t('inspector')),
-          h('label', { className: 'bp-field' }, h('span', null, store.tab === 'sequence' ? t('message') : t('edgeLabel')),
+          h('label', { className: 'bp-field' }, h('span', null, diagramType === 'sequence' ? t('message') : t('edgeLabel')),
             h('input', { className: 'bp-input', value: edge.label ?? '', onChange: event => updateEdge(found => { found.label = event.target.value }) })),
           h('label', { className: 'bp-field' }, h('span', null, t('edgeKind')),
-            h('select', { className: 'bp-input', value: edge.kind ?? defaultEdgeKind(store.tab), onChange: event => updateEdge(found => { found.kind = event.target.value }) },
+            h('select', { className: 'bp-input', value: edge.kind ?? defaultEdgeKind(diagramType), onChange: event => updateEdge(found => { found.kind = event.target.value }) },
               edgeKinds.map(kind => h('option', { key: kind, value: kind }, t(kind))))),
-          store.tab === 'er' ? h('label', { className: 'bp-field' }, h('span', null, t('cardinality')),
+          diagramType === 'er' ? h('label', { className: 'bp-field' }, h('span', null, t('cardinality')),
             h('input', { className: 'bp-input', value: edge.cardinality ?? '', placeholder: '1..*', onChange: event => updateEdge(found => { found.cardinality = event.target.value }) })) : null,
-          store.tab === 'sequence' ? h('label', { className: 'bp-field' }, h('span', null, t('order')),
+          diagramType === 'sequence' ? h('label', { className: 'bp-field' }, h('span', null, t('order')),
             h('input', { className: 'bp-input', type: 'number', value: edge.order ?? 1, onChange: event => updateEdge(found => { found.order = Number(event.target.value) || 1 }) })) : null,
-          store.tab === 'c4' ? h('label', { className: 'bp-field' }, h('span', null, t('technology')),
+          diagramType === 'c4' ? h('label', { className: 'bp-field' }, h('span', null, t('technology')),
             h('input', { className: 'bp-input', value: edge.technology ?? '', onChange: event => updateEdge(found => { found.technology = event.target.value }) })) : null,
           h('button', { className: 'bp-btn bp-danger', onClick: deleteSelection }, h(Icon, { name: 'trash', size: 14 }), t('deleteEdge')))
       }
@@ -2567,7 +2993,7 @@ window.__ModuleLoader__.load({
       const selected = state.selected
       if (selected === null) return
       mutate(current => {
-        const diagram = current.diagrams.find(item => item.key === state.tab)
+        const diagram = currentDiagramFor(current, state.tab, state.activeLayerId)
         if (diagram === undefined) return
         if (selected.kind === 'node') {
           diagram.nodes = diagram.nodes.filter(node => node.id !== selected.id)
@@ -2594,7 +3020,11 @@ window.__ModuleLoader__.load({
       const bp = store.bp
       const [selectedModuleId, setSelectedModuleId] = useState(null)
       if (bp === null) return null
-      const currentDiagram = bp.diagrams.find(item => item.key === store.tab)
+      const currentDiagram = currentDiagramFor(bp, store.tab, store.activeLayerId)
+      const selectedModule = selectedModuleId === null ? undefined : bp.modules.find(item => item.id === selectedModuleId)
+      const editorDiagram = selectedModule === undefined || selectedModule === null
+        ? currentDiagram
+        : diagramsForLayer(bp, selectedModule.layerId ?? 'A').find(item => diagramTypeOf(item) === 'module') ?? currentDiagram
       const updateModule = (id, fn) => mutate(current => {
         const found = current.modules.find(item => item.id === id)
         if (found !== undefined) fn(found)
@@ -2603,12 +3033,26 @@ window.__ModuleLoader__.load({
         found.nodeIds = toggleTraceValue(found.nodeIds, ref)
       })
       const selectModule = module => {
-        setSelectedModuleId(current => current === module.id ? null : module.id)
-        const diagram = bp.diagrams.find(item => item.key === 'module')
-        const node = diagram?.nodes.find(entry => entry.label === module.name || entry.id === module.id)
-        if (node !== undefined) {
-          set({ tab: 'module', selected: { kind: 'node', id: node.id }, mode: 'select' })
+        const next = selectedModuleId === module.id ? null : module.id
+        setSelectedModuleId(next)
+        if (next === null) return
+        const layerId = module.layerId ?? 'A'
+        let layerDiagrams = diagramsForLayer(bp, layerId)
+        let diagram = layerDiagrams.find(item => diagramTypeOf(item) === 'module')
+        if (diagram === undefined) {
+          const key = ensureLayerDiagram(layerId, 'module')
+          diagram = (state.bp?.diagrams ?? []).find(item => item.key === key)
+          layerDiagrams = diagramsForLayer(state.bp, layerId)
         }
+        const node = moduleNodeInDiagram(state.bp ?? bp, diagram, module)
+          ?? diagram?.nodes.find(entry => entry.label === module.name || entry.id === module.id)
+        set({
+          activeLayerId: layerId,
+          tab: diagram?.key ?? preferredTabForLayer(state.bp ?? bp, layerId),
+          selected: node === undefined ? null : { kind: 'node', id: node.id },
+          mode: 'select',
+          connectFrom: null,
+        })
       }
       return h('div', { className: 'bp-modules' },
         h('div', { className: 'bp-kicker' }, t('modules')),
@@ -2624,7 +3068,7 @@ window.__ModuleLoader__.load({
             onClick: () => selectModule(module),
           },
             h('div', { className: 'bp-module-top' },
-              h('strong', null, module.name),
+              h('strong', null, `${module.code ?? ''} ${module.name}`.trim()),
               h('span', { className: `bp-chip bp-chip-${module.status ?? 'pending'}` }, moduleStatusLabel(module.status))),
             module.summary ? h('p', null, module.summary) : null,
             module.dependsOn?.length ? h('div', { className: 'bp-module-deps' }, `${t('dependsOn')}: ${module.dependsOn.join(', ')}`) : null,
@@ -2638,16 +3082,30 @@ window.__ModuleLoader__.load({
             },
               h('div', { className: 'bp-field' },
                 h('span', null, t('linkedNodes')),
-                (currentDiagram?.nodes ?? []).length === 0
+                (editorDiagram?.nodes ?? []).length === 0
                   ? h('div', { className: 'bp-muted' }, t('noDiagramNodes'))
                   : h('div', { className: 'bp-node-picker' },
-                      (currentDiagram?.nodes ?? []).map(node => {
-                        const ref = nodeRef(currentDiagram.key, node.id)
+                      (editorDiagram?.nodes ?? []).map(node => {
+                        const ref = nodeRef(editorDiagram.key, node.id)
                         const checked = nodeIds.includes(ref)
                         return h('label', { className: 'bp-node-option', key: node.id, title: ref },
                           h('input', { type: 'checkbox', checked, onChange: () => toggleModuleNode(module, ref) }),
                           h('span', { className: 'bp-node-text' }, `${node.label} · ${ref}`))
                       }))),
+              (() => {
+                const childLayer = (bp.layers ?? []).find(layer => layer.parentModuleId === module.id)
+                return h('div', { className: 'bp-module-layer' },
+                  childLayer === undefined
+                    ? button('bp-btn', () => createChildLayer(module), h(Icon, { name: 'plus', size: 13 }), {
+                      title: layerDepth(bp, module.layerId) >= 4 ? t('maxDepth') : t('createLayer'),
+                      disabled: layerDepth(bp, module.layerId) >= 4,
+                    })
+                    : button('bp-btn', () => activateLayer(childLayer.letter), h(Icon, { name: 'expand', size: 13 }), {
+                      title: t('enterChildLayer'),
+                    }),
+                  h('span', { className: 'bp-muted' },
+                    childLayer === undefined ? t('createLayer') : `${t('layer')} ${childLayer.letter}`))
+              })(),
               h('label', { className: 'bp-field' }, h('span', null, t('moduleFiles')),
                 h(LineListEditor, {
                   value: files, rows: 3, placeholder: t('moduleFilesHint'),
@@ -3147,20 +3605,24 @@ window.__ModuleLoader__.load({
           const format = detectImportSource(text, sourceKind)
           const bp = state.bp
           if (bp === null) throw new ImportFailure('missing-diagram')
+          const layerId = state.activeLayerId ?? 'A'
+          const current = currentDiagramFor(bp, state.tab, layerId)
           let parsed
           let targetKey
           if (format === 'drawio') {
-            parsed = parseDrawio(text, state.tab)
-            targetKey = state.tab
+            if (current === undefined) throw new ImportFailure('missing-diagram')
+            parsed = parseDrawio(text, diagramTypeOf(current))
+            targetKey = current.key
           } else {
             parsed = parseMermaid(text)
-            targetKey = parsed.diagramKey
+            targetKey = diagramKeyFor(layerId, parsed.diagramKey)
+            if (!(bp.diagrams ?? []).some(item => item.key === targetKey)) ensureLayerDiagram(layerId, parsed.diagramKey)
           }
           if (parsed.nodes.length === 0) throw new ImportFailure('empty')
-          const target = bp.diagrams.find(item => item.key === targetKey)
+          const target = (state.bp?.diagrams ?? []).find(item => item.key === targetKey)
           if (target === undefined) throw new ImportFailure('missing-diagram')
-          mutate(current => {
-            const diagram = current.diagrams.find(item => item.key === targetKey)
+          mutate(currentBp => {
+            const diagram = currentBp.diagrams.find(item => item.key === targetKey)
             if (diagram === undefined) return
             if (replace) {
               diagram.nodes = parsed.nodes
@@ -3238,57 +3700,105 @@ window.__ModuleLoader__.load({
                 h(ModulePanel, { store })))
     }
 
+    function LayerBreadcrumbs({ store }) {
+      const bp = store.bp
+      if (bp === null) return null
+      const activeLayerId = store.activeLayerId ?? 'A'
+      const path = layerPath(bp, activeLayerId)
+      const parent = parentLayerId(bp, activeLayerId)
+      return h('div', { className: 'bp-breadcrumbs' },
+        h('button', {
+          type: 'button', className: 'bp-crumb-back', disabled: parent === null,
+          title: parent === null ? t('currentLayer') : t('backToParentLayer'),
+          onClick: () => { if (parent !== null) activateLayer(parent) },
+        }, h(Icon, { name: 'back', size: 14 })),
+        path.map((layer, index) => {
+          const anchor = index === 0 ? undefined : moduleById(bp, layer.parentModuleId)
+          const layerButton = h('button', {
+            type: 'button', key: `layer-${layer.letter}`,
+            className: `bp-crumb${layer.letter === activeLayerId ? ' active' : ''}`,
+            title: layer.title ?? layer.letter,
+            onClick: () => { if (layer.letter !== activeLayerId) activateLayer(layer.letter) },
+          }, layer.letter ?? layer.id)
+          if (index === 0) return layerButton
+          return h(React.Fragment, { key: `path-${layer.letter}` },
+            h('span', { className: 'bp-crumb-sep' }, '/'),
+            anchor === undefined ? null : h('button', {
+              type: 'button', className: 'bp-crumb-module',
+              title: `${anchor.code ?? ''} ${anchor.name ?? ''}`.trim(),
+              onClick: () => activateLayer(anchor.layerId ?? 'A'),
+            }, `${anchor.code ?? ''} ${anchor.name ?? ''}`.trim()),
+            h('span', { className: 'bp-crumb-sep' }, '/'),
+            layerButton)
+        }))
+    }
+
     function DiagramHeader({ store }) {
       const bp = store.bp
       if (bp === null) return null
-      const diagram = bp.diagrams.find(item => item.key === store.tab) ?? bp.diagrams[0]
-      const tabName = key => ({
-        usecase: t('usecase'), dfd: t('dfd'), module: t('module'), sequence: t('sequence'), er: t('er'), c4: t('c4'),
-        class: t('classDiagram'), state: t('stateDiagram'),
-      }[key] ?? key)
+      const activeLayerId = store.activeLayerId ?? 'A'
+      const layerDiagrams = diagramsForLayer(bp, activeLayerId)
+      const activeDiagram = currentDiagramFor(bp, store.tab, activeLayerId)
+      const activeType = activeDiagram === undefined ? null : diagramTypeOf(activeDiagram)
+      const tabs = DIAGRAM_TYPE_ORDER.map(type => {
+        const diagram = layerDiagrams.find(item => diagramTypeOf(item) === type)
+        return { type, diagram, key: diagram?.key ?? diagramKeyFor(activeLayerId, type) }
+      })
+      const openTab = type => {
+        const existing = layerDiagrams.find(item => diagramTypeOf(item) === type)
+        const key = existing?.key ?? ensureLayerDiagram(activeLayerId, type)
+        set({ tab: key, selected: null, mode: 'select', connectFrom: null })
+      }
       return h('div', { className: 'bp-diagram-head' },
+        h(LayerBreadcrumbs, { store }),
         h('div', { className: 'bp-tabs' },
-          bp.diagrams.map(item => h('button', {
-            type: 'button', key: item.key,
-            className: `bp-tab${store.tab === item.key ? ' active' : ''}`,
-            title: item.title,
-            onClick: () => set({ tab: item.key, selected: null, mode: 'select', connectFrom: null }),
-          }, tabName(item.key), h('em', null, `${item.nodes.length}`)))),
+          tabs.map(tab => h('button', {
+            type: 'button', key: tab.key,
+            className: `bp-tab${(activeDiagram?.key ?? store.tab) === tab.key ? ' active' : ''}${tab.diagram === undefined ? ' missing' : ''}`,
+            title: tab.diagram?.title ?? diagramTypeTitle(tab.type),
+            onClick: () => openTab(tab.type),
+          }, diagramTypeTitle(tab.type), h('em', null, `${tab.diagram?.nodes?.length ?? 0}`)))),
         h('div', { className: 'bp-tools' },
           h('div', { className: 'bp-seg' },
             button(`bp-seg-btn${store.mode === 'select' ? ' active' : ''}`, () => set({ mode: 'select', connectFrom: null }), h(Icon, { name: 'cursor', size: 14 }), { title: t('select') }),
             button(`bp-seg-btn${store.mode === 'connect' ? ' active' : ''}`, () => set({ mode: store.mode === 'connect' ? 'select' : 'connect', connectFrom: null }), h(Icon, { name: 'connect', size: 14 }), { title: t('connect') })),
           h('div', { className: 'bp-seg' },
-            typesFor(store.tab).map(type => h('button', {
+            typesFor(activeType ?? (activeLayerId === 'A' ? 'usecase' : 'module')).map(type => h('button', {
               type: 'button', key: type, className: 'bp-seg-btn bp-add-type',
               title: `${t('addNode')} · ${t(TYPE_META[type].label)}`,
               onClick: () => addNode(store, type),
             }, h('span', { className: 'bp-type-dot', style: { background: TYPE_META[type].color } }), t(TYPE_META[type].label)))),
           h('button', { type: 'button', className: 'bp-btn bp-ghost bp-import', title: t('importDiagram'), onClick: () => set({ importOpen: true }) },
             h(Icon, { name: 'download', size: 15 }), h('span', { className: 'bp-import-label' }, t('importDiagram'))),
-          button('bp-ghost', () => { layoutDiagram(diagram); mutate(() => {}); }, h(Icon, { name: 'layout', size: 15 }), { title: t('autoLayout') }),
-          button('bp-ghost', () => expandDiagram(diagram), h(Icon, { name: 'spark', size: 15 }), { title: t('expandDiagram') })))
+          button('bp-ghost', () => { layoutDiagram(activeDiagram); mutate(() => {}); }, h(Icon, { name: 'layout', size: 15 }), { title: t('autoLayout'), disabled: activeDiagram === undefined }),
+          button('bp-ghost', () => expandDiagram(activeDiagram), h(Icon, { name: 'spark', size: 15 }), { title: t('expandDiagram'), disabled: activeDiagram === undefined })))
     }
 
     function addNode(store, type) {
       const bp = state.bp
       if (bp === null) return
-      const diagram = bp.diagrams.find(item => item.key === state.tab)
+      let diagram = currentDiagramFor(bp, state.tab, state.activeLayerId)
+      if (diagram === undefined) {
+        const key = ensureLayerDiagram(state.activeLayerId, type === 'module' || type === 'external' ? 'module' : 'usecase')
+        diagram = (state.bp?.diagrams ?? []).find(item => item.key === key)
+      }
       if (diagram === undefined) return
+      const diagramType = diagramTypeOf(diagram)
+      const tabKey = diagram.key
       const meta = TYPE_META[type] ?? TYPE_META.usecase
       const id = `n${Date.now().toString(36)}`
       const label = t(meta.label)
       mutate(current => {
-        const target = current.diagrams.find(item => item.key === state.tab)
+        const target = current.diagrams.find(item => item.key === tabKey)
         if (target === undefined) return
-        const sequence = state.tab === 'sequence'
+        const sequence = diagramType === 'sequence'
         target.nodes.push({
           id, type, label,
           x: sequence ? 80 + target.nodes.length * 230 : 160 + (target.nodes.length % 4) * 40,
           y: sequence ? 64 : 120 + (target.nodes.length % 5) * 40,
           w: sequence ? (type === 'actor' ? 130 : 170) : meta.w,
           h: sequence ? (type === 'actor' ? 84 : 52) : meta.h,
-          ...(state.tab === 'er' && type === 'entity' ? { fields: [{ name: 'id', type: 'uuid', key: true }] } : {}),
+          ...(diagramType === 'er' && type === 'entity' ? { fields: [{ name: 'id', type: 'uuid', key: true }] } : {}),
         })
       })
       set({ selected: { kind: 'node', id }, mode: 'select' })
@@ -3305,7 +3815,8 @@ window.__ModuleLoader__.load({
       if (bp === null) return
       const parts = []
       for (const diagram of bp.diagrams) {
-        if (diagram.key === 'sequence') {
+        const diagramType = diagramTypeOf(diagram)
+        if (diagramType === 'sequence') {
           const lines = ['sequenceDiagram']
           for (const node of diagram.nodes) lines.push(`  participant ${node.id} as ${node.label}`)
           for (const edge of [...diagram.edges].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
@@ -3315,7 +3826,7 @@ window.__ModuleLoader__.load({
           parts.push(`%% ${diagram.title}\n${lines.join('\n')}`)
           continue
         }
-        if (diagram.key === 'er') {
+        if (diagramType === 'er') {
           const lines = ['erDiagram']
           for (const node of diagram.nodes.filter(item => item.type === 'entity')) {
             lines.push(`  ${node.id} {`)
@@ -3326,7 +3837,7 @@ window.__ModuleLoader__.load({
           parts.push(`%% ${diagram.title}\n${lines.join('\n')}`)
           continue
         }
-        if (diagram.key === 'class') {
+        if (diagramType === 'class') {
           const lines = ['classDiagram']
           for (const node of diagram.nodes) {
             lines.push(`  class ${node.id} {`)
@@ -3345,7 +3856,7 @@ window.__ModuleLoader__.load({
           parts.push(`%% ${diagram.title}\n${lines.join('\n')}`)
           continue
         }
-        if (diagram.key === 'state') {
+        if (diagramType === 'state') {
           const lines = ['stateDiagram-v2']
           const nodeById = new Map(diagram.nodes.map(node => [node.id, node]))
           for (const node of diagram.nodes) {
@@ -3365,7 +3876,7 @@ window.__ModuleLoader__.load({
           parts.push(`%% ${diagram.title}\n${lines.join('\n')}`)
           continue
         }
-        const header = diagram.key === 'module' || diagram.key === 'c4' ? 'graph TD' : 'flowchart LR'
+        const header = diagramType === 'module' || diagramType === 'c4' ? 'graph TD' : 'flowchart LR'
         const lines = [`%% ${diagram.title}`, header]
         for (const node of diagram.nodes) {
           const label = String(node.label).replace(/["\n]/g, ' ')
@@ -3408,7 +3919,7 @@ window.__ModuleLoader__.load({
 
     function exportDrawio() {
       const bp = state.bp
-      const diagram = bp?.diagrams.find(item => item.key === state.tab)
+      const diagram = currentDiagramFor(bp, state.tab, state.activeLayerId)
       if (bp === null || diagram === undefined) return
       const cells = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>']
       for (const node of diagram.nodes) {
@@ -3423,7 +3934,7 @@ window.__ModuleLoader__.load({
         cells.push(`<mxCell id="${xmlEscape(edge.id)}" value="${xmlEscape(edge.label ?? '')}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;${edge.kind === 'depends' || edge.kind === 'return' ? 'dashed=1;' : ''}" edge="1" parent="1" source="${xmlEscape(edge.from)}" target="${xmlEscape(edge.to)}"><mxGeometry relative="1" as="geometry"/></mxCell>`)
       }
       const xml = `<mxfile host="dsh-blueprint-studio"><diagram name="${xmlEscape(diagram.title)}" id="bp-${Date.now().toString(36)}"><mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0"><root>${cells.join('')}</root></mxGraphModel></diagram></mxfile>`
-      download(`${bp.id ?? 'blueprint'}-${diagram.key}.drawio`, xml, 'application/xml;charset=utf-8')
+      download(`${bp.id ?? 'blueprint'}-${String(diagram.key).replace(/:/g, '-')}.drawio`, xml, 'application/xml;charset=utf-8')
     }
 
     function drawioTypeFor(style, diagramKey) {
@@ -4024,6 +4535,94 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function GlobalSearch({ store }) {
+      const bp = store.bp
+      const [query, setQuery] = useState('')
+      const [open, setOpen] = useState(false)
+      const [active, setActive] = useState(0)
+      const inputRef = useRef(null)
+      const groups = useMemo(() => searchGroups(bp, query), [bp, query])
+      const flat = useMemo(() => groups.flatMap(group => group.items), [groups])
+      useEffect(() => { setActive(0) }, [query])
+      if (bp === null) return null
+      const choose = result => {
+        if (result === undefined) return
+        setOpen(false)
+        setQuery('')
+        navigateSearch(store, result)
+      }
+      const onKeyDown = event => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault()
+          if (!open) setOpen(true)
+          if (flat.length === 0) return
+          setActive(current => {
+            const next = event.key === 'ArrowDown' ? current + 1 : current - 1
+            if (next < 0) return flat.length - 1
+            if (next >= flat.length) return 0
+            return next
+          })
+          return
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          choose(flat[active])
+          return
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          setOpen(false)
+          setQuery('')
+          inputRef.current?.blur()
+        }
+      }
+      let resultIndex = -1
+      const showPanel = open && query.trim() !== ''
+      return h('div', {
+        className: 'bp-search',
+        onBlur: event => {
+          if (event.currentTarget.contains(event.relatedTarget)) return
+          setOpen(false)
+        },
+      },
+        h('span', { className: 'bp-search-icon' }, h(Icon, { name: 'search', size: 14 })),
+        h('input', {
+          ref: inputRef,
+          className: 'bp-search-input',
+          value: query,
+          placeholder: t('searchPlaceholder'),
+          'aria-label': t('searchPlaceholder'),
+          onChange: event => { setQuery(event.target.value); setOpen(true) },
+          onFocus: () => { if (query.trim() !== '') setOpen(true) },
+          onKeyDown,
+        }),
+        query !== '' ? h('button', {
+          type: 'button', className: 'bp-search-clear', title: t('close'),
+          onClick: () => { setQuery(''); setOpen(false); inputRef.current?.focus() },
+        }, h(Icon, { name: 'close', size: 13 })) : null,
+        showPanel ? h('div', { className: 'bp-search-panel', role: 'listbox' },
+          groups.length === 0 ? h('div', { className: 'bp-search-empty' }, t('searchNoResults')) : null,
+          groups.map(group => h('div', { className: 'bp-search-group', key: group.key },
+            h('div', { className: 'bp-search-group-title' }, `${group.title} · ${group.items.length}`),
+            group.items.map(result => {
+              resultIndex += 1
+              const index = resultIndex
+              return h('button', {
+                type: 'button', key: `${group.key}-${index}`,
+                className: `bp-search-item${index === active ? ' active' : ''}`,
+                role: 'option', 'aria-selected': index === active,
+                title: result.label,
+                onMouseEnter: () => setActive(index),
+                onClick: () => choose(result),
+              },
+                h('span', { className: `bp-search-kind ${result.kind}` }, result.kind === 'requirement' ? 'R' : result.kind === 'module' ? 'M' : 'L'),
+                h('span', { className: 'bp-search-text' }, result.label),
+                h('span', { className: 'bp-search-sub' }, result.sub ?? ''))
+            }))),
+          h('div', { className: 'bp-search-hint' }, t('searchHint'))) : null)
+    }
+
     function Header({ store }) {
       const bp = store.bp
       const busy = store.aiBusy !== null
@@ -4038,6 +4637,7 @@ window.__ModuleLoader__.load({
           h('span', null, statusLabel(bp.status)),
           h('span', { className: 'bp-sep' }, '·'),
           h('span', { className: 'bp-muted' }, store.saving ? t('saving') : store.dirty ? t('unsaved') : store.lastSaveMode === 'draft' ? t('draftSaved') : t('saved'))) : null,
+        bp !== null ? h(GlobalSearch, { store }) : null,
         h('div', { className: 'bp-actions' },
           bp !== null && !store.landing ? button('bp-ghost bp-back', backToStart, h(React.Fragment, null, h(Icon, { name: 'back', size: 15 }), h('span', { className: 'bp-back-label' }, t('backToStart'))), { title: t('backToStart') }) : null,
           bp !== null && !store.landing ? button('bp-ghost', undoBlueprint, h(Icon, { name: 'undo', size: 15 }), { title: `${t('undo')} · Ctrl+Z`, disabled: !store.canUndo }) : null,
@@ -4126,7 +4726,17 @@ window.__ModuleLoader__.load({
           if (event.key === 'Escape') {
             event.preventDefault()
             if (state.selected) set({ selected: null, connectFrom: null, mode: 'select' })
-            else closeStudio()
+            else {
+              const parent = (state.activeLayerId ?? 'A') === 'A' ? null : parentLayerId(state.bp, state.activeLayerId)
+              if (parent !== null) activateLayer(parent)
+              else closeStudio()
+            }
+            return
+          }
+          if ((event.key === 'Backspace' || (event.altKey && event.key === 'ArrowLeft')) && state.selected === null && (state.activeLayerId ?? 'A') !== 'A') {
+            event.preventDefault()
+            const parent = parentLayerId(state.bp, state.activeLayerId)
+            if (parent !== null) activateLayer(parent)
             return
           }
           const command = event.metaKey || event.ctrlKey
@@ -4439,6 +5049,48 @@ window.__ModuleLoader__.load({
 .bp-check{display:flex;align-items:center;gap:4px}
 .bp-check input{width:12px;height:12px;margin:0}
 .bp-import-actions{display:flex;gap:6px;justify-content:flex-end}
+.bp-search{position:relative;flex:0 1 280px;min-width:180px;margin-left:auto}
+.bp-search~.bp-actions{margin-left:0}
+.bp-search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);display:flex;color:var(--dsw-alias-label-secondary);pointer-events:none}
+.bp-search-input{width:100%;box-sizing:border-box;height:30px;padding:0 28px 0 28px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;outline:none}
+.bp-search-input:focus{border-color:var(--dsw-alias-brand-primary)}
+.bp-search-clear{position:absolute;right:4px;top:5px;width:20px;height:20px;display:grid;place-items:center;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.bp-search-clear:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.bp-search-panel{position:absolute;left:0;right:0;top:36px;z-index:20;max-height:380px;overflow:auto;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,.26);padding:5px}
+.bp-search-group+.bp-search-group{margin-top:4px;border-top:1px solid var(--dsw-alias-border-l1);padding-top:4px}
+.bp-search-group-title{font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--dsw-alias-label-secondary);padding:4px 7px 3px;text-transform:uppercase}
+.bp-search-item{display:flex;align-items:center;gap:6px;width:100%;text-align:left;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;padding:5px 7px;cursor:pointer}
+.bp-search-item:hover,.bp-search-item.active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 13%,transparent)}
+.bp-search-kind{flex:0 0 17px;height:17px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;font-size:9.5px;font-weight:700;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary)}
+.bp-search-kind.requirement{color:var(--dsw-alias-brand-primary)}
+.bp-search-kind.module{color:var(--dsw-alias-state-success-primary)}
+.bp-search-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bp-search-sub{flex:0 1 42%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:10px;text-align:right}
+.bp-search-empty{padding:12px 8px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.bp-search-hint{padding:5px 7px 2px;font-size:9.5px;color:var(--dsw-alias-label-secondary);opacity:.8}
+.bp-breadcrumbs{display:flex;align-items:center;gap:3px;flex:0 0 100%;min-width:0;overflow-x:auto;scrollbar-width:thin;padding-bottom:2px}
+.bp-crumb-back{flex:0 0 auto;width:24px;height:24px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.bp-crumb-back:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.bp-crumb-back:disabled{opacity:.35;cursor:default}
+.bp-crumb{flex:0 0 auto;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;padding:2px 7px;cursor:pointer;white-space:nowrap}
+.bp-crumb:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.bp-crumb.active{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);font-weight:650}
+.bp-crumb-module{flex:0 1 auto;min-width:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-brand-primary);font:inherit;font-size:11px;padding:2px 4px;cursor:pointer}
+.bp-crumb-module:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 11%,transparent)}
+.bp-crumb-sep{flex:0 0 auto;color:var(--dsw-alias-label-secondary);opacity:.5;font-size:10px}
+.bp-layer-chip{display:flex;align-items:center;gap:6px;margin:2px 0 4px;font-size:11px;color:var(--dsw-alias-label-secondary);min-width:0}
+.bp-layer-chip strong{flex:0 0 auto;padding:1px 6px;border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-brand-primary) 13%,transparent);color:var(--dsw-alias-brand-primary);font-size:10.5px}
+.bp-layer-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bp-layer-summary{margin-top:6px;font-size:10px;line-height:1.5;color:var(--dsw-alias-label-secondary);display:flex;flex-direction:column;gap:3px}
+.bp-layer-summary .bp-check{font-size:10px;color:var(--dsw-alias-label-secondary)}
+.bp-layer-gap{color:var(--dsw-alias-state-warn-primary)}
+.bp-item-module{flex:0 0 auto;max-width:74px;margin-top:4px;padding:0 4px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:9px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bp-tab.missing{opacity:.55;border-style:dashed}
+.bp-tab.missing:hover{opacity:.85}
+.bp-node-enter{cursor:pointer}
+.bp-module-layer{display:flex;align-items:center;gap:7px;margin-top:2px;padding-top:6px;border-top:1px dashed var(--dsw-alias-border-l2)}
+.bp-module-layer .bp-btn{height:26px;font-size:10.5px;padding:0 8px}
+.bp-module-layer .bp-muted{font-size:10px}
 .bp-back-label{font-size:11.5px}
 @media (max-width:1400px){.bp-back-label{display:none}}
 @media (max-width:1180px){.bp-right{display:none}.bp-left{width:300px;flex-basis:300px}}
