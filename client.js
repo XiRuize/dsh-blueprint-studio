@@ -46,6 +46,9 @@ window.__ModuleLoader__.load({
       closeDiff: 'Back', versionRestored: 'Version restored', snapshotSaved: 'Snapshot saved', versionLoadFailed: 'Could not load versions',
       children: 'Subagents', noChildren: 'No child subagents yet.', running: 'running', idle: 'idle', refresh: 'Refresh',
       openSession: 'Open session', copyId: 'Copy session id', importDrawio: 'Import draw.io', importFailed: 'Import failed',
+      openChild: 'Open child session', cancelChild: 'Cancel', runModule: 'Retry / run module', moduleStatusHint: 'Change module status; the draft saves automatically.',
+      cancelRequested: 'Cancel request sent to the subagent', cancelFailed: 'Could not cancel the subagent',
+      modulePromptSent: 'The agent will restart this module only.',
       importDiagram: 'Import diagram', importSource: 'Source', importSourceAuto: 'Auto detect', importSourceDrawio: 'draw.io',
       importSourceMermaid: 'Mermaid', importDetected: 'Detected: {kind}',
       importReplace: 'Replace current diagram? Choose Cancel to append instead.', exportDrawio: 'draw.io XML',
@@ -127,6 +130,9 @@ window.__ModuleLoader__.load({
       closeDiff: '返回', versionRestored: '已恢复版本', snapshotSaved: '快照已保存', versionLoadFailed: '版本加载失败',
       children: '子代理', noChildren: '还没有子代理。', running: '运行中', idle: '空闲', refresh: '刷新',
       openSession: '打开会话', copyId: '复制会话 ID', importDrawio: '导入 draw.io', importFailed: '导入失败',
+      openChild: '打开子会话', cancelChild: '取消', runModule: '重试/执行模块', moduleStatusHint: '修改模块状态，草稿会自动保存。',
+      cancelRequested: '已向子代理发送取消信号', cancelFailed: '取消子代理失败',
+      modulePromptSent: '已请求 AI 只重新启动该模块的子代理。',
       importDiagram: '导入图', importSource: '来源', importSourceAuto: '自动识别', importSourceDrawio: 'draw.io',
       importSourceMermaid: 'Mermaid', importDetected: '识别为：{kind}',
       importReplace: '替换当前图？选择“取消”则追加。', exportDrawio: 'draw.io XML',
@@ -630,6 +636,11 @@ window.__ModuleLoader__.load({
       }
       if (blocks.length === 0) return base
       return `${base}\n\n请把以下模块追踪信息原样带入对应子代理的提示词：\n\n${blocks.join('\n\n')}`
+    }
+
+    function modulePrompt(module) {
+      const deps = module.dependsOn?.length ? `该模块依赖：${module.dependsOn.join('、')}。` : ''
+      return `当前会话已有工程蓝图。请先调用 blueprint(action="get") 读取最新蓝图（用户可能手工修改过），然后只重新启动模块「${module.name}」（id=${module.id}）的子代理；不要重做全部模块，也不要自己直接实现该模块。\n模块摘要与验收标准：${module.summary ?? '（见蓝图中的模块定义）'}\n${deps}启动子代理后，把子代理 sessionId 写回该模块的 subagentSessionId 并设置 status 为 running；子代理完成后把 status 更新为 done 或 blocked，并在 summary 中补一行结果。最后用 blueprint(action="update") 保存完整蓝图，保留其他模块和用户修改。`
     }
 
     const tplSection = (key, title, items) => ({
@@ -2613,18 +2624,44 @@ window.__ModuleLoader__.load({
       const bp = store.bp
       if (bp === null) return null
       const childById = new Map(store.children.map(child => [child.sessionId, child]))
-      const openChild = child => {
+      const openChildSession = sessionId => {
         try {
           const ui = ctxRef?.get?.('uiWorkspace')
           if (ui?.openSession !== undefined) {
-            ui.openSession({ kind: 'session', sessionId: child.sessionId })
+            ui.openSession({ kind: 'session', sessionId })
             return
           }
         } catch {}
-        toast(child.sessionId, 'info')
+        toast(sessionId, 'info')
       }
+      const openChild = child => openChildSession(child.sessionId)
       const copy = async child => {
         try { await navigator.clipboard.writeText(child.sessionId); toast(t('copyId'), 'success') } catch {}
+      }
+      const setModuleStatus = (module, status) => {
+        mutate(current => {
+          const target = current.modules.find(item => item.id === module.id)
+          if (target !== undefined) target.status = status
+        })
+      }
+      const cancelModule = async module => {
+        const childSessionId = module.subagentSessionId
+        if (!childSessionId) return
+        try {
+          await runBlueprintCommand(`cancel ${childSessionId}`)
+          toast(t('cancelRequested'), 'success')
+        } catch (error) {
+          toast(`${t('cancelFailed')}: ${String(error?.message ?? error)}`, 'error')
+        }
+        await loadChildren()
+      }
+      const runModule = async module => {
+        try {
+          await sendPrompt(modulePrompt(module), 'dispatching')
+          toast(t('modulePromptSent'), 'success')
+        } catch (error) {
+          toast(String(error?.message ?? error), 'error')
+        }
       }
       return h('div', { className: 'bp-board' },
         h('div', { className: 'bp-panel-head' },
@@ -2645,13 +2682,32 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bp-divider' }),
         h('div', { className: 'bp-kicker' }, t('modules')),
         bp.modules.length === 0 ? h('div', { className: 'bp-muted' }, t('noModules')) : null,
-        bp.modules.map(module => h('div', { className: 'bp-module', key: module.id },
-          h('div', { className: 'bp-module-top' },
-            h('strong', null, module.name),
-            h('span', { className: `bp-chip bp-chip-${module.status ?? 'pending'}` }, moduleStatusLabel(module.status))),
-          module.summary ? h('p', null, module.summary) : null,
-          module.subagentSessionId ? h('div', { className: 'bp-child-id' },
-            childById.has(module.subagentSessionId) ? `${module.subagentSessionId} · ${childById.get(module.subagentSessionId).running ? t('running') : t('idle')}` : module.subagentSessionId) : null)))
+        bp.modules.map(module => {
+          const linkedChild = module.subagentSessionId ? childById.get(module.subagentSessionId) : undefined
+          const displayStatus = linkedChild?.running === true ? 'running' : module.status ?? 'pending'
+          return h('div', { className: 'bp-module', key: module.id },
+            h('div', { className: 'bp-module-top' },
+              h('strong', null, module.name),
+              h('span', { className: `bp-chip bp-chip-${displayStatus}` }, moduleStatusLabel(displayStatus))),
+            module.summary ? h('p', null, module.summary) : null,
+            module.dependsOn?.length ? h('div', { className: 'bp-module-deps' }, `${t('dependsOn')}: ${module.dependsOn.join(', ')}`) : null,
+            module.subagentSessionId ? h('div', { className: 'bp-child-id' },
+              linkedChild !== undefined ? `${module.subagentSessionId} · ${linkedChild.running ? t('running') : t('idle')}` : module.subagentSessionId) : null,
+            h('label', { className: 'bp-module-status-label', title: t('moduleStatusHint') },
+              h('span', null, t('moduleStatus')),
+              h('select', {
+                className: 'bp-input bp-module-status',
+                value: module.status ?? 'pending',
+                title: t('moduleStatusHint'),
+                onChange: event => setModuleStatus(module, event.target.value),
+              }, ['pending', 'running', 'done', 'blocked'].map(status => h('option', { key: status, value: status }, moduleStatusLabel(status))))),
+            h('div', { className: 'bp-child-actions' },
+              module.subagentSessionId
+                ? h(React.Fragment, null,
+                    h('button', { type: 'button', className: 'bp-btn', onClick: () => openChildSession(module.subagentSessionId) }, t('openChild')),
+                    h('button', { type: 'button', className: 'bp-btn bp-danger', onClick: () => cancelModule(module) }, t('cancelChild')))
+                : h('button', { type: 'button', className: 'bp-btn', onClick: () => runModule(module) }, t('runModule'))))
+        }))
     }
 
     function VersionsPanel({ store }) {
@@ -3933,7 +3989,11 @@ window.__ModuleLoader__.load({
 .bp-node-option:hover{background:var(--dsw-alias-bg-layer-2)}
 .bp-node-option input{width:12px;height:12px;margin:1px 0 0;flex:0 0 auto}
 .bp-node-option .bp-node-text{display:inline;margin:0;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word}
+.bp-module-status-label{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.bp-module-status{width:auto;min-width:84px;max-width:118px;height:24px;padding:0 4px;font-size:10.5px}
 .bp-chip{font-size:10px;padding:1px 6px;border-radius:9px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
+.bp-chip-running{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}
+.bp-chip-blocked{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent)}
 .bp-chip-confirmed{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 35%,transparent)}
 .bp-chip-dispatched,.bp-chip-done{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}
 .bp-main-foot{display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11px;color:var(--dsw-alias-label-secondary)}

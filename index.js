@@ -288,7 +288,7 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比和恢复当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get' },
+        input: { hint: 'save <base64-json> [--draft] | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -387,7 +387,35 @@ export function apply(ctx, rawConfig) {
             if (raw === undefined) return { kind: 'success', text: '当前会话还没有工程蓝图。' }
             return { kind: 'success', text: JSON.stringify(raw) }
           }
-          return { kind: 'error', text: '可用：/blueprint save | versions | diff | restore | snapshot | path | get' }
+          if (sub === 'cancel') {
+            const childSessionId = String(rest[0] ?? '').trim()
+            if (childSessionId === '') {
+              return { kind: 'error', text: '缺少子会话 ID。用法：/blueprint cancel <childSessionId>（Missing child session id.）' }
+            }
+            let subagents
+            try {
+              subagents = ctx.get('subagents')
+            } catch {
+              subagents = undefined
+            }
+            if (subagents === undefined || typeof subagents.interruptByParent !== 'function') {
+              return { kind: 'error', text: '当前环境没有可用的子代理服务，无法取消。Subagent service unavailable.' }
+            }
+            const parentSessionId = invocation.agent?.session?.header?.id ?? invocation.agent?.id
+            if (typeof parentSessionId !== 'string' || parentSessionId === '') {
+              return { kind: 'error', text: '无法确定当前父会话 ID，已跳过取消。Unknown parent session.' }
+            }
+            try {
+              const receipt = await subagents.interruptByParent(childSessionId, parentSessionId, 'continuable')
+              if (receipt !== undefined && receipt !== null && receipt.accepted === false) {
+                return { kind: 'error', text: `取消子代理未被接受：${childSessionId}。Cancel was not accepted.` }
+              }
+              return { kind: 'success', text: `已向子代理 ${childSessionId} 发送取消信号。Subagent cancel requested.` }
+            } catch (error) {
+              return { kind: 'error', text: `取消子代理失败：${String(error?.message ?? error)}` }
+            }
+          }
+          return { kind: 'error', text: '可用：/blueprint save | versions | diff | restore | snapshot | path | get | cancel' }
         },
       }),
     )
