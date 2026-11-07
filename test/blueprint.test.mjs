@@ -232,6 +232,85 @@ test('semantic diff tolerates traceability fields on nodes and modules', () => {
   assert.equal(typeof diff.totals.added, 'number')
 })
 
+test('semantic diff lists concrete node and edge changes', () => {
+  const before = normalizeBlueprint({
+    title: 'A',
+    diagrams: [{
+      key: 'usecase',
+      nodes: [
+        { id: 'u', type: 'actor', label: 'User' },
+        { id: 'b', type: 'usecase', label: 'Browse' },
+        { id: 'c', type: 'usecase', label: 'Checkout' },
+      ],
+      edges: [
+        { from: 'u', to: 'b', label: 'uses' },
+        { from: 'u', to: 'c', label: 'uses' },
+      ],
+    }, { key: 'dfd', nodes: [{ id: 'p', type: 'process', label: 'Parse' }], edges: [] }],
+  }, undefined, { sessionId: 's' })
+  const after = normalizeBlueprint({
+    title: 'A',
+    diagrams: [{
+      key: 'usecase',
+      nodes: [
+        { id: 'u', type: 'actor', label: 'Buyer' },
+        { id: 'b', type: 'usecase', label: 'Browse' },
+        { id: 'p', type: 'usecase', label: 'Pay' },
+      ],
+      edges: [
+        { from: 'u', to: 'b', label: 'opens' },
+        { from: 'b', to: 'p', label: 'uses' },
+      ],
+    }, { key: 'dfd', nodes: [{ id: 'p', type: 'process', label: 'Parse' }], edges: [] }],
+  }, undefined, { sessionId: 's' })
+
+  const diff = semanticDiff(before, after)
+  assert.equal(diff.diagrams.length, 1)
+  const diagram = diff.diagrams[0]
+  assert.equal(diagram.key, 'usecase')
+  assert.deepEqual(diagram.addedNodes.map(node => [node.id, node.type, node.label]), [['p', 'usecase', 'Pay']])
+  assert.deepEqual(diagram.removedNodes.map(node => [node.id, node.type, node.label]), [['c', 'usecase', 'Checkout']])
+  assert.equal(diagram.changedNodes.length, 1)
+  assert.equal(diagram.changedNodes[0].id, 'u')
+  assert.equal(diagram.changedNodes[0].label, 'Buyer')
+  assert.deepEqual(diagram.changedNodes[0].changes, [{ field: 'label', before: 'User', after: 'Buyer' }])
+  assert.deepEqual(diagram.addedEdges.map(edge => [edge.from, edge.to, edge.label, edge.kind]), [
+    ['u', 'b', 'opens', ''],
+    ['b', 'p', 'uses', ''],
+  ])
+  assert.deepEqual(diagram.removedEdges.map(edge => [edge.from, edge.to, edge.label, edge.kind]), [
+    ['u', 'b', 'uses', ''],
+    ['u', 'c', 'uses', ''],
+  ])
+  assert.equal(diff.totals.addedNodes, 1)
+  assert.equal(diff.totals.removedNodes, 1)
+  assert.equal(diff.totals.changedNodes, 1)
+  assert.equal(diff.totals.addedEdges, 2)
+  assert.equal(diff.totals.removedEdges, 2)
+})
+
+test('semantic diff reports type and requirementIds changes on nodes', () => {
+  const before = {
+    diagrams: [{
+      key: 'dfd',
+      nodes: [{ id: 'p', type: 'process', label: 'Parse', requirementIds: ['functional-1'] }],
+      edges: [],
+    }],
+  }
+  const after = {
+    diagrams: [{
+      key: 'dfd',
+      nodes: [{ id: 'p', type: 'store', label: 'Parse', requirementIds: ['functional-1', 'functional-2'] }],
+      edges: [],
+    }],
+  }
+  const diff = semanticDiff(before, after)
+  assert.deepEqual(diff.diagrams[0].changedNodes[0].changes, [
+    { field: 'type', before: 'process', after: 'store' },
+    { field: 'requirementIds', before: ['functional-1'], after: ['functional-1', 'functional-2'] },
+  ])
+})
+
 test('archives versions, refuses duplicates and restores a version file', async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-'))
   try {

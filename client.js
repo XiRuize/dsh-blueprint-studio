@@ -65,6 +65,9 @@ window.__ModuleLoader__.load({
       fieldsEmpty: 'No fields yet.', addEdge: 'Add edge', edgeKind: 'Kind', saveSnapshotHint: 'Archive the current blueprint as a version',
       boardHint: 'Child sessions of this conversation, refreshed every 5 seconds.', moduleOf: 'Module', versionAt: 'Time', versionBy: 'Source',
       textChanged: 'changed', sectionTitleChanged: 'Title changed', diagramMissing: 'Diagram only exists on one side',
+      diffAddedNodes: 'Added nodes', diffRemovedNodes: 'Removed nodes', diffChangedNodes: 'Changed nodes',
+      diffAddedEdges: 'Added edges', diffRemovedEdges: 'Removed edges', diffChangedEdges: 'Changed edges',
+      diffShowDetails: 'Show details', diffHideDetails: 'Hide details',
       diagrams: 'Diagrams', undo: 'Undo', redo: 'Redo', undoDone: 'Undid the last blueprint change', redoDone: 'Redid the blueprint change',
       backToStart: 'Welcome', continueEditing: 'Continue editing current blueprint', historyHint: 'Ctrl+Z / Ctrl+Y',
       classDiagram: 'Class diagram', stateDiagram: 'State diagram', classNode: 'Class', interface: 'Interface',
@@ -143,6 +146,9 @@ window.__ModuleLoader__.load({
       fieldsEmpty: '还没有字段。', addEdge: '新增连线', edgeKind: '类型', saveSnapshotHint: '把当前蓝图归档为版本',
       boardHint: '当前会话的子代理，每 5 秒刷新。', moduleOf: '模块', versionAt: '时间', versionBy: '来源',
       textChanged: '已修改', sectionTitleChanged: '标题已修改', diagramMissing: '该图只存在于一侧',
+      diffAddedNodes: '新增节点', diffRemovedNodes: '删除节点', diffChangedNodes: '修改节点',
+      diffAddedEdges: '新增连线', diffRemovedEdges: '删除连线', diffChangedEdges: '修改连线',
+      diffShowDetails: '展开', diffHideDetails: '收起',
       diagrams: '图解', undo: '撤销', redo: '重做', undoDone: '已撤销上一步蓝图修改', redoDone: '已重做蓝图修改',
       backToStart: '初始页', continueEditing: '继续编辑当前蓝图', historyHint: 'Ctrl+Z / Ctrl+Y',
       classDiagram: '类图', stateDiagram: '状态图', classNode: '类', interface: '接口',
@@ -2686,6 +2692,62 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'bp-btn', onClick: () => restoreVersion(version.id) }, t('restore'))))))
     }
 
+    function diffValueLabel(value) {
+      if (value === undefined || value === null) return '—'
+      if (Array.isArray(value)) return value.length === 0 ? '—' : value.join(', ')
+      if (typeof value === 'object') return JSON.stringify(value)
+      return String(value)
+    }
+
+    function edgeLabelText(edge) {
+      const parts = []
+      if (edge.label) parts.push(edge.label)
+      if (edge.kind) parts.push(`[${edge.kind}]`)
+      return `${edge.from} → ${edge.to}${parts.length === 0 ? '' : ` · ${parts.join(' ')}`}`
+    }
+
+    function DiagramDiffCard({ diagram }) {
+      const [open, setOpen] = useState(true)
+      const counts = [
+        { key: 'addedNodes', className: 'bp-plus', count: diagram.addedNodes.length, label: t('diffAddedNodes') },
+        { key: 'removedNodes', className: 'bp-minus', count: diagram.removedNodes.length, label: t('diffRemovedNodes') },
+        { key: 'changedNodes', className: 'bp-warn', count: diagram.changedNodes.length, label: t('diffChangedNodes') },
+        { key: 'addedEdges', className: 'bp-plus', count: diagram.addedEdges.length, label: t('diffAddedEdges') },
+        { key: 'removedEdges', className: 'bp-minus', count: diagram.removedEdges.length, label: t('diffRemovedEdges') },
+      ]
+      if (diagram.changedEdges.length > 0) counts.push({ key: 'changedEdges', className: 'bp-warn', count: diagram.changedEdges.length, label: t('diffChangedEdges') })
+      return h('div', { className: 'bp-diff-card' },
+        h('button', { type: 'button', className: 'bp-diff-card-head bp-diff-toggle', onClick: () => setOpen(value => !value) },
+          h('strong', null, diagram.title),
+          h('span', { className: 'bp-muted' }, open ? t('diffHideDetails') : t('diffShowDetails'))),
+        h('div', { className: 'bp-diff-chips' },
+          counts.map(chip => h('span', { className: `bp-diff-chip ${chip.className}`, key: chip.key }, `${chip.label} ${chip.count}`))),
+        diagram.diagramAdded ? h('div', { className: 'bp-plus bp-diff-line' }, `+ ${t('diagramMissing')}`) : null,
+        diagram.diagramRemoved ? h('div', { className: 'bp-minus bp-diff-line' }, `− ${t('diagramMissing')}`) : null,
+        open ? h('div', { className: 'bp-diff-body' },
+          diagram.addedNodes.length === 0 ? null : h('div', { className: 'bp-diff-group' },
+            h('div', { className: 'bp-diff-group-title bp-plus' }, `${t('diffAddedNodes')} · ${diagram.addedNodes.length}`),
+            diagram.addedNodes.map((node, index) => h('div', { className: 'bp-diff-line bp-plus', key: `an-${node.id}-${index}` }, `+ ${node.label} (${node.type})`))),
+          diagram.removedNodes.length === 0 ? null : h('div', { className: 'bp-diff-group' },
+            h('div', { className: 'bp-diff-group-title bp-minus' }, `${t('diffRemovedNodes')} · ${diagram.removedNodes.length}`),
+            diagram.removedNodes.map((node, index) => h('div', { className: 'bp-diff-line bp-minus', key: `rn-${node.id}-${index}` }, `− ${node.label} (${node.type})`))),
+          diagram.changedNodes.length === 0 ? null : h('div', { className: 'bp-diff-group' },
+            h('div', { className: 'bp-diff-group-title bp-warn' }, `${t('diffChangedNodes')} · ${diagram.changedNodes.length}`),
+            diagram.changedNodes.map((node, index) => h('div', { className: 'bp-diff-line bp-warn', key: `cn-${node.id}-${index}` },
+              h('div', null, `~ ${node.label} (${node.type})`),
+              (node.changes ?? []).map((change, changeIndex) => h('div', { className: 'bp-diff-change', key: changeIndex },
+                `${change.field}: ${diffValueLabel(change.before)} → ${diffValueLabel(change.after)}`))))),
+          diagram.addedEdges.length === 0 ? null : h('div', { className: 'bp-diff-group' },
+            h('div', { className: 'bp-diff-group-title bp-plus' }, `${t('diffAddedEdges')} · ${diagram.addedEdges.length}`),
+            diagram.addedEdges.map((edge, index) => h('div', { className: 'bp-diff-line bp-plus', key: `ae-${edge.id}-${index}` }, `+ ${edgeLabelText(edge)}`))),
+          diagram.removedEdges.length === 0 ? null : h('div', { className: 'bp-diff-group' },
+            h('div', { className: 'bp-diff-group-title bp-minus' }, `${t('diffRemovedEdges')} · ${diagram.removedEdges.length}`),
+            diagram.removedEdges.map((edge, index) => h('div', { className: 'bp-diff-line bp-minus', key: `re-${edge.id}-${index}` }, `− ${edgeLabelText(edge)}`))),
+          diagram.changedEdges.length === 0 ? null : h('div', { className: 'bp-diff-group' },
+            h('div', { className: 'bp-diff-group-title bp-warn' }, `${t('diffChangedEdges')} · ${diagram.changedEdges.length}`),
+            diagram.changedEdges.map((edge, index) => h('div', { className: 'bp-diff-line bp-warn', key: `ce-${edge.id}-${index}` }, `~ ${edgeLabelText(edge)}`)))) : null)
+    }
+
     function DiffPanel({ store }) {
       const diff = store.diff
       if (diff === null) return null
@@ -2719,17 +2781,7 @@ window.__ModuleLoader__.load({
           h('section', null,
             h('h3', null, t('diagrams')),
             diff.diagrams.length === 0 ? h('div', { className: 'bp-muted' }, '—') : null,
-            diff.diagrams.map(diagram => h('div', { className: 'bp-diff-card', key: diagram.key },
-              h('div', { className: 'bp-diff-card-head' },
-                h('strong', null, diagram.title),
-                h('span', null, `+${diagram.addedNodes.length + diagram.addedEdges.length} / −${diagram.removedNodes.length + diagram.removedEdges.length}`)),
-              diagram.diagramAdded ? h('div', { className: 'bp-plus' }, t('diagramMissing')) : null,
-              diagram.diagramRemoved ? h('div', { className: 'bp-minus' }, t('diagramMissing')) : null,
-              diagram.addedNodes.map(node => h('div', { className: 'bp-diff-line bp-plus', key: node.id }, `+ ${node.label} (${node.type})`)),
-              diagram.removedNodes.map(node => h('div', { className: 'bp-diff-line bp-minus', key: node.id }, `− ${node.label} (${node.type})`)),
-              diagram.changedNodes.map(node => h('div', { className: 'bp-diff-line bp-warn', key: node.id }, `~ ${node.label}`)),
-              diagram.addedEdges.map(edge => h('div', { className: 'bp-diff-line bp-plus', key: edge.id }, `+ ${edge.from} → ${edge.to}`)),
-              diagram.removedEdges.map(edge => h('div', { className: 'bp-diff-line bp-minus', key: edge.id }, `− ${edge.from} → ${edge.to}`))))),
+            diff.diagrams.map(diagram => h(DiagramDiffCard, { key: diagram.key, diagram }))),
           h('section', null,
             h('h3', null, t('modules')),
             diff.modules.added.map(module => h('div', { className: 'bp-diff-line bp-plus', key: module.id }, `+ ${module.name}`)),
@@ -3971,6 +4023,14 @@ window.__ModuleLoader__.load({
 .bp-diff-card{background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:7px 8px;margin-bottom:6px}
 .bp-diff-card-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:3px;font-size:11px}
 .bp-diff-line{font-size:10.5px;line-height:1.45;word-break:break-word}
+.bp-diff-toggle{width:100%;background:none;border:0;padding:0;cursor:pointer;color:inherit;font:inherit;text-align:left}
+.bp-diff-toggle:hover strong{text-decoration:underline}
+.bp-diff-chips{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 4px}
+.bp-diff-chip{font-size:10px;line-height:1.4;padding:1px 5px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);white-space:nowrap}
+.bp-diff-body{display:flex;flex-direction:column;gap:4px}
+.bp-diff-group{display:flex;flex-direction:column;gap:1px}
+.bp-diff-group-title{font-size:10px;font-weight:650;letter-spacing:.02em;margin-top:2px}
+.bp-diff-change{font-size:10px;line-height:1.4;padding-left:10px;color:var(--dsw-alias-label-secondary);word-break:break-word}
 .bp-empty-diff{padding:20px 0;color:var(--dsw-alias-label-secondary);font-size:12px}
 .bp-tabs{max-width:100%;overflow-x:auto;scrollbar-width:thin;flex-wrap:nowrap;min-width:0}
 .bp-tab{white-space:nowrap}
