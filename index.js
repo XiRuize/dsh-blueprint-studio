@@ -43,10 +43,10 @@ blueprint 结构：
   "diagrams": [{
     "key": "usecase|dfd|module|sequence|er|c4",
     "title": "图解名",
-    "nodes": [{"id":"u1","type":"...","label":"名称","technology":"可选","description":"可选","fields":[{"name":"id","type":"uuid","key":true}]}],
+    "nodes": [{"id":"u1","type":"...","label":"名称","technology":"可选","description":"可选","requirementIds":["goals:i1"],"fields":[{"name":"id","type":"uuid","key":true}]}],
     "edges": [{"from":"u1","to":"u2","label":"标签","kind":"association|flow|depends|sync|async|return|relationship","cardinality":"1..*","order":1}]
   }],
-  "modules": [{"id":"auth","name":"认证模块","summary":"范围、接口与验收要点","dependsOn":["db"]}]
+  "modules": [{"id":"auth","name":"认证模块","summary":"范围、接口与验收要点","dependsOn":["db"],"nodeIds":["usecase:u1"],"files":["lib/auth.js"],"acceptance":["登录成功后返回会话令牌"]}]
 }
 
 节点类型：
@@ -64,6 +64,7 @@ blueprint 结构：
 - 时序图参与者放节点，消息放边，按 order 从上到下。
 - ER 图实体字段写在 fields，关系边上写基数。
 - C4 图用 technology 写技术选型，description 写职责。
+- 可追踪：节点用 requirementIds 引用 "<sectionKey>:<itemId>"（如 goals:i1）；模块用 nodeIds 引用 "<diagramKey>:<nodeId>"（如 usecase:u1），并用 files、acceptance 写清涉及文件与验收标准。
 - 模块拆分到「一个子代理能独立完成」的粒度，并在 summary 里写清交付物与验收标准。
 - 不要编造用户没有提供的业务事实；不确定的写进 risks 栏目。`
 
