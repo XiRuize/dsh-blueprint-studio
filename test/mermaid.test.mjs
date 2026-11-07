@@ -25,7 +25,7 @@ const client = captured.factory(name => {
   if (name === 'react') return React
   throw new Error(`unexpected require: ${name}`)
 })
-const { parseMermaid, detectImportSource, MAX_IMPORT_BYTES, MAX_IMPORT_NODES } = client.__test
+const { parseMermaid, detectImportSource, ensureLayout, layoutDiagram, MAX_IMPORT_BYTES, MAX_IMPORT_NODES } = client.__test
 const parse = input => JSON.parse(JSON.stringify(parseMermaid(input)))
 
 function expectFailure(run, code) {
@@ -135,6 +135,91 @@ test('maps flowcharts to usecase nodes and keeps edge labels', () => {
     { from: 'Logged in?', to: 'Login', label: 'no' },
     { from: 'User opens page', to: 'E', label: 'optional' },
   ])
+})
+
+test('ensureLayout only positions nodes missing coordinates and keeps edges', () => {
+  const blueprint = {
+    diagrams: [
+      {
+        key: 'usecase',
+        nodes: [
+          { id: 'a', type: 'actor', label: 'Actor', x: 11, y: 22, w: 90, h: 104 },
+          { id: 'u', type: 'usecase', label: 'Use' },
+        ],
+        edges: [{ id: 'e1', from: 'a', to: 'u' }],
+      },
+      { key: 'dfd', nodes: [], edges: [] },
+    ],
+  }
+
+  ensureLayout(blueprint)
+  const diagram = blueprint.diagrams[0]
+  const actor = diagram.nodes.find(node => node.id === 'a')
+  const usecase = diagram.nodes.find(node => node.id === 'u')
+  assert.deepEqual([actor.x, actor.y, actor.w, actor.h], [11, 22, 90, 104])
+  assert.equal(typeof usecase.x, 'number')
+  assert.equal(typeof usecase.y, 'number')
+  assert.equal(typeof usecase.w, 'number')
+  assert.equal(typeof usecase.h, 'number')
+  assert.equal(diagram.edges.length, 1)
+  assert.equal(diagram.edges[0].id, 'e1')
+
+  // A second load must be a no-op: no node gets re-laid out once it has coords.
+  const snapshot = JSON.stringify(diagram)
+  ensureLayout(blueprint)
+  assert.equal(JSON.stringify(diagram), snapshot)
+})
+
+test('ensureLayout keeps hand-placed coordinates across all eight diagram kinds', () => {
+  const existing = (id, type, label, x, y) => ({ id, type, label, x, y, w: 120, h: 60 })
+  const missing = (id, type, label) => ({ id, type, label })
+  const diagrams = [
+    { key: 'usecase', nodes: [existing('a', 'actor', 'Actor', 5, 6), missing('u', 'usecase', 'Use')], edges: [{ id: 'e1', from: 'a', to: 'u' }] },
+    { key: 'dfd', nodes: [existing('p', 'process', 'P', 7, 8), missing('s', 'store', 'S')], edges: [{ id: 'e2', from: 'p', to: 's' }] },
+    { key: 'module', nodes: [existing('m', 'module', 'M', 9, 10), missing('x', 'external', 'X')], edges: [{ id: 'e3', from: 'm', to: 'x' }] },
+    { key: 'sequence', nodes: [existing('s1', 'participant', 'S1', 11, 12), missing('s2', 'participant', 'S2')], edges: [{ id: 'e4', from: 's1', to: 's2' }] },
+    { key: 'er', nodes: [existing('r', 'entity', 'R', 13, 14), missing('rel', 'relationship', 'Rel')], edges: [{ id: 'e5', from: 'r', to: 'rel' }] },
+    { key: 'c4', nodes: [existing('c', 'container', 'C', 15, 16), missing('person', 'person', 'P')], edges: [{ id: 'e6', from: 'person', to: 'c' }] },
+    { key: 'class', nodes: [existing('k', 'class', 'K', 17, 18), missing('i', 'interface', 'I')], edges: [{ id: 'e7', from: 'k', to: 'i' }] },
+    { key: 'state', nodes: [existing('st', 'state', 'St', 19, 20), missing('f', 'final', 'F')], edges: [{ id: 'e8', from: 'st', to: 'f' }] },
+  ]
+
+  ensureLayout({ diagrams })
+  const expected = {
+    usecase: [5, 6], dfd: [7, 8], module: [9, 10], sequence: [11, 12],
+    er: [13, 14], c4: [15, 16], class: [17, 18], state: [19, 20],
+  }
+  for (const diagram of diagrams) {
+    const placed = diagram.nodes[0]
+    assert.deepEqual([placed.x, placed.y, placed.w, placed.h], [...expected[diagram.key], 120, 60], diagram.key)
+    const added = diagram.nodes[1]
+    assert.ok(Number.isFinite(added.x) && Number.isFinite(added.y), `${diagram.key} new node got coordinates`)
+    assert.equal(diagram.edges.length, 1, `${diagram.key} edge preserved`)
+  }
+})
+
+test('ensureLayout keeps an existing single coordinate when only the other is missing', () => {
+  const blueprint = { diagrams: [{ key: 'usecase', nodes: [{ id: 'a', type: 'actor', label: 'Actor', x: 5 }, { id: 'u', type: 'usecase', label: 'Use' }], edges: [] }] }
+  ensureLayout(blueprint)
+  assert.equal(blueprint.diagrams[0].nodes[0].x, 5)
+  assert.equal(typeof blueprint.diagrams[0].nodes[0].y, 'number')
+})
+
+test('explicit auto layout still reflows every node', () => {
+  const diagram = {
+    key: 'usecase',
+    nodes: [
+      { id: 'a', type: 'actor', label: 'Actor', x: 11, y: 22 },
+      { id: 'u', type: 'usecase', label: 'Use', x: 33, y: 44 },
+    ],
+    edges: [{ id: 'e1', from: 'a', to: 'u' }],
+  }
+  layoutDiagram(diagram)
+  assert.equal(diagram.nodes[0].x, 70)
+  assert.equal(diagram.nodes[0].y, 110)
+  assert.equal(diagram.nodes[1].x, 300)
+  assert.equal(diagram.nodes[1].y, 92)
+  assert.equal(diagram.edges.length, 1)
 })
 
 test('rejects oversized, over-limit and unsupported input with typed errors', () => {

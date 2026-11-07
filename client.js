@@ -1368,8 +1368,29 @@ window.__ModuleLoader__.load({
 
     function ensureLayout(blueprint) {
       for (const diagram of blueprint.diagrams ?? []) {
-        const missing = (diagram.nodes ?? []).some(node => typeof node.x !== 'number' || typeof node.y !== 'number')
-        if (missing) layoutDiagram(diagram)
+        const nodes = diagram.nodes ?? []
+        const missing = nodes.some(node => typeof node.x !== 'number' || typeof node.y !== 'number')
+        if (missing) {
+          // Remember every hand-placed coordinate/size first. The existing layout
+          // algorithm always computes the whole diagram, so restore all positions
+          // that were already present and only keep coordinates for new nodes.
+          const placed = nodes.map(node => ({
+            node,
+            x: node.x,
+            y: node.y,
+            w: node.w,
+            h: node.h,
+          }))
+          layoutDiagram(diagram)
+          for (const saved of placed) {
+            // Restore each existing coordinate independently: a node that has
+            // only x (or only y) still keeps that hand-placed value.
+            if (typeof saved.x === 'number') saved.node.x = saved.x
+            if (typeof saved.y === 'number') saved.node.y = saved.y
+            if (typeof saved.w === 'number') saved.node.w = saved.w
+            if (typeof saved.h === 'number') saved.node.h = saved.h
+          }
+        }
         if (diagram.key === 'sequence') {
           ;(diagram.edges ?? []).forEach((edge, index) => {
             if (typeof edge.order !== 'number') edge.order = index + 1
@@ -4161,7 +4182,9 @@ window.__ModuleLoader__.load({
         MAX_IMPORT_BYTES,
         MAX_IMPORT_NODES,
         detectImportSource,
+        ensureLayout,
         importErrorMessage,
+        layoutDiagram,
         parseMermaid,
       },
     }

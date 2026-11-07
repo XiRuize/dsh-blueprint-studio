@@ -7,6 +7,7 @@ import {
   archiveBlueprintVersion,
   blueprintRelativePath,
   blueprintVersionsRelativeDir,
+  mergeBlueprintForUpdate,
   normalizeBlueprint,
   parseBlueprintSaveInput,
   readBlueprintFile,
@@ -309,6 +310,131 @@ test('semantic diff reports type and requirementIds changes on nodes', () => {
     { field: 'type', before: 'process', after: 'store' },
     { field: 'requirementIds', before: ['functional-1'], after: ['functional-1', 'functional-2'] },
   ])
+})
+
+test('explicitly cleared section items stay empty while omitted fields keep previous values', () => {
+  const first = normalizeBlueprint({
+    title: 'T',
+    summary: 'S',
+    sections: [
+      { key: 'goals', title: '目标', items: ['one', 'two'] },
+      { key: 'functional', items: ['f1'] },
+    ],
+  }, undefined, { sessionId: 's' })
+
+  // An explicit empty list is a deliberate clear and must survive the save.
+  const cleared = normalizeBlueprint({ sections: [{ key: 'goals', items: [] }] }, first, { sessionId: 's' })
+  assert.deepEqual(cleared.sections.find(section => section.key === 'goals').items, [])
+  assert.equal(cleared.sections.find(section => section.key === 'goals').title, '目标')
+
+  // Fields that were not submitted still inherit from the previous version.
+  const omitted = normalizeBlueprint({ sections: [{ key: 'goals', title: '目标 v2' }] }, first, { sessionId: 's' })
+  const goals = omitted.sections.find(section => section.key === 'goals')
+  assert.deepEqual(goals.items.map(item => item.text), ['one', 'two'])
+  assert.equal(goals.title, '目标 v2')
+  assert.deepEqual(omitted.sections.find(section => section.key === 'functional').items.map(item => item.text), ['f1'])
+  assert.equal(omitted.title, 'T')
+  assert.equal(omitted.summary, 'S')
+})
+
+test('clearing a section stays empty after an archived save', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-clear-'))
+  try {
+    const first = await saveBlueprintFromCommand({
+      cwd,
+      sessionId: 'session-clear',
+      input: { title: 'T', sections: [{ key: 'goals', items: ['one', 'two'] }] },
+    })
+    const second = await saveBlueprintFromCommand({
+      cwd,
+      sessionId: 'session-clear',
+      input: { sections: [{ key: 'goals', items: [] }] },
+      previous: first.blueprint,
+    })
+    assert.deepEqual(second.blueprint.sections.find(section => section.key === 'goals').items, [])
+    assert.equal(second.blueprint.title, 'T')
+    const onDisk = await readBlueprintFile(path.join(cwd, blueprintRelativePath('session-clear')))
+    assert.deepEqual(onDisk.sections.find(section => section.key === 'goals').items, [])
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+function manualBlueprint() {
+  return normalizeBlueprint({
+    title: 'A',
+    summary: 'old',
+    sections: [{ key: 'goals', items: ['one'] }],
+    diagrams: [
+      {
+        key: 'usecase',
+        nodes: [
+          { id: 'u1', type: 'actor', label: 'User', x: 12, y: 34, w: 90, h: 104, requirementIds: ['goals:i1'] },
+          { id: 'u2', type: 'usecase', label: 'Browse', x: 300, y: 92 },
+        ],
+        edges: [{ id: 'e1', from: 'u1', to: 'u2', label: 'opens' }],
+      },
+      { key: 'dfd', nodes: [{ id: 'p1', type: 'process', label: 'Parse' }], edges: [] },
+    ],
+    modules: [{ id: 'api', name: 'API', summary: 'keep me' }],
+  }, undefined, { sessionId: 's' })
+}
+
+test('update merge keeps untouched manual nodes and edges and applies partial node edits', () => {
+  const previous = manualBlueprint()
+  const merged = mergeBlueprintForUpdate(previous, {
+    summary: 'updated',
+    diagrams: [{
+      key: 'usecase',
+      nodes: [
+        { id: 'u1', label: 'Buyer' },
+        { id: 'u3', type: 'usecase', label: 'Pay' },
+      ],
+      edges: [{ from: 'u1', to: 'u3', label: 'pays' }],
+    }],
+  }, { sessionId: 's' })
+
+  const usecase = merged.diagrams.find(diagram => diagram.key === 'usecase')
+  assert.deepEqual(usecase.nodes.map(node => node.id), ['u1', 'u2', 'u3'])
+  const u1 = usecase.nodes.find(node => node.id === 'u1')
+  assert.equal(u1.label, 'Buyer')
+  assert.equal(u1.type, 'actor')
+  assert.deepEqual([u1.x, u1.y, u1.w, u1.h], [12, 34, 90, 104])
+  assert.deepEqual(u1.requirementIds, ['goals:i1'])
+  assert.equal(usecase.nodes.find(node => node.id === 'u2').label, 'Browse')
+
+  assert.equal(usecase.edges.length, 2)
+  assert.equal(usecase.edges.find(edge => edge.id === 'e1').label, 'opens')
+  assert.equal(usecase.edges.find(edge => edge.from === 'u1' && edge.to === 'u3').label, 'pays')
+
+  // Diagrams, modules and sections that were not part of the patch survive.
+  assert.deepEqual(merged.diagrams.find(diagram => diagram.key === 'dfd').nodes.map(node => node.id), ['p1'])
+  assert.deepEqual(merged.sections.find(section => section.key === 'goals').items.map(item => item.text), ['one'])
+  assert.equal(merged.modules[0].summary, 'keep me')
+  assert.equal(merged.summary, 'updated')
+})
+
+test('update merge applies explicit removedNodeIds and removedEdgeIds', () => {
+  const previous = manualBlueprint()
+
+  const withoutNode = mergeBlueprintForUpdate(previous, {
+    diagrams: [{ key: 'usecase', nodes: [], removedNodeIds: ['u2'] }],
+  }, { sessionId: 's' })
+  const usecase = withoutNode.diagrams.find(diagram => diagram.key === 'usecase')
+  assert.deepEqual(usecase.nodes.map(node => node.id), ['u1'])
+  assert.equal(usecase.edges.length, 0)
+  assert.deepEqual(withoutNode.diagrams.find(diagram => diagram.key === 'dfd').nodes.map(node => node.id), ['p1'])
+
+  const withoutEdge = mergeBlueprintForUpdate(previous, {
+    diagrams: [{ key: 'usecase', removedEdgeIds: ['e1'] }],
+  }, { sessionId: 's' })
+  const kept = withoutEdge.diagrams.find(diagram => diagram.key === 'usecase')
+  assert.deepEqual(kept.nodes.map(node => node.id), ['u1', 'u2'])
+  assert.equal(kept.edges.length, 0)
+
+  // Root-level removals accept "<diagramKey>:<id>" refs as well.
+  const rootRemoved = mergeBlueprintForUpdate(previous, { removedNodeIds: ['usecase:u2'] }, { sessionId: 's' })
+  assert.deepEqual(rootRemoved.diagrams.find(diagram => diagram.key === 'usecase').nodes.map(node => node.id), ['u1'])
 })
 
 test('archives versions, refuses duplicates and restores a version file', async () => {
