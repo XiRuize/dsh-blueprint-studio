@@ -50,7 +50,7 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
 - **AI generate / expand** — one button sends a focused instruction to the agent; the studio refreshes when the agent writes the blueprint.
 - **Version history** — every agent or human save archives the previous content. Compare any two versions with a semantic diff (requirements, nodes, edges, fields, modules); restore a version with one click; create manual snapshots.
 - **Live dispatch board** — child subagent sessions of the current conversation, refreshed every five seconds, with module status and one-click navigation.
-- **draw.io interop** — import `.drawio`/XML by paste or file, replacing or appending to the current diagram; export the current diagram back to draw.io XML.
+- **draw.io & Mermaid interop** — import `.drawio`/XML or Mermaid by paste or file, replacing or appending to the target diagram; export the current diagram back to draw.io XML or Mermaid.
 - **One-click dispatch** — confirmation marks the blueprint `confirmed` and asks the agent to spawn one subagent per module, respecting dependencies.
 - **Local-first storage** — `<workspace>/.dsh/blueprints/<sessionId>.json`, reviewable and diffable in Git.
 - **Exports** — JSON, Mermaid (flowchart, sequence, ER), SVG, draw.io XML.
@@ -148,6 +148,19 @@ Click **Import draw.io** in the diagram toolbar, then paste XML or choose a `.dr
 
 Export the current diagram as draw.io XML from **Export → draw.io XML**.
 
+### Mermaid import
+
+Click **Import diagram** in the diagram toolbar and choose **Mermaid** (or leave **Auto detect** on and paste Mermaid text). The toolbar dialog accepts a paste or a `.mmd`/`.mermaid`/`.txt` file:
+
+- `classDiagram` → the class diagram: `class` nodes, `+name: type` fields, `+method() return` methods, `<|--` extends, `<|..` implements, `-->` association, `..>` dependency;
+- `stateDiagram-v2` → the state diagram: `[*] --> State` initial, `State --> [*]` final, `A --> B : label` transitions, `state "Label" as id`;
+- `flowchart TD/LR` (or `graph`) → the use case diagram: `A[Label]`, `A(Label)`, `A{Decision}`, labelled edges such as `A -- label --> B`, and `-->|label|`;
+- `%%` comments, blank lines and decorative directives (`classDef`, `style`, `click`, `linkStyle`, `direction`, notes, subgraphs) are ignored.
+
+Mermaid import is intentionally strict: input over 200 KB or more than 200 parsed nodes is rejected with a bilingual error. Members that cannot be mapped are kept as a field with note `unparsed member`, so no source text is silently dropped.
+
+Export the current diagram as Mermaid from **Export → Mermaid**.
+
 ## Data model
 
 The tool accepts a compact, model-friendly object; layout is computed in the browser so the model never has to invent pixel coordinates.
@@ -239,7 +252,7 @@ The diagram space is crowded, but most tools optimize for *drawing*, not for *an
 
 | Project | License | Fit |
 | --- | --- | --- |
-| [Mermaid](https://github.com/mermaid-js/mermaid) | MIT | Excellent text-to-SVG for AI output; weak freeform editing. Supported here as an **export**. |
+| [Mermaid](https://github.com/mermaid-js/mermaid) | MIT | Excellent text-to-SVG for AI output; weak freeform editing. Supported here as **import/export** for class, state and flow charts. |
 | [draw.io / diagrams.net](https://github.com/jgraph/drawio) | Apache-2.0 | Mature editor; supported here as **import/export**, not as an embedded iframe. |
 | [Excalidraw](https://github.com/excalidraw/excalidraw) | MIT | Great whiteboard, not UML/DFD semantics. |
 | [React Flow](https://github.com/xyflow/xyflow) | MIT | Strong node editor; adds a bundling dependency and its own styling model. |
@@ -257,10 +270,11 @@ Blueprint Studio deliberately ships a **small self-contained SVG canvas**: zero 
 - [x] Version history, semantic diff, restore and manual snapshots.
 - [x] Live subagent dispatch board.
 - [x] draw.io import/export.
+- [x] Mermaid import (class, state, flowchart) and export.
 - [ ] Collaboration: presence, comments and change proposals on requirement items.
 - [ ] Richer DFD: level-1 decomposition, balancing checks, data dictionary.
 - [ ] More C4 levels and automatic boundary inference.
-- [ ] Import: Mermaid, PlantUML.
+- [ ] Import: PlantUML, sequence and ER Mermaid.
 - [ ] Blueprint templates per domain (web app, CLI, data pipeline, agent tool).
 - [ ] Publish to npm as `dsh-blueprint-studio`.
 

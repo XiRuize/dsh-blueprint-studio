@@ -46,9 +46,21 @@ window.__ModuleLoader__.load({
       closeDiff: 'Back', versionRestored: 'Version restored', snapshotSaved: 'Snapshot saved', versionLoadFailed: 'Could not load versions',
       children: 'Subagents', noChildren: 'No child subagents yet.', running: 'running', idle: 'idle', refresh: 'Refresh',
       openSession: 'Open session', copyId: 'Copy session id', importDrawio: 'Import draw.io', importFailed: 'Import failed',
+      importDiagram: 'Import diagram', importSource: 'Source', importSourceAuto: 'Auto detect', importSourceDrawio: 'draw.io',
+      importSourceMermaid: 'Mermaid', importDetected: 'Detected: {kind}',
       importReplace: 'Replace current diagram? Choose Cancel to append instead.', exportDrawio: 'draw.io XML',
-      importTitle: 'Import draw.io', importHint: 'Paste draw.io XML or choose a .drawio/.xml file. Vertices and edges are mapped to this diagram.',
-      importPlaceholder: '<mxfile>…</mxfile>', replaceDiagram: 'Replace current diagram', appendDiagram: 'Append to current diagram', importAction: 'Import',
+      importTitle: 'Import diagram', importHint: 'Paste draw.io XML or Mermaid, or choose a file. draw.io vertices/edges map to the current diagram; Mermaid maps to the matching diagram automatically.',
+      importMermaidHint: 'Mermaid support: classDiagram, stateDiagram-v2, and flowchart TD/LR. Comments and style directives are ignored. Limits: 200 KB input and 200 nodes.',
+      importPlaceholder: '<mxfile>…</mxfile>', importAutoPlaceholder: 'Paste draw.io XML (<mxfile>…</mxfile>) or Mermaid such as classDiagram / stateDiagram-v2 / flowchart.',
+      importMermaidPlaceholder: 'classDiagram\n  class Animal {\n    +String name\n    +move() void\n  }\n  class Dog\n  Animal <|-- Dog',
+      importSuccess: 'Imported {nodes} nodes and {edges} edges into {diagram}',
+      importErrorTooLarge: 'Import rejected: the input exceeds 200 KB.',
+      importErrorTooManyNodes: 'Import rejected: more than 200 nodes would be created.',
+      importErrorUnsupported: 'Unsupported Mermaid diagram. Use classDiagram, stateDiagram-v2, or flowchart TD/LR.',
+      importErrorEmpty: 'No importable nodes were found.',
+      importErrorMissingDiagram: 'The target diagram does not exist in this blueprint.',
+      importErrorParse: 'Could not parse the pasted content.',
+      replaceDiagram: 'Replace current diagram', appendDiagram: 'Append to current diagram', importAction: 'Import',
       diffBase: 'From', diffTarget: 'To', diffEmpty: 'No semantic changes between these versions.',
       fieldsEmpty: 'No fields yet.', addEdge: 'Add edge', edgeKind: 'Kind', saveSnapshotHint: 'Archive the current blueprint as a version',
       boardHint: 'Child sessions of this conversation, refreshed every 5 seconds.', moduleOf: 'Module', versionAt: 'Time', versionBy: 'Source',
@@ -100,9 +112,21 @@ window.__ModuleLoader__.load({
       closeDiff: '返回', versionRestored: '已恢复版本', snapshotSaved: '快照已保存', versionLoadFailed: '版本加载失败',
       children: '子代理', noChildren: '还没有子代理。', running: '运行中', idle: '空闲', refresh: '刷新',
       openSession: '打开会话', copyId: '复制会话 ID', importDrawio: '导入 draw.io', importFailed: '导入失败',
+      importDiagram: '导入图', importSource: '来源', importSourceAuto: '自动识别', importSourceDrawio: 'draw.io',
+      importSourceMermaid: 'Mermaid', importDetected: '识别为：{kind}',
       importReplace: '替换当前图？选择“取消”则追加。', exportDrawio: 'draw.io XML',
-      importTitle: '导入 draw.io', importHint: '粘贴 draw.io XML，或选择 .drawio/.xml 文件；顶点和连线会映射到当前图。',
-      importPlaceholder: '<mxfile>…</mxfile>', replaceDiagram: '替换当前图', appendDiagram: '追加到当前图', importAction: '导入',
+      importTitle: '导入图', importHint: '粘贴 draw.io XML 或 Mermaid，也可选择文件；draw.io 会映射到当前图，Mermaid 会按图类型自动选择目标图。',
+      importMermaidHint: 'Mermaid 支持：classDiagram、stateDiagram-v2、flowchart TD/LR。注释与样式指令会被忽略。限制：输入 200KB、节点 200 个。',
+      importPlaceholder: '<mxfile>…</mxfile>', importAutoPlaceholder: '粘贴 draw.io XML（<mxfile>…</mxfile>）或 Mermaid，例如 classDiagram / stateDiagram-v2 / flowchart。',
+      importMermaidPlaceholder: 'classDiagram\n  class Animal {\n    +String name\n    +move() void\n  }\n  class Dog\n  Animal <|-- Dog',
+      importSuccess: '已导入 {nodes} 个节点、{edges} 条连线到「{diagram}」',
+      importErrorTooLarge: '导入已拒绝：内容超过 200KB。',
+      importErrorTooManyNodes: '导入已拒绝：解析出的节点超过 200 个。',
+      importErrorUnsupported: '不支持的 Mermaid 图，请使用 classDiagram、stateDiagram-v2 或 flowchart TD/LR。',
+      importErrorEmpty: '没有找到可导入的节点。',
+      importErrorMissingDiagram: '当前蓝图缺少目标图。',
+      importErrorParse: '无法解析粘贴的内容。',
+      replaceDiagram: '替换当前图', appendDiagram: '追加到当前图', importAction: '导入',
       diffBase: '基准', diffTarget: '对比', diffEmpty: '这两个版本之间没有语义变化。',
       fieldsEmpty: '还没有字段。', addEdge: '新增连线', edgeKind: '类型', saveSnapshotHint: '把当前蓝图归档为版本',
       boardHint: '当前会话的子代理，每 5 秒刷新。', moduleOf: '模块', versionAt: '时间', versionBy: '来源',
@@ -1930,53 +1954,93 @@ window.__ModuleLoader__.load({
       const [text, setText] = useState('')
       const [replace, setReplace] = useState(true)
       const [error, setError] = useState(null)
+      const [sourceKind, setSourceKind] = useState('auto')
       const close = () => set({ importOpen: false })
+      const detected = text.trim() === '' ? null : detectImportSource(text, sourceKind)
+      const accept = sourceKind === 'drawio'
+        ? '.drawio,.xml,application/xml,text/xml'
+        : sourceKind === 'mermaid'
+          ? '.mmd,.mermaid,.txt,text/plain'
+          : '.drawio,.xml,.mmd,.mermaid,.txt,application/xml,text/xml,text/plain'
+      const placeholder = sourceKind === 'mermaid'
+        ? t('importMermaidPlaceholder')
+        : sourceKind === 'drawio'
+          ? t('importPlaceholder')
+          : t('importAutoPlaceholder')
+      const sourceButton = (value, label) => h('button', {
+        type: 'button', key: value,
+        className: `bp-seg-btn${sourceKind === value ? ' active' : ''}`,
+        onClick: () => { setSourceKind(value); setError(null) },
+      }, label)
       const run = () => {
         try {
-          const parsed = parseDrawio(text, state.tab)
-          if (parsed.nodes.length === 0) throw new Error('no vertices found')
+          if (text.trim() === '') throw new ImportFailure('empty')
+          const format = detectImportSource(text, sourceKind)
+          const bp = state.bp
+          if (bp === null) throw new ImportFailure('missing-diagram')
+          let parsed
+          let targetKey
+          if (format === 'drawio') {
+            parsed = parseDrawio(text, state.tab)
+            targetKey = state.tab
+          } else {
+            parsed = parseMermaid(text)
+            targetKey = parsed.diagramKey
+          }
+          if (parsed.nodes.length === 0) throw new ImportFailure('empty')
+          const target = bp.diagrams.find(item => item.key === targetKey)
+          if (target === undefined) throw new ImportFailure('missing-diagram')
           mutate(current => {
-            const target = current.diagrams.find(item => item.key === state.tab)
-            if (target === undefined) return
+            const diagram = current.diagrams.find(item => item.key === targetKey)
+            if (diagram === undefined) return
             if (replace) {
-              target.nodes = parsed.nodes
-              target.edges = parsed.edges
+              diagram.nodes = parsed.nodes
+              diagram.edges = parsed.edges
             } else {
               const stamp = Date.now().toString(36)
               const idMap = new Map()
               for (const node of parsed.nodes) {
                 const next = { ...node, id: `${node.id}-${stamp}` }
                 idMap.set(node.id, next.id)
-                target.nodes.push(next)
+                diagram.nodes.push(next)
               }
               for (const edge of parsed.edges) {
-                target.edges.push({ ...edge, id: `${edge.id}-${stamp}`, from: idMap.get(edge.from), to: idMap.get(edge.to) })
+                diagram.edges.push({ ...edge, id: `${edge.id}-${stamp}`, from: idMap.get(edge.from), to: idMap.get(edge.to) })
               }
             }
-          })
-          set({ importOpen: false })
-          toast(`Imported ${parsed.nodes.length} nodes, ${parsed.edges.length} edges`, 'success')
+            if (format === 'mermaid') layoutDiagram(diagram)
+          }, { undoLabel: 'import' })
+          set({ importOpen: false, tab: targetKey, selected: null, mode: 'select', connectFrom: null })
+          toast(t('importSuccess', { nodes: parsed.nodes.length, edges: parsed.edges.length, diagram: target.title }), 'success')
         } catch (failure) {
-          setError(String(failure?.message ?? failure))
+          setError(importErrorMessage(failure))
         }
       }
       return h('div', { className: 'bp-import-backdrop', onClick: close },
         h('div', { className: 'bp-import-dialog', onClick: event => event.stopPropagation() },
           h('div', { className: 'bp-kicker' }, t('importTitle')),
           h('p', { className: 'bp-muted' }, t('importHint')),
+          h('div', { className: 'bp-import-source' },
+            h('span', null, t('importSource')),
+            h('div', { className: 'bp-seg' },
+              sourceButton('auto', t('importSourceAuto')),
+              sourceButton('drawio', t('importSourceDrawio')),
+              sourceButton('mermaid', t('importSourceMermaid')))),
+          h('div', { className: 'bp-import-detected' },
+            detected === null ? t(sourceKind === 'mermaid' ? 'importMermaidHint' : 'importHint')
+              : `${t('importDetected', { kind: detected === 'drawio' ? 'draw.io' : 'Mermaid' })}${sourceKind === 'mermaid' ? ` · ${t('importMermaidHint')}` : ''}`),
           h('textarea', {
             className: 'bp-input bp-import-text', rows: 9, value: text,
-            placeholder: t('importPlaceholder'),
+            placeholder,
             onChange: event => { setText(event.target.value); setError(null) },
           }),
           h('div', { className: 'bp-import-row' },
             h('input', {
-              type: 'file', accept: '.drawio,.xml,application/xml,text/xml',
+              type: 'file', accept,
               onChange: async event => {
                 const file = event.target.files?.[0]
-                if (file !== undefined) {
-                  try { setText(await file.text()) } catch (failure) { setError(String(failure)) }
-                }
+                if (file === undefined) return
+                try { setText(await file.text()) } catch (failure) { setError(importErrorMessage(failure)) }
               },
             }),
             h('label', { className: 'bp-check' },
@@ -2031,8 +2095,8 @@ window.__ModuleLoader__.load({
               title: `${t('addNode')} · ${t(TYPE_META[type].label)}`,
               onClick: () => addNode(store, type),
             }, h('span', { className: 'bp-type-dot', style: { background: TYPE_META[type].color } }), t(TYPE_META[type].label)))),
-          h('button', { type: 'button', className: 'bp-btn bp-ghost bp-import', title: t('importDrawio'), onClick: () => set({ importOpen: true }) },
-            h(Icon, { name: 'download', size: 15 }), h('span', { className: 'bp-import-label' }, t('importDrawio'))),
+          h('button', { type: 'button', className: 'bp-btn bp-ghost bp-import', title: t('importDiagram'), onClick: () => set({ importOpen: true }) },
+            h(Icon, { name: 'download', size: 15 }), h('span', { className: 'bp-import-label' }, t('importDiagram'))),
           button('bp-ghost', () => { layoutDiagram(diagram); mutate(() => {}); }, h(Icon, { name: 'layout', size: 15 }), { title: t('autoLayout') }),
           button('bp-ghost', () => expandDiagram(diagram), h(Icon, { name: 'spark', size: 15 }), { title: t('expandDiagram') })))
     }
@@ -2275,6 +2339,403 @@ window.__ModuleLoader__.load({
       }
       return { nodes, edges }
     }
+
+    const MAX_IMPORT_BYTES = 200 * 1024
+    const MAX_IMPORT_NODES = 200
+
+    class ImportFailure extends Error {
+      constructor(code, detail) {
+        super(code)
+        this.name = 'ImportFailure'
+        this.code = code
+        if (detail !== undefined && detail !== null) this.detail = String(detail)
+      }
+    }
+
+    function importErrorMessage(error) {
+      if (error?.code === undefined) return String(error?.message ?? error)
+      const keys = {
+        'too-large': 'importErrorTooLarge',
+        'too-many-nodes': 'importErrorTooManyNodes',
+        unsupported: 'importErrorUnsupported',
+        empty: 'importErrorEmpty',
+        'missing-diagram': 'importErrorMissingDiagram',
+      }
+      const key = keys[error.code] ?? 'importErrorParse'
+      const detail = typeof error.detail === 'string' && error.detail.trim() !== ''
+        ? ` (${error.detail.trim().replace(/\s+/g, ' ').slice(0, 80)})`
+        : ''
+      return `${t(key)}${detail}`
+    }
+
+    function utf8Length(input) {
+      let bytes = 0
+      for (const char of String(input ?? '')) {
+        const code = char.codePointAt(0) ?? 0
+        bytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4
+      }
+      return bytes
+    }
+
+    function detectImportSource(input, requested) {
+      if (requested === 'drawio' || requested === 'mermaid') return requested
+      const text = String(input ?? '').replace(/^\uFEFF/, '').trimStart()
+      return /^<\?xml[^>]*\?>\s*<mx(?:file|GraphModel)\b/i.test(text) || /^<mx(?:file|GraphModel)\b/i.test(text)
+        ? 'drawio'
+        : 'mermaid'
+    }
+
+    function cleanMermaidLabel(value) {
+      let label = String(value ?? '').trim()
+      if ((label.startsWith('"') && label.endsWith('"')) || (label.startsWith("'") && label.endsWith("'"))) {
+        label = label.slice(1, -1)
+      }
+      return label.replace(/\\"/g, '"').trim()
+    }
+
+    function cleanMermaidToken(value) {
+      return cleanMermaidLabel(value).replace(/:::[A-Za-z0-9_-]+$/g, '').replace(/<<[^>]*>>/g, '').trim()
+    }
+
+    function mermaidNodeId(token, used) {
+      const cleaned = cleanMermaidToken(token)
+      let base = cleaned.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '')
+      if (base === '') base = `mm${used.size + 1}`
+      if (!/^[A-Za-z_]/.test(base)) base = `mm-${base}`
+      let candidate = base
+      let index = 2
+      while (used.has(candidate)) candidate = `${base}-${index++}`
+      used.add(candidate)
+      return candidate
+    }
+
+    function isMermaidDecoration(line) {
+      return /^(?:%%|classDef\b|style\b|linkStyle\b|click\b|cssClass\b|direction\b|accTitle\b|accDescr\b|subgraph\b|end\b|note\b|link\b|callback\b)/.test(line)
+    }
+
+    function pushMermaidEdge(edges, from, to, kind, label) {
+      if (from === undefined || to === undefined || from === to) return
+      const edge = { id: `mm-e-${edges.length + 1}`, from, to, kind }
+      if (label !== undefined && label !== '') edge.label = label
+      edges.push(edge)
+    }
+
+    function parseClassMember(raw) {
+      let line = String(raw ?? '').trim().replace(/^[+\-#~]\s*/, '').trim()
+      if (line === '') return null
+      line = line.replace(/[;$*]+$/g, '').trim()
+      if (line === '') return null
+      const open = line.indexOf('(')
+      if (open >= 0) {
+        const close = line.indexOf(')', open)
+        if (close >= 0) {
+          const head = line.slice(0, open).trim()
+          const params = line.slice(open + 1, close).trim()
+          let tail = line.slice(close + 1).trim()
+          if (tail.startsWith(':')) tail = tail.slice(1).trim()
+          const name = head.split(/\s+/).filter(Boolean).pop() ?? ''
+          if (name === '') return null
+          const field = { name, kind: 'method' }
+          if (tail !== '') field.type = tail
+          if (params !== '') field.note = `(${params})`
+          return field
+        }
+      }
+      const colon = line.indexOf(':')
+      if (colon >= 0) {
+        const left = line.slice(0, colon).trim()
+        const type = line.slice(colon + 1).trim()
+        const parts = left.split(/\s+/).filter(Boolean)
+        const name = parts.pop() ?? ''
+        if (name === '') return null
+        const field = { name, kind: 'field' }
+        if (type !== '') field.type = type
+        else if (parts.length > 0) field.type = parts.join(' ')
+        return field
+      }
+      const parts = line.split(/\s+/).filter(Boolean)
+      if (parts.length === 0) return null
+      if (parts.length === 1) return { name: parts[0], kind: 'field' }
+      return { name: parts[parts.length - 1], type: parts.slice(0, -1).join(' '), kind: 'field' }
+    }
+
+    function parseClassRelation(line) {
+      const match = /^(.*?)\s*(<\|--|<\|\.\.|--\|>|\.\.\|>|\.\.>|-->|--o|o--|--\*|\*--|\.\.|--)\s*(.*)$/.exec(line)
+      if (match === null) return null
+      const operator = match[2]
+      const left = match[1].trim()
+      let right = match[3].trim()
+      let label = ''
+      const colon = right.indexOf(':')
+      if (colon >= 0) {
+        label = right.slice(colon + 1).trim()
+        right = right.slice(0, colon).trim()
+      }
+      const endpoint = value => value.replace(/"[^"]*"/g, ' ').replace(/\s+/g, ' ').trim().split(/\s+/)[0] ?? ''
+      const leftToken = cleanMermaidToken(endpoint(left))
+      const rightToken = cleanMermaidToken(endpoint(right))
+      if (leftToken === '' || rightToken === '') return null
+      let kind = 'association'
+      if (operator === '<|--' || operator === '--|>') kind = 'extends'
+      else if (operator === '<|..' || operator === '..|>') kind = 'implements'
+      else if (operator === '..>') kind = 'dependency'
+      const pointsLeft = operator === '<|--' || operator === '<|..'
+      return { from: pointsLeft ? rightToken : leftToken, to: pointsLeft ? leftToken : rightToken, kind, label }
+    }
+
+    function parseClassDiagram(lines) {
+      const nodes = []
+      const edges = []
+      const byToken = new Map()
+      const used = new Set()
+      let current = null
+      const ensure = (token, label) => {
+        const key = cleanMermaidToken(token)
+        if (key === '') return undefined
+        const found = byToken.get(key)
+        if (found !== undefined) {
+          if (label !== undefined && label !== '') found.label = cleanMermaidLabel(label)
+          return found
+        }
+        if (nodes.length >= MAX_IMPORT_NODES) throw new ImportFailure('too-many-nodes')
+        const node = {
+          id: mermaidNodeId(key, used),
+          type: 'class',
+          label: label === undefined || label === '' ? key : cleanMermaidLabel(label),
+        }
+        nodes.push(node)
+        byToken.set(key, node)
+        return node
+      }
+      const addMember = (node, raw) => {
+        const line = String(raw ?? '').trim()
+        if (line === '') return
+        const annotation = /^<<\s*([^>]+?)\s*>>$/.exec(line)
+        if (annotation !== null) {
+          const stereotype = annotation[1].trim()
+          if (/^interface$/i.test(stereotype)) node.type = 'interface'
+          node.stereotype = stereotype
+          return
+        }
+        if (isMermaidDecoration(line)) return
+        const member = parseClassMember(line)
+        if (!Array.isArray(node.fields)) node.fields = []
+        if (member === null) node.fields.push({ name: line, note: 'unparsed member' })
+        else node.fields.push(member)
+      }
+      for (const raw of lines) {
+        const line = String(raw ?? '').trim()
+        if (line === '') continue
+        if (current !== null) {
+          if (line.startsWith('}')) { current = null; continue }
+          addMember(current, line)
+          continue
+        }
+        if (isMermaidDecoration(line)) continue
+        const open = /^class\s+([^\s{]+)(?:\s*\["([^"]*)"\])?\s*\{\s*$/.exec(line)
+        if (open !== null) {
+          current = ensure(open[1], open[2])
+          continue
+        }
+        const declaration = /^class\s+([^\s{]+)(?:\s*\["([^"]*)"\])?\s*$/.exec(line)
+        if (declaration !== null) {
+          ensure(declaration[1], declaration[2])
+          continue
+        }
+        if (/^class\s+/.test(line)) {
+          const body = line.slice(6).trim()
+          const token = body.split(/[\s,]+/)[0] ?? ''
+          if (token !== '') ensure(token)
+          continue
+        }
+        if (/^(?:title|config)\b/.test(line)) continue
+        const relation = parseClassRelation(line)
+        if (relation === null) continue
+        const from = ensure(relation.from)
+        const to = ensure(relation.to)
+        if (from === undefined || to === undefined) continue
+        pushMermaidEdge(edges, from.id, to.id, relation.kind, relation.label)
+      }
+      return { nodes, edges }
+    }
+
+    function parseStateDiagram(lines) {
+      const nodes = []
+      const edges = []
+      const byToken = new Map()
+      const used = new Set()
+      let initial = null
+      let final = null
+      const ensureState = (token, label, type) => {
+        const key = cleanMermaidToken(token)
+        if (key === '') return undefined
+        const found = byToken.get(key)
+        if (found !== undefined) {
+          if (label !== undefined && label !== '') found.label = cleanMermaidLabel(label)
+          if (type === 'choice') found.type = 'choice'
+          return found
+        }
+        if (nodes.length >= MAX_IMPORT_NODES) throw new ImportFailure('too-many-nodes')
+        const node = {
+          id: mermaidNodeId(key, used),
+          type: type === 'choice' ? 'choice' : 'state',
+          label: label === undefined || label === '' ? key : cleanMermaidLabel(label),
+        }
+        nodes.push(node)
+        byToken.set(key, node)
+        return node
+      }
+      const ensureTerminal = kind => {
+        if (kind === 'initial' && initial !== null) return initial
+        if (kind === 'final' && final !== null) return final
+        if (nodes.length >= MAX_IMPORT_NODES) throw new ImportFailure('too-many-nodes')
+        const node = kind === 'initial'
+          ? { id: mermaidNodeId('initial', used), type: 'initial', label: 'Initial' }
+          : { id: mermaidNodeId('final', used), type: 'final', label: 'Final' }
+        nodes.push(node)
+        if (kind === 'initial') initial = node
+        else final = node
+        return node
+      }
+      for (const raw of lines) {
+        let line = String(raw ?? '').trim()
+        if (line === '' || line === '}') continue
+        if (isMermaidDecoration(line)) continue
+        const declared = /^state\s+"((?:[^"\\]|\\.)*)"\s+as\s+([^\s{]+)(?:\s*<<([^>]+)>>)?/.exec(line)
+        if (declared !== null) {
+          ensureState(declared[2], declared[1].replace(/\\"/g, '"'), /choice/i.test(declared[3] ?? '') ? 'choice' : 'state')
+          continue
+        }
+        const simple = /^state\s+([^\s{]+)(?:\s*<<([^>]+)>>)?\s*\{?\s*$/.exec(line)
+        if (simple !== null) {
+          ensureState(simple[1], undefined, /choice/i.test(simple[2] ?? '') ? 'choice' : 'state')
+          continue
+        }
+        const transition = /^(.*?)\s*-->\s*(.*)$/.exec(line)
+        if (transition === null) continue
+        let right = transition[2].trim()
+        let label = ''
+        const colon = right.indexOf(':')
+        if (colon >= 0) {
+          label = right.slice(colon + 1).trim()
+          right = right.slice(0, colon).trim()
+        }
+        const leftToken = cleanMermaidToken(transition[1])
+        const rightToken = cleanMermaidToken(right)
+        if (leftToken === '' || rightToken === '') continue
+        const from = leftToken === '[*]' ? ensureTerminal('initial') : ensureState(leftToken)
+        const to = rightToken === '[*]' ? ensureTerminal('final') : ensureState(rightToken)
+        if (from === undefined || to === undefined) continue
+        pushMermaidEdge(edges, from.id, to.id, 'transition', label)
+      }
+      return { nodes, edges }
+    }
+
+    function flowNodeLabel(shape) {
+      const label = String(shape ?? '')
+        .replace(/^[\[({<>/]+/, '')
+        .replace(/[\]})>/]+$/, '')
+        .trim()
+      return cleanMermaidLabel(label)
+    }
+
+    function firstFlowToken(value) {
+      const token = String(value ?? '').trim().split(/\s+/).filter(Boolean)[0] ?? ''
+      return cleanMermaidToken(token)
+    }
+
+    function parseFlowchart(lines) {
+      const nodes = []
+      const edges = []
+      const byToken = new Map()
+      const used = new Set()
+      const ensure = (token, label) => {
+        const key = cleanMermaidToken(token)
+        if (key === '') return undefined
+        const found = byToken.get(key)
+        if (found !== undefined) {
+          if (label !== undefined && label !== '') found.label = cleanMermaidLabel(label)
+          return found
+        }
+        if (nodes.length >= MAX_IMPORT_NODES) throw new ImportFailure('too-many-nodes')
+        const node = { id: mermaidNodeId(key, used), type: 'usecase', label: label === undefined || label === '' ? key : cleanMermaidLabel(label) }
+        nodes.push(node)
+        byToken.set(key, node)
+        return node
+      }
+      const definition = /([A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff.-]*)\s*(\[\[[\s\S]*?\]\]|\[\([\s\S]*?\)\]|\[[\s\S]*?\]|\(\([\s\S]*?\)\)|\([\s\S]*?\)|\{\{[\s\S]*?\}\}|\{[\s\S]*?\}|>[\s\S]*?\]|\/[\s\S]*?\/)/g
+      for (const raw of lines) {
+        let line = String(raw ?? '').trim()
+        if (line === '') continue
+        if (/^(?:subgraph|end)\b/.test(line)) continue
+        if (isMermaidDecoration(line)) continue
+        line = line.replace(definition, (whole, token, shape) => {
+          ensure(token, flowNodeLabel(shape))
+          return token
+        })
+        line = line.replace(/;+\s*$/, '')
+        line = line.replace(/--\s*([^>\n]+?)\s*-->/g, (match, label) => ` -->|${String(label).trim().replace(/\|/g, ' ')}| `)
+        line = line.replace(/-\.->|==>|-->|--x|--o|---|--/g, ' --> ')
+        const chunks = line.split('-->')
+        if (chunks.length < 2) {
+          const token = firstFlowToken(line)
+          if (/^[A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff.-]*$/.test(token)) ensure(token)
+          continue
+        }
+        let previous = firstFlowToken(chunks[0])
+        if (previous === '') continue
+        ensure(previous)
+        for (let index = 1; index < chunks.length; index += 1) {
+          let segment = chunks[index].trim()
+          let label = ''
+          const labeled = /^\|([^|]*)\|/.exec(segment)
+          if (labeled !== null) {
+            label = labeled[1].trim()
+            segment = segment.slice(labeled[0].length).trim()
+          }
+          const token = firstFlowToken(segment)
+          if (token === '') continue
+          const from = ensure(previous)
+          const to = ensure(token)
+          if (from !== undefined && to !== undefined) pushMermaidEdge(edges, from.id, to.id, 'association', label)
+          previous = token
+        }
+      }
+      return { nodes, edges }
+    }
+
+    function parseMermaid(input) {
+      const text = String(input ?? '').replace(/^\uFEFF/, '')
+      if (utf8Length(text) > MAX_IMPORT_BYTES) throw new ImportFailure('too-large', '200 KB')
+      const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line !== '' && !line.startsWith('%%'))
+      let headerIndex = -1
+      let kind = null
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index]
+        if (/^classDiagram(?:-v2)?\b/i.test(line)) { kind = 'class'; headerIndex = index; break }
+        if (/^stateDiagram(?:-v2)?\b/i.test(line)) { kind = 'state'; headerIndex = index; break }
+        if (/^(?:flowchart|graph)(?:\s+[A-Za-z]{2})?\b/i.test(line)) { kind = 'flowchart'; headerIndex = index; break }
+        if (isMermaidDecoration(line) || /^---$/.test(line)) continue
+        throw new ImportFailure('unsupported', line)
+      }
+      if (kind === null) throw new ImportFailure('unsupported', '')
+      const body = lines.slice(headerIndex + 1)
+      const parsed = kind === 'class'
+        ? parseClassDiagram(body)
+        : kind === 'state'
+          ? parseStateDiagram(body)
+          : parseFlowchart(body)
+      if (parsed.nodes.length === 0) throw new ImportFailure('empty')
+      if (parsed.nodes.length > MAX_IMPORT_NODES) throw new ImportFailure('too-many-nodes')
+      if (parsed.edges.length > 4000) parsed.edges = parsed.edges.slice(0, 4000)
+      return {
+        kind,
+        diagramKey: kind === 'class' ? 'class' : kind === 'state' ? 'state' : 'usecase',
+        nodes: parsed.nodes,
+        edges: parsed.edges,
+      }
+    }
+
 
     function exportSVG() {
       const svg = document.querySelector('.bp-canvas-svg')
@@ -2684,6 +3145,9 @@ window.__ModuleLoader__.load({
 .bp-import-backdrop{position:absolute;inset:0;background:rgba(8,12,20,.45);display:flex;align-items:center;justify-content:center;z-index:10}
 .bp-import-dialog{width:min(680px,90%);background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:8px}
 .bp-import-dialog p{margin:0}
+.bp-import-source{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+.bp-import-source .bp-seg-btn{font-size:11px;padding:4px 8px}
+.bp-import-detected{font-size:11px;line-height:1.45;color:var(--dsw-alias-label-secondary)}
 .bp-import-text{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;line-height:1.4;resize:vertical}
 .bp-import-row{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap}
 .bp-check{display:flex;align-items:center;gap:4px}
@@ -2739,6 +3203,14 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale', 'remote', 'remote.workspaceFiles', 'remote.session', 'remote.commands'],
       apply,
+      __test: {
+        ImportFailure,
+        MAX_IMPORT_BYTES,
+        MAX_IMPORT_NODES,
+        detectImportSource,
+        importErrorMessage,
+        parseMermaid,
+      },
     }
   },
 })
