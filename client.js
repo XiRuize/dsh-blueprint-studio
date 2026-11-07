@@ -55,6 +55,10 @@ window.__ModuleLoader__.load({
       textChanged: 'changed', sectionTitleChanged: 'Title changed', diagramMissing: 'Diagram only exists on one side',
       diagrams: 'Diagrams', undo: 'Undo', redo: 'Redo', undoDone: 'Undid the last blueprint change', redoDone: 'Redid the blueprint change',
       backToStart: 'Welcome', continueEditing: 'Continue editing current blueprint', historyHint: 'Ctrl+Z / Ctrl+Y',
+      classDiagram: 'Class diagram', stateDiagram: 'State diagram', classNode: 'Class', interface: 'Interface',
+      stateNode: 'State', initial: 'Initial', final: 'Final', choice: 'Choice', members: 'Members',
+      field: 'Field', method: 'Method', addMethod: 'Add method', transition: 'Transition',
+      extends: 'Extends', implements: 'Implements', association: 'Association', dependency: 'Dependency',
     }
     const ZH = {
       open: '蓝图', title: '工程蓝图', subtitle: '先把系统画清楚，再开始写代码',
@@ -105,6 +109,10 @@ window.__ModuleLoader__.load({
       textChanged: '已修改', sectionTitleChanged: '标题已修改', diagramMissing: '该图只存在于一侧',
       diagrams: '图解', undo: '撤销', redo: '重做', undoDone: '已撤销上一步蓝图修改', redoDone: '已重做蓝图修改',
       backToStart: '初始页', continueEditing: '继续编辑当前蓝图', historyHint: 'Ctrl+Z / Ctrl+Y',
+      classDiagram: '类图', stateDiagram: '状态图', classNode: '类', interface: '接口',
+      stateNode: '状态', initial: '初始', final: '结束', choice: '选择', members: '成员',
+      field: '字段', method: '方法', addMethod: '新增方法', transition: '转移',
+      extends: '继承', implements: '实现', association: '关联', dependency: '依赖',
     }
 
     let dict = ZH
@@ -433,7 +441,7 @@ window.__ModuleLoader__.load({
     }
 
     function expandDiagramPrompt(diagram) {
-      const names = { usecase: '用例图', dfd: '数据流图', module: '模块图', sequence: '时序图', er: 'ER 图', c4: 'C4 图' }
+      const names = { usecase: '用例图', dfd: '数据流图', module: '模块图', sequence: '时序图', er: 'ER 图', c4: 'C4 图', class: '类图', state: '状态图' }
       const kind = names[diagram.key] ?? diagram.title
       return `当前会话已有工程蓝图。请先调用 blueprint(action="get") 读取用户可能手工修改过的最新版本，然后只扩充「${kind}」（key=${diagram.key}）：补齐缺失的节点、连线、字段或消息，保留现有内容和用户修改。最后调用 blueprint(action="update") 保存完整蓝图，不要删除其他栏目、图解或模块。完成后用一句话说明新增了什么。`
     }
@@ -457,6 +465,12 @@ window.__ModuleLoader__.load({
       container: { label: 'container', color: '#60a5fa', w: 210, h: 104 },
       component: { label: 'component', color: '#a78bfa', w: 200, h: 96 },
       database: { label: 'database', color: '#f472b6', w: 170, h: 84 },
+      class: { label: 'classNode', color: '#818cf8', w: 240, h: 96 },
+      interface: { label: 'interface', color: '#a78bfa', w: 240, h: 110 },
+      state: { label: 'stateNode', color: '#22d3ee', w: 170, h: 64 },
+      initial: { label: 'initial', color: '#64748b', w: 34, h: 34 },
+      final: { label: 'final', color: '#64748b', w: 40, h: 40 },
+      choice: { label: 'choice', color: '#f59e0b', w: 48, h: 44 },
     }
 
     function typesFor(key) {
@@ -465,6 +479,8 @@ window.__ModuleLoader__.load({
       if (key === 'sequence') return ['participant', 'actor']
       if (key === 'er') return ['entity', 'relationship']
       if (key === 'c4') return ['person', 'system', 'container', 'component', 'database', 'external']
+      if (key === 'class') return ['class', 'interface']
+      if (key === 'state') return ['state', 'initial', 'final', 'choice']
       return ['module', 'external']
     }
     function defaultEdgeKind(key) {
@@ -473,10 +489,26 @@ window.__ModuleLoader__.load({
       if (key === 'sequence') return 'sync'
       if (key === 'er') return 'relationship'
       if (key === 'c4') return 'uses'
+      if (key === 'class') return 'association'
+      if (key === 'state') return 'transition'
       return 'depends'
+    }
+    function edgeKindsFor(key) {
+      if (key === 'sequence') return ['sync', 'async', 'return']
+      if (key === 'er') return ['relationship']
+      if (key === 'c4') return ['uses', 'contains', 'realizes', 'depends']
+      if (key === 'class') return ['extends', 'implements', 'association', 'dependency']
+      if (key === 'state') return ['transition']
+      return ['association', 'include', 'extend', 'flow', 'depends']
+    }
+    function classGeometry(node) {
+      const count = Array.isArray(node.fields) ? node.fields.length : 0
+      const headerHeight = node.type === 'interface' ? 54 : 40
+      return { w: node.w ?? 240, h: Math.max(80, headerHeight + Math.max(24, count * 19 + 12)) }
     }
     function sizeOf(node) {
       const meta = TYPE_META[node.type] ?? TYPE_META.usecase
+      if (node.type === 'class' || node.type === 'interface') return classGeometry(node)
       if (node.type === 'entity' && Array.isArray(node.fields) && node.fields.length > 0) {
         return { w: node.w ?? 210, h: Math.max(96, 58 + node.fields.length * 19) }
       }
@@ -627,6 +659,85 @@ window.__ModuleLoader__.load({
           node.w = size.w
           node.h = size.h
         })
+      } else if (diagram.key === 'class') {
+        const byId = new Map(nodes.map(node => [node.id, node]))
+        const level = new Map(nodes.map(node => [node.id, 0]))
+        for (let round = 0; round < 12; round += 1) {
+          let changed = false
+          for (const edge of diagram.edges ?? []) {
+            if (edge.kind !== 'extends' && edge.kind !== 'implements') continue
+            if (!byId.has(edge.from) || !byId.has(edge.to)) continue
+            const next = (level.get(edge.to) ?? 0) + 1
+            if ((level.get(edge.from) ?? 0) < next && next < 12) {
+              level.set(edge.from, next)
+              changed = true
+            }
+          }
+          if (!changed) break
+        }
+        const rows = new Map()
+        for (const node of nodes) {
+          const depth = level.get(node.id) ?? 0
+          if (!rows.has(depth)) rows.set(depth, [])
+          rows.get(depth).push(node)
+        }
+        let y = 110
+        for (const depth of [...rows.keys()].sort((left, right) => left - right)) {
+          const list = rows.get(depth)
+          let rowY = y
+          for (let start = 0; start < list.length; start += 3) {
+            const chunk = list.slice(start, start + 3)
+            let x = 90
+            let rowHeight = 0
+            for (const node of chunk) {
+              const size = sizeOf(node)
+              node.x = x
+              node.y = rowY
+              node.w = size.w
+              node.h = size.h
+              x += size.w + 70
+              rowHeight = Math.max(rowHeight, size.h)
+            }
+            rowY += rowHeight + 60
+          }
+          y = rowY + 12
+        }
+      } else if (diagram.key === 'state') {
+        const rank = new Map(nodes.map(node => [node.id, 0]))
+        for (let round = 0; round < 20; round += 1) {
+          let changed = false
+          for (const edge of diagram.edges ?? []) {
+            if (!rank.has(edge.from) || !rank.has(edge.to)) continue
+            const next = (rank.get(edge.from) ?? 0) + 1
+            if ((rank.get(edge.to) ?? 0) < next && next < 20) {
+              rank.set(edge.to, next)
+              changed = true
+            }
+          }
+          if (!changed) break
+        }
+        for (const node of nodes) if (node.type === 'initial') rank.set(node.id, 0)
+        const maxRank = Math.max(0, ...nodes.filter(node => node.type !== 'initial' && node.type !== 'final').map(node => rank.get(node.id) ?? 0))
+        for (const node of nodes) if (node.type === 'final') rank.set(node.id, maxRank + 1)
+        const columns = new Map()
+        const typeOrder = { initial: 0, state: 1, choice: 2, final: 3 }
+        for (const node of nodes) {
+          const depth = rank.get(node.id) ?? 0
+          if (!columns.has(depth)) columns.set(depth, [])
+          columns.get(depth).push(node)
+        }
+        for (const [depth, list] of columns) {
+          list.sort((left, right) => (typeOrder[left.type] ?? 9) - (typeOrder[right.type] ?? 9))
+          let y = 110
+          for (const node of list) {
+            const size = sizeOf(node)
+            node.x = 90 + depth * 270
+            node.y = y
+            node.w = size.w
+            node.h = size.h
+            y += size.h + 56
+          }
+        }
       } else {
         nodes.forEach((node, index) => {
           const size = sizeOf(node)
@@ -1117,6 +1228,51 @@ window.__ModuleLoader__.load({
             }
           })
         }
+      } else if (node.type === 'class' || node.type === 'interface') {
+        const members = node.fields ?? []
+        const isInterface = node.type === 'interface'
+        const headerHeight = isInterface ? 54 : 40
+        shape.push(
+          h('rect', { key: 'shape', x: 0, y: 0, width: w, height, rx: 6, fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 1.8 }),
+          h('rect', { key: 'header', x: 0, y: 0, width: w, height: headerHeight, rx: 6, fill: color, opacity: 0.16 }),
+          h('line', { key: 'rule', x1: 0, y1: headerHeight, x2: w, y2: headerHeight, stroke: color, strokeWidth: 1.2, opacity: 0.5 }))
+        if (isInterface) {
+          shape.push(h('text', { key: 'stereotype', x: w / 2, y: 16, textAnchor: 'middle', fill: 'var(--dsw-alias-label-secondary)', fontSize: 10.5, fontWeight: 600 }, '<<interface>>'))
+        }
+        shape.push(h('text', {
+          key: 'label', x: 12, y: isInterface ? 38 : 25, fill: 'var(--dsw-alias-label-primary)', fontSize: 13, fontWeight: 700,
+        }, node.label))
+        members.forEach((member, index) => {
+          const y = headerHeight + 15 + index * 19
+          const isMethod = member.kind === 'method'
+          shape.push(h('text', {
+            key: `m-${index}`, x: 12, y, fill: 'var(--dsw-alias-label-primary)', fontSize: 10.8,
+            fontWeight: member.key ? 700 : 400,
+          }, `${isMethod ? '+' : ''}${member.name}${isMethod ? '()' : ''}`))
+          if (member.type) {
+            shape.push(h('text', {
+              key: `mt-${index}`, x: w - 12, y, textAnchor: 'end', fill: 'var(--dsw-alias-label-secondary)', fontSize: 10,
+            }, member.type))
+          }
+        })
+      } else if (node.type === 'initial') {
+        shape.push(h('circle', {
+          key: 'shape', cx: w / 2, cy: height / 2, r: Math.max(6, Math.min(w, height) / 2 - 2),
+          fill: color, stroke: color, strokeWidth: 1.8,
+        }))
+      } else if (node.type === 'final') {
+        shape.push(
+          h('circle', { key: 'outer', cx: w / 2, cy: height / 2, r: Math.max(7, Math.min(w, height) / 2 - 2), fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 2 }),
+          h('circle', { key: 'inner', cx: w / 2, cy: height / 2, r: Math.max(4, Math.min(w, height) / 2 - 7), fill: color }))
+      } else if (node.type === 'choice') {
+        shape.push(
+          h('polygon', { key: 'shape', points: `${w / 2},2 ${w - 2},${height / 2} ${w / 2},${height - 2} 2,${height / 2}`, fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 1.8 }),
+          labelText(w / 2, height / 2 + 4, wrapLines(node.label, w - 8), { size: 10.5, weight: 600 }))
+      } else if (node.type === 'state') {
+        shape.push(
+          h('rect', { key: 'shape', x: 0, y: 0, width: w, height, rx: 16, fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 1.8 }),
+          h('rect', { key: 'bar', x: 10, y: 0, width: w - 20, height: 4, rx: 2, fill: color, opacity: 0.8 }),
+          labelText(w / 2, height / 2 + (lines.length === 1 ? 4 : 0), lines, { weight: 600 }))
       } else if (node.type === 'person') {
         const cx = 24
         shape.push(
@@ -1189,6 +1345,18 @@ window.__ModuleLoader__.load({
         shape)
     }
 
+    function rectEdgePoint(node, size, towardX, towardY) {
+      const cx = (node.x ?? 0) + size.w / 2
+      const cy = (node.y ?? 0) + size.h / 2
+      const dx = towardX - cx
+      const dy = towardY - cy
+      if (dx === 0 && dy === 0) return { x: cx, y: cy }
+      const scaleX = dx === 0 ? Infinity : size.w / 2 / Math.abs(dx)
+      const scaleY = dy === 0 ? Infinity : size.h / 2 / Math.abs(dy)
+      const scale = Math.min(scaleX, scaleY)
+      return { x: cx + dx * scale, y: cy + dy * scale }
+    }
+
     function edgeGeometry(diagram, edge) {
       const from = diagram.nodes.find(node => node.id === edge.from)
       const to = diagram.nodes.find(node => node.id === edge.to)
@@ -1199,6 +1367,11 @@ window.__ModuleLoader__.load({
       const y1 = (from.y ?? 0) + a.h / 2
       const x2 = (to.x ?? 0) + b.w / 2
       const y2 = (to.y ?? 0) + b.h / 2
+      if (diagram.key === 'class' || diagram.key === 'state') {
+        const start = rectEdgePoint(from, a, x2, y2)
+        const end = rectEdgePoint(to, b, x1, y1)
+        return { x1: start.x, y1: start.y, x2: end.x, y2: end.y, mx: (start.x + end.x) / 2, my: (start.y + end.y) / 2 }
+      }
       const angle = Math.atan2(y2 - y1, x2 - x1)
       const shortX = x2 - Math.cos(angle) * Math.min(b.w, b.h) * 0.42
       const shortY = y2 - Math.sin(angle) * Math.min(b.w, b.h) * 0.42
@@ -1208,9 +1381,13 @@ window.__ModuleLoader__.load({
     function Edge({ diagram, edge, selected, onSelect }) {
       const geo = edgeGeometry(diagram, edge)
       if (geo === null) return null
-      const dashed = edge.kind === 'depends' || edge.kind === 'include'
-      const showLabel = typeof edge.label === 'string' && edge.label.trim() !== ''
-      const width = showLabel ? Math.min(200, edge.label.length * 12 + 14) : 0
+      const dashed = ['depends', 'include', 'return', 'implements', 'dependency'].includes(edge.kind)
+      const relationKind = diagram.key === 'class' && ['extends', 'implements', 'association', 'dependency'].includes(edge.kind)
+      const displayLabel = typeof edge.label === 'string' && edge.label.trim() !== ''
+        ? edge.label
+        : relationKind ? t(edge.kind) : ''
+      const showLabel = displayLabel !== ''
+      const width = showLabel ? Math.min(200, displayLabel.length * 12 + 14) : 0
       return h('g', {
         className: `bp-edge${selected ? ' selected' : ''}`,
         onClick: event => { event.stopPropagation(); onSelect() },
@@ -1226,7 +1403,7 @@ window.__ModuleLoader__.load({
         }),
         showLabel ? h('g', null,
           h('rect', { x: geo.mx - width / 2, y: geo.my - 10, width, height: 20, rx: 6, fill: 'var(--dsw-alias-bg-base)', stroke: 'var(--dsw-alias-border-l1)' }),
-          h('text', { x: geo.mx, y: geo.my + 4, textAnchor: 'middle', fontSize: 11, fill: 'var(--dsw-alias-label-secondary)' }, edge.label)) : null,
+          h('text', { x: geo.mx, y: geo.my + 4, textAnchor: 'middle', fontSize: 11, fill: 'var(--dsw-alias-label-secondary)' }, displayLabel)) : null,
         edge.cardinality ? h('text', {
           x: geo.x2, y: geo.y2 - 7, textAnchor: 'middle', fontSize: 10.5, fontWeight: 600,
           fill: 'var(--dsw-alias-label-secondary)',
@@ -1483,14 +1660,8 @@ window.__ModuleLoader__.load({
 
       if (node !== undefined) {
         const isErEntity = store.tab === 'er' && node.type === 'entity'
+        const isClassNode = store.tab === 'class' && (node.type === 'class' || node.type === 'interface')
         const isC4 = store.tab === 'c4'
-        const edgeKinds = store.tab === 'sequence'
-          ? ['sync', 'async', 'return']
-          : store.tab === 'er'
-            ? ['relationship']
-            : store.tab === 'c4'
-              ? ['uses', 'contains', 'realizes', 'depends']
-              : ['association', 'include', 'extend', 'flow', 'depends']
         return h('div', { className: 'bp-inspector' },
           h('div', { className: 'bp-kicker' }, t('inspector')),
           h('label', { className: 'bp-field' }, h('span', null, t('nodeLabel')),
@@ -1530,23 +1701,46 @@ window.__ModuleLoader__.load({
                 found.h = Math.max(96, 58 + (found.fields?.length ?? 0) * 19)
               }) }, h(Icon, { name: 'plus', size: 13 }), t('addField'))))
             : null,
+          isClassNode ? h('div', { className: 'bp-field' },
+            h('span', null, t('members')),
+            h('div', { className: 'bp-fields' },
+              (node.fields ?? []).map((field, index) => h('div', { className: 'bp-field-row', key: index },
+                h('select', {
+                  className: 'bp-input bp-field-kind', value: field.kind === 'method' ? 'method' : 'field',
+                  onChange: event => updateNode(found => {
+                    if (found.fields?.[index] !== undefined) found.fields[index].kind = event.target.value
+                  }),
+                },
+                  h('option', { value: 'field' }, t('field')),
+                  h('option', { value: 'method' }, t('method'))),
+                h('input', { className: 'bp-input bp-field-name', value: field.name, placeholder: t('fieldName'), onChange: event => updateNode(found => {
+                  if (found.fields?.[index] !== undefined) found.fields[index].name = event.target.value
+                }) }),
+                h('input', { className: 'bp-input bp-field-type', value: field.type ?? '', placeholder: t('fieldType'), onChange: event => updateNode(found => {
+                  if (found.fields?.[index] !== undefined) found.fields[index].type = event.target.value
+                }) }),
+                h('button', { type: 'button', className: 'bp-item-del', onClick: () => updateNode(found => {
+                  found.fields = (found.fields ?? []).filter((_, itemIndex) => itemIndex !== index)
+                }) }, h(Icon, { name: 'trash', size: 12 })))),
+              h('div', { className: 'bp-field-actions' },
+                h('button', { type: 'button', className: 'bp-btn bp-add-field', onClick: () => updateNode(found => {
+                  found.fields = [...(found.fields ?? []), { name: `field_${(found.fields?.length ?? 0) + 1}`, type: 'text', kind: 'field' }]
+                }) }, h(Icon, { name: 'plus', size: 13 }), t('addField')),
+                h('button', { type: 'button', className: 'bp-btn bp-add-field', onClick: () => updateNode(found => {
+                  found.fields = [...(found.fields ?? []), { name: `method_${(found.fields?.length ?? 0) + 1}`, type: 'void', kind: 'method' }]
+                }) }, h(Icon, { name: 'plus', size: 13 }), t('addMethod')))))
+            : null,
           h('button', { className: 'bp-btn bp-danger', onClick: deleteSelection }, h(Icon, { name: 'trash', size: 14 }), t('deleteNode')))
       }
       if (edge !== undefined) {
-        const edgeKinds = store.tab === 'sequence'
-          ? ['sync', 'async', 'return']
-          : store.tab === 'er'
-            ? ['relationship']
-            : store.tab === 'c4'
-              ? ['uses', 'contains', 'realizes', 'depends']
-              : ['association', 'include', 'extend', 'flow', 'depends']
+        const edgeKinds = edgeKindsFor(store.tab)
         return h('div', { className: 'bp-inspector' },
           h('div', { className: 'bp-kicker' }, t('inspector')),
           h('label', { className: 'bp-field' }, h('span', null, store.tab === 'sequence' ? t('message') : t('edgeLabel')),
             h('input', { className: 'bp-input', value: edge.label ?? '', onChange: event => updateEdge(found => { found.label = event.target.value }) })),
           h('label', { className: 'bp-field' }, h('span', null, t('edgeKind')),
             h('select', { className: 'bp-input', value: edge.kind ?? defaultEdgeKind(store.tab), onChange: event => updateEdge(found => { found.kind = event.target.value }) },
-              edgeKinds.map(kind => h('option', { key: kind, value: kind }, kind)))),
+              edgeKinds.map(kind => h('option', { key: kind, value: kind }, t(kind))))),
           store.tab === 'er' ? h('label', { className: 'bp-field' }, h('span', null, t('cardinality')),
             h('input', { className: 'bp-input', value: edge.cardinality ?? '', placeholder: '1..*', onChange: event => updateEdge(found => { found.cardinality = event.target.value }) })) : null,
           store.tab === 'sequence' ? h('label', { className: 'bp-field' }, h('span', null, t('order')),
@@ -1817,6 +2011,7 @@ window.__ModuleLoader__.load({
       const diagram = bp.diagrams.find(item => item.key === store.tab) ?? bp.diagrams[0]
       const tabName = key => ({
         usecase: t('usecase'), dfd: t('dfd'), module: t('module'), sequence: t('sequence'), er: t('er'), c4: t('c4'),
+        class: t('classDiagram'), state: t('stateDiagram'),
       }[key] ?? key)
       return h('div', { className: 'bp-diagram-head' },
         h('div', { className: 'bp-tabs' },
@@ -1898,6 +2093,45 @@ window.__ModuleLoader__.load({
           parts.push(`%% ${diagram.title}\n${lines.join('\n')}`)
           continue
         }
+        if (diagram.key === 'class') {
+          const lines = ['classDiagram']
+          for (const node of diagram.nodes) {
+            lines.push(`  class ${node.id} {`)
+            if (node.type === 'interface') lines.push('    <<interface>>')
+            for (const field of node.fields ?? []) {
+              if (field.kind === 'method') lines.push(`    +${field.name}()${field.type ? ` ${field.type}` : ''}`)
+              else lines.push(`    +${field.type ? `${field.type} ` : ''}${field.name}`)
+            }
+            lines.push('  }')
+          }
+          for (const edge of diagram.edges) {
+            const label = edge.label ? ` : ${String(edge.label).replace(/\n/g, ' ')}` : ''
+            if (edge.kind === 'extends' || edge.kind === 'implements') lines.push(`  ${edge.to} ${edge.kind === 'implements' ? '<|..' : '<|--'} ${edge.from}${label}`)
+            else lines.push(`  ${edge.from} ${edge.kind === 'dependency' ? '..>' : '-->'} ${edge.to}${label}`)
+          }
+          parts.push(`%% ${diagram.title}\n${lines.join('\n')}`)
+          continue
+        }
+        if (diagram.key === 'state') {
+          const lines = ['stateDiagram-v2']
+          const nodeById = new Map(diagram.nodes.map(node => [node.id, node]))
+          for (const node of diagram.nodes) {
+            if (node.type === 'initial' || node.type === 'final') continue
+            const label = String(node.label).replace(/["\n]/g, ' ')
+            lines.push(label !== node.id ? `  state "${label}" as ${node.id}` : `  state ${node.id}`)
+          }
+          for (const edge of diagram.edges) {
+            const from = nodeById.get(edge.from)
+            const to = nodeById.get(edge.to)
+            if (from === undefined || to === undefined) continue
+            const fromToken = from.type === 'initial' ? '[*]' : edge.from
+            const toToken = to.type === 'final' ? '[*]' : edge.to
+            const label = edge.label ? ` : ${String(edge.label).replace(/\n/g, ' ')}` : ''
+            lines.push(`  ${fromToken} --> ${toToken}${label}`)
+          }
+          parts.push(`%% ${diagram.title}\n${lines.join('\n')}`)
+          continue
+        }
         const header = diagram.key === 'module' || diagram.key === 'c4' ? 'graph TD' : 'flowchart LR'
         const lines = [`%% ${diagram.title}`, header]
         for (const node of diagram.nodes) {
@@ -1928,6 +2162,11 @@ window.__ModuleLoader__.load({
       if (node.type === 'database') return 'shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;'
       if (node.type === 'system' && node.w > 300) return 'swimlane;whiteSpace=wrap;html=1;'
       if (node.type === 'relationship') return 'rhombus;whiteSpace=wrap;html=1;'
+      if (node.type === 'class' || node.type === 'interface') return 'rounded=0;whiteSpace=wrap;html=1;'
+      if (node.type === 'state') return 'rounded=1;arcSize=50;whiteSpace=wrap;html=1;'
+      if (node.type === 'initial') return 'ellipse;whiteSpace=wrap;html=1;fillColor=#64748b;'
+      if (node.type === 'final') return 'ellipse;whiteSpace=wrap;html=1;'
+      if (node.type === 'choice') return 'rhombus;whiteSpace=wrap;html=1;'
       if (node.type === 'person') return 'shape=actor;whiteSpace=wrap;html=1;'
       if (node.type === 'external') return 'rounded=1;dashed=1;whiteSpace=wrap;html=1;'
       if (node.type === 'container' || node.type === 'component') return 'rounded=1;whiteSpace=wrap;html=1;'
@@ -1941,7 +2180,9 @@ window.__ModuleLoader__.load({
       const cells = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>']
       for (const node of diagram.nodes) {
         const size = sizeOf(node)
-        const fields = (node.fields ?? []).map(field => `${field.key ? 'PK ' : ''}${field.name}${field.type ? `: ${field.type}` : ''}`).join('\n')
+        const fields = (node.fields ?? []).map(field => field.kind === 'method'
+          ? `${field.name}()${field.type ? `: ${field.type}` : ''}`
+          : `${field.key ? 'PK ' : ''}${field.name}${field.type ? `: ${field.type}` : ''}`).join('\n')
         const label = xmlEscape([node.label, fields].filter(Boolean).join('\n'))
         cells.push(`<mxCell id="${xmlEscape(node.id)}" value="${label}" style="${drawioStyle(node)}" vertex="1" parent="1"><mxGeometry x="${Math.round(node.x ?? 0)}" y="${Math.round(node.y ?? 0)}" width="${Math.round(size.w)}" height="${Math.round(size.h)}" as="geometry"/></mxCell>`)
       }
@@ -1955,6 +2196,12 @@ window.__ModuleLoader__.load({
     function drawioTypeFor(style, diagramKey) {
       const value = String(style ?? '').toLowerCase()
       if (diagramKey === 'sequence') return 'participant'
+      if (diagramKey === 'class') return value.includes('interface') ? 'interface' : 'class'
+      if (diagramKey === 'state') {
+        if (value.includes('rhombus')) return 'choice'
+        if (value.includes('ellipse')) return 'initial'
+        return 'state'
+      }
       if (diagramKey === 'er') return value.includes('rhombus') ? 'relationship' : 'entity'
       if (diagramKey === 'c4') {
         if (value.includes('actor') || value.includes('person')) return 'person'
@@ -2391,6 +2638,9 @@ window.__ModuleLoader__.load({
 .bp-panel-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
 .bp-fields{display:flex;flex-direction:column;gap:4px}
 .bp-field-row{display:flex;align-items:center;gap:3px}
+.bp-field-kind{flex:0 0 62px;width:62px;padding:4px 2px}
+.bp-field-actions{display:flex;gap:4px;margin-top:4px}
+.bp-field-actions .bp-add-field{margin-top:0}
 .bp-field-name{flex:1.2;min-width:0;padding:4px 6px}
 .bp-field-type{flex:0.8;min-width:0;padding:4px 6px}
 .bp-pk{display:flex;align-items:center;gap:2px;font-size:9.5px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
@@ -2429,7 +2679,7 @@ window.__ModuleLoader__.load({
 .bp-diff-card-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:3px;font-size:11px}
 .bp-diff-line{font-size:10.5px;line-height:1.45;word-break:break-word}
 .bp-empty-diff{padding:20px 0;color:var(--dsw-alias-label-secondary);font-size:12px}
-.bp-tabs{max-width:100%;overflow-x:auto;scrollbar-width:thin}
+.bp-tabs{max-width:100%;overflow-x:auto;scrollbar-width:thin;flex-wrap:nowrap;min-width:0}
 .bp-tab{white-space:nowrap}
 .bp-import-backdrop{position:absolute;inset:0;background:rgba(8,12,20,.45);display:flex;align-items:center;justify-content:center;z-index:10}
 .bp-import-dialog{width:min(680px,90%);background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:8px}

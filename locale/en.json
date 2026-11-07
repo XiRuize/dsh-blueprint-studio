@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Blueprint Studio",
-    "description": "Plan requirements, six kinds of software-engineering diagram, version history and module subagents with the agent before coding; review, diff and dispatch from one studio."
+    "description": "Plan requirements, eight kinds of software-engineering diagram, version history and module subagents with the agent before coding; review, diff and dispatch from one studio."
   },
   "open": "Blueprint",
   "title": "Engineering blueprint",
@@ -73,5 +73,22 @@
   "notes": "Notes",
   "dispatchPrompt": "Confirm and dispatch",
   "confirmHint": "One subagent per module, dependencies first.",
-  "canvasHint": "Drag to pan · wheel to zoom · drag nodes to move"
+  "canvasHint": "Drag to pan · wheel to zoom · drag nodes to move",
+  "classDiagram": "Class diagram",
+  "stateDiagram": "State diagram",
+  "classNode": "Class",
+  "interface": "Interface",
+  "stateNode": "State",
+  "initial": "Initial",
+  "final": "Final",
+  "choice": "Choice",
+  "members": "Members",
+  "field": "Field",
+  "method": "Method",
+  "addMethod": "Add method",
+  "transition": "Transition",
+  "extends": "Extends",
+  "implements": "Implements",
+  "association": "Association",
+  "dependency": "Dependency"
 }

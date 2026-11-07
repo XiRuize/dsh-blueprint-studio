@@ -11,9 +11,10 @@ import {
   readBlueprintVersion,
   readVersionsIndex,
   semanticDiff,
+  mermaidFor,
 } from '../lib/blueprint.js'
 
-test('normalizes all six diagram kinds and keeps typed fields, messages and cardinality', () => {
+test('normalizes all eight diagram kinds and keeps typed fields, messages and cardinality', () => {
   const blueprint = normalizeBlueprint({
     title: 'Checkout',
     diagrams: [
@@ -38,8 +39,8 @@ test('normalizes all six diagram kinds and keeps typed fields, messages and card
     ],
   }, undefined, { sessionId: 'session-test' })
 
-  assert.equal(blueprint.diagrams.length, 6)
-  assert.deepEqual(blueprint.diagrams.map(diagram => diagram.key), ['usecase', 'dfd', 'module', 'sequence', 'er', 'c4'])
+  assert.equal(blueprint.diagrams.length, 8)
+  assert.deepEqual(blueprint.diagrams.map(diagram => diagram.key), ['usecase', 'dfd', 'module', 'sequence', 'er', 'c4', 'class', 'state'])
   const sequence = blueprint.diagrams.find(diagram => diagram.key === 'sequence')
   assert.equal(sequence.edges[0].order, 1)
   assert.equal(sequence.edges[0].kind, 'sync')
@@ -56,8 +57,65 @@ test('adds new diagram kinds to older three-diagram blueprints', () => {
     title: 'Legacy',
     diagrams: [{ key: 'usecase', nodes: [{ id: 'u', type: 'actor', label: 'User' }], edges: [] }],
   }, undefined, { sessionId: 's' })
-  assert.equal(blueprint.diagrams.length, 6)
+  assert.equal(blueprint.diagrams.length, 8)
   assert.equal(blueprint.diagrams.find(diagram => diagram.key === 'sequence').nodes.length, 0)
+  assert.equal(blueprint.diagrams.find(diagram => diagram.key === 'class').nodes.length, 0)
+  assert.equal(blueprint.diagrams.find(diagram => diagram.key === 'state').nodes.length, 0)
+})
+
+test('keeps class/state nodes, member kinds and relation kinds', () => {
+  const blueprint = normalizeBlueprint({
+    title: 'Model',
+    diagrams: [
+      {
+        key: 'class',
+        nodes: [
+          { id: 'shape', type: 'interface', label: 'Shape', fields: [{ name: 'area', type: 'number', kind: 'method' }] },
+          {
+            id: 'circle',
+            type: 'class',
+            label: 'Circle',
+            fields: [
+              { name: 'radius', type: 'number', key: true },
+              { name: 'resize', type: 'void', kind: 'method', note: 'mutates' },
+            ],
+          },
+        ],
+        edges: [{ from: 'circle', to: 'shape', kind: 'implements', label: 'contract' }],
+      },
+      {
+        key: 'state',
+        nodes: [
+          { id: 'start', type: 'initial', label: 'Start' },
+          { id: 'idle', type: 'state', label: 'Idle' },
+          { id: 'done', type: 'final', label: 'Done' },
+        ],
+        edges: [{ from: 'start', to: 'idle', kind: 'transition', label: 'boot' }, { from: 'idle', to: 'done', kind: 'transition', label: 'stop' }],
+      },
+    ],
+  }, undefined, { sessionId: 's' })
+
+  const cls = blueprint.diagrams.find(diagram => diagram.key === 'class')
+  assert.deepEqual(cls.nodes[0].fields, [{ name: 'area', type: 'number', kind: 'method' }])
+  assert.deepEqual(cls.nodes[1].fields, [
+    { name: 'radius', type: 'number', key: true },
+    { name: 'resize', type: 'void', note: 'mutates', kind: 'method' },
+  ])
+  assert.equal(cls.edges[0].kind, 'implements')
+  assert.equal(cls.edges[0].label, 'contract')
+
+  const state = blueprint.diagrams.find(diagram => diagram.key === 'state')
+  assert.deepEqual(state.nodes.map(node => node.type), ['initial', 'state', 'final'])
+  assert.equal(state.edges[0].kind, 'transition')
+  assert.equal(state.edges[0].label, 'boot')
+
+  const classMermaid = mermaidFor(blueprint, 'class')
+  assert.match(classMermaid, /classDiagram/)
+  assert.match(classMermaid, /<<interface>>/)
+  assert.match(classMermaid, /<\|\.\./)
+  const stateMermaid = mermaidFor(blueprint, 'state')
+  assert.match(stateMermaid, /stateDiagram-v2/)
+  assert.match(stateMermaid, /\[\*\] --> idle/)
 })
 
 test('semantic diff reports requirement, diagram and module changes', () => {
