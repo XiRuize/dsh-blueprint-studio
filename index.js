@@ -6,6 +6,7 @@ import {
   blueprintRelativePath,
   blueprintVersionsIndexRelativePath,
   deleteBlueprintFile,
+  mergeBlueprintForUpdate,
   normalizeBlueprint,
   parseBlueprintSaveInput,
   readBlueprintFile,
@@ -27,7 +28,7 @@ const TOOL_DESCRIPTION = `在写代码之前，把需求整理成可协作的工
 
 action:
 - create：创建或整体覆盖蓝图（需要 blueprint 对象）。
-- update：在已有蓝图上合并更新；尽量传入完整蓝图，避免丢掉用户手工修改。
+- update：在已有蓝图上合并更新：sections 未提交的 items 沿用旧值，显式 items: [] 会清空；diagrams 按 key 对齐，节点/边按 id 合并，未提交的节点/边保留，用 removedNodeIds / removedEdgeIds 显式删除。
 - get：读取当前蓝图全文；用户确认后、分派模块前必须先 get。
 - confirm：把状态改为 confirmed（用户已确认）。
 - dispatch：把状态改为 dispatched，并返回按依赖排序的模块清单。
@@ -240,7 +241,9 @@ export function apply(ctx, rawConfig) {
         if (input.summary !== undefined) merged.summary = input.summary
         if (input.prompt !== undefined) merged.prompt = input.prompt
         if (action === 'create') merged.status = 'draft'
-        const blueprint = normalizeBlueprint(merged, action === 'update' ? previous : undefined, { sessionId: file.sessionId })
+        const blueprint = action === 'update'
+          ? mergeBlueprintForUpdate(previous, merged, { sessionId: file.sessionId })
+          : normalizeBlueprint(merged, undefined, { sessionId: file.sessionId })
         await archive(file, previous, 'agent')
         await writeBlueprintFile(file.absolute, blueprint)
         if (previous === undefined) await archive(file, blueprint, 'agent', 'initial')
