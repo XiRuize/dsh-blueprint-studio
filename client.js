@@ -1180,6 +1180,8 @@ window.__ModuleLoader__.load({
             { key: 'sequence', title: '时序图', nodes: [], edges: [] },
             { key: 'er', title: 'ER 图', nodes: [], edges: [] },
             { key: 'c4', title: 'C4 图', nodes: [], edges: [] },
+            { key: 'class', title: t('classDiagram'), nodes: [], edges: [] },
+            { key: 'state', title: t('stateDiagram'), nodes: [], edges: [] },
           ],
           modules: [],
           createdAt: now,
