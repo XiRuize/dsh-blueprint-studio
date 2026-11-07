@@ -1,5 +1,8 @@
 # Blueprint Studio
 
+[![CI](https://github.com/XiRuize/dsh-blueprint-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/XiRuize/dsh-blueprint-studio/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 **Draw the system before you build it.**
 
 Blueprint Studio is a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that turns a one-line request into a collaborative software-engineering blueprint: requirement columns, six kinds of diagram, version history, and a live dispatch board for per-module subagents. You edit the blueprint by hand or ask the agent to expand it, then confirm — and the agent dispatches **one subagent per module**.
