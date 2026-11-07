@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Blueprint Studio",
-    "description": "Sketch requirements, use-case diagrams, data-flow diagrams and module plans with the agent before coding, then confirm and dispatch one subagent per module."
+    "description": "Plan requirements, six kinds of software-engineering diagram, version history and module subagents with the agent before coding; review, diff and dispatch from one studio."
   },
   "open": "Blueprint",
   "title": "Engineering blueprint",
