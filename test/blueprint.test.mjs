@@ -8,8 +8,11 @@ import {
   blueprintRelativePath,
   blueprintVersionsRelativeDir,
   normalizeBlueprint,
+  parseBlueprintSaveInput,
+  readBlueprintFile,
   readBlueprintVersion,
   readVersionsIndex,
+  saveBlueprintFromCommand,
   semanticDiff,
   mermaidFor,
 } from '../lib/blueprint.js'
@@ -171,6 +174,107 @@ test('archives versions, refuses duplicates and restores a version file', async 
     assert.ok(files.includes('index.json'))
     assert.ok(files.some(file => file.endsWith('.json') && file !== 'index.json'))
     assert.ok((await fs.stat(path.join(cwd, blueprintRelativePath('session-x'))).catch(() => null)) === null)
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('parses the optional --draft flag for /blueprint save', () => {
+  assert.deepEqual(parseBlueprintSaveInput('eyJ0aXRsZSI6IkEifQ=='), {
+    encoded: 'eyJ0aXRsZSI6IkEifQ==',
+    draft: false,
+    mode: 'archived',
+  })
+  assert.deepEqual(parseBlueprintSaveInput('eyJ0aXRsZSI6IkEifQ== --draft'), {
+    encoded: 'eyJ0aXRsZSI6IkEifQ==',
+    draft: true,
+    mode: 'draft',
+  })
+  assert.deepEqual(parseBlueprintSaveInput('--draft eyJ0aXRsZSI6IkEifQ=='), {
+    encoded: 'eyJ0aXRsZSI6IkEifQ==',
+    draft: true,
+    mode: 'draft',
+  })
+  assert.equal(parseBlueprintSaveInput('').encoded, '')
+})
+
+test('draft save writes the file without creating version history', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-draft-'))
+  try {
+    const saved = await saveBlueprintFromCommand({
+      cwd,
+      sessionId: 'session-draft',
+      input: { title: 'Draft only' },
+      draft: true,
+    })
+    assert.equal(saved.mode, 'draft')
+    assert.equal(saved.archived, false)
+    assert.deepEqual(saved.archiveErrors, [])
+    const onDisk = await readBlueprintFile(path.join(cwd, blueprintRelativePath('session-draft')))
+    assert.equal(onDisk.title, 'Draft only')
+    const index = await readVersionsIndex(cwd, 'session-draft')
+    assert.equal(index.versions.length, 0)
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('archived save writes the file and creates the version snapshot', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-archive-'))
+  try {
+    const first = await saveBlueprintFromCommand({
+      cwd,
+      sessionId: 'session-archive',
+      input: { title: 'v1' },
+    })
+    assert.equal(first.mode, 'archived')
+    assert.equal(first.archived, true)
+    assert.deepEqual(first.archiveErrors, [])
+    assert.equal((await readVersionsIndex(cwd, 'session-archive')).versions.length, 1)
+
+    const second = await saveBlueprintFromCommand({
+      cwd,
+      sessionId: 'session-archive',
+      input: { title: 'v2' },
+      previous: first.blueprint,
+    })
+    assert.equal(second.archived, true)
+    // Archiving the previous version is skipped when it is identical to the last snapshot.
+    assert.equal((await readVersionsIndex(cwd, 'session-archive')).versions.length, 1)
+    const onDisk = await readBlueprintFile(path.join(cwd, blueprintRelativePath('session-archive')))
+    assert.equal(onDisk.title, 'v2')
+
+    const third = await saveBlueprintFromCommand({
+      cwd,
+      sessionId: 'session-archive',
+      input: { title: 'v3' },
+      previous: second.blueprint,
+    })
+    assert.equal(third.archived, true)
+    const index = await readVersionsIndex(cwd, 'session-archive')
+    assert.equal(index.versions.length, 2)
+    assert.equal(index.versions[0].title, 'v2')
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('archive failure still writes the blueprint and reports a readable warning', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-broken-'))
+  try {
+    const versionsDir = path.join(cwd, blueprintVersionsRelativeDir('session-broken'))
+    await fs.mkdir(path.dirname(versionsDir), { recursive: true })
+    await fs.writeFile(versionsDir, 'not a directory', 'utf8')
+
+    const saved = await saveBlueprintFromCommand({
+      cwd,
+      sessionId: 'session-broken',
+      input: { title: 'survives archive failure' },
+    })
+    assert.equal(saved.archived, false)
+    assert.ok(saved.archiveErrors.length > 0)
+    const onDisk = await readBlueprintFile(path.join(cwd, blueprintRelativePath('session-broken')))
+    assert.equal(onDisk.title, 'survives archive failure')
   } finally {
     await fs.rm(cwd, { recursive: true, force: true })
   }
