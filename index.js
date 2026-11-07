@@ -21,6 +21,8 @@ import {
   DIAGRAM_DEFS,
   SECTION_DEFS,
 } from './lib/blueprint.js'
+import { CHECK_RULES, analyzeBlueprint, coverageMatrix } from './lib/checks.js'
+import { exportHtml, exportMarkdown } from './lib/export.js'
 
 export const name = 'blueprint-studio'
 export const inject = ['tools']
@@ -87,6 +89,55 @@ blueprint 结构：
 - 不要编造用户没有提供的业务事实；不确定的写进 risks 栏目。`
 
 const NODE_TYPES = ALL_NODE_TYPES
+
+// The /blueprint check result is a single command payload. Keep it bounded even
+// when a deliberately broken blueprint produces thousands of issues.
+export const CHECK_ISSUE_LIMIT = 200
+
+function errorMessage(error) {
+  const message = (error instanceof Error ? error.message : String(error ?? '')).trim()
+  return message === '' ? '未知错误' : message
+}
+
+function blueprintLayerIds(blueprint) {
+  const layers = Array.isArray(blueprint?.layers) ? blueprint.layers : []
+  const ids = []
+  for (const layer of layers) {
+    if (layer === null || typeof layer !== 'object') continue
+    const id = String(layer.letter ?? layer.id ?? '').trim().toUpperCase()
+    if (id !== '' && !ids.includes(id)) ids.push(id)
+  }
+  return ids
+}
+
+// Parse the scope of `/blueprint export <md|html> [all|<layer letter>]`.
+// An omitted scope means the root layer A; `all` includes every layer.
+export function parseExportScope(rawInput) {
+  const value = String(rawInput ?? '').trim()
+  if (value === '') return { ok: true, global: false, layerId: 'A' }
+  if (value.toLowerCase() === 'all') return { ok: true, global: true, layerId: 'A' }
+  const layerId = value.toUpperCase()
+  if (!/^[A-Z]+$/u.test(layerId)) {
+    return {
+      ok: false,
+      message: `无效的导出范围“${value}”。用法：/blueprint export md|html [all|层 letter]，例如 /blueprint export md A。`,
+    }
+  }
+  return { ok: true, global: false, layerId }
+}
+
+// Cap the issues array without touching the source analysis. `summary` still
+// counts every issue, while `truncated` tells the caller that the JSON list is
+// a prefix of the full result.
+export function truncateCheckIssues(issues, limit = CHECK_ISSUE_LIMIT) {
+  const list = Array.isArray(issues) ? issues : []
+  const max = Number.isInteger(limit) && limit >= 0 ? limit : CHECK_ISSUE_LIMIT
+  const truncated = list.length > max
+  return {
+    issues: truncated ? list.slice(0, max) : list,
+    truncated,
+  }
+}
 
 function objectArgs(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -300,9 +351,9 @@ export function apply(ctx, rawConfig) {
     ctx.effect(() =>
       commands.register({
         name: 'blueprint',
-        description: '蓝图工坊：保存、归档、对比和恢复当前会话的工程蓝图（界面调用）。',
+        description: '蓝图工坊：保存、归档、对比、恢复、导出和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | check | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -459,6 +510,84 @@ export function apply(ctx, rawConfig) {
             if (raw === undefined) return { kind: 'success', text: '当前会话还没有工程蓝图。' }
             return { kind: 'success', text: JSON.stringify(raw) }
           }
+          if (sub === 'export') {
+            const format = String(rest[0] ?? '').trim().toLowerCase()
+            if (format !== 'md' && format !== 'html') {
+              return {
+                kind: 'error',
+                text: '用法：/blueprint export <md|html> [all|层 letter]，例如 /blueprint export md A。',
+              }
+            }
+            const scope = parseExportScope(rest.slice(1).join(' '))
+            if (!scope.ok) return { kind: 'error', text: scope.message }
+            let file
+            let raw
+            try {
+              const current = await readCurrent(invocation.agent)
+              file = current.file
+              raw = current.raw
+            } catch (error) {
+              return { kind: 'error', text: `读取蓝图失败：${errorMessage(error)}` }
+            }
+            if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图，无法导出。' }
+            let blueprint
+            try {
+              blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            } catch (error) {
+              return { kind: 'error', text: `蓝图数据无法规范化，导出失败：${errorMessage(error)}` }
+            }
+            const layerIds = blueprintLayerIds(blueprint)
+            if (!scope.global && !layerIds.includes(scope.layerId)) {
+              return {
+                kind: 'error',
+                text: `层 ${scope.layerId} 不存在，无法导出。可用层：${layerIds.join('、') || 'A'}。`,
+              }
+            }
+            const options = scope.global ? { global: true } : { layerId: scope.layerId }
+            try {
+              const text = format === 'md'
+                ? exportMarkdown(blueprint, options)
+                : exportHtml(blueprint, options)
+              return { kind: 'success', text }
+            } catch (error) {
+              if (error?.code === 'export-too-large') return { kind: 'error', text: error.message }
+              const label = format === 'md' ? 'Markdown' : 'HTML'
+              return { kind: 'error', text: `${label} 导出失败：${errorMessage(error)}` }
+            }
+          }
+          if (sub === 'check') {
+            if (rest.length > 0) return { kind: 'error', text: '用法：/blueprint check（不需要参数）。' }
+            let blueprint
+            try {
+              const { file, raw } = await readCurrent(invocation.agent)
+              if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图，无法自检。' }
+              blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            } catch (error) {
+              return { kind: 'error', text: `蓝图自检失败：无法读取或规范化蓝图（${errorMessage(error)}）。` }
+            }
+            let result
+            try {
+              const analyzed = analyzeBlueprint(blueprint)
+              result = {
+                issues: analyzed.issues,
+                coverage: coverageMatrix(blueprint),
+                summary: analyzed.summary,
+              }
+            } catch (error) {
+              return { kind: 'error', text: `蓝图自检失败：${errorMessage(error)}` }
+            }
+            const limited = truncateCheckIssues(result.issues)
+            return {
+              kind: 'success',
+              text: JSON.stringify({
+                issues: limited.issues,
+                coverage: result.coverage,
+                summary: result.summary,
+                rules: CHECK_RULES,
+                truncated: limited.truncated,
+              }),
+            }
+          }
           if (sub === 'cancel') {
             const childSessionId = String(rest[0] ?? '').trim()
             if (childSessionId === '') {
@@ -487,7 +616,7 @@ export function apply(ctx, rawConfig) {
               return { kind: 'error', text: `取消子代理失败：${String(error?.message ?? error)}` }
             }
           }
-          return { kind: 'error', text: '可用：/blueprint save | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | cancel' }
+          return { kind: 'error', text: '可用：/blueprint save | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | check | cancel' }
         },
       }),
     )
