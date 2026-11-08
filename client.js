@@ -4297,6 +4297,24 @@ window.__ModuleLoader__.load({
         }))
     }
 
+    function LayerNav({ store }) {
+      const bp = store.bp
+      if (bp === null) return null
+      const layers = layerList(bp)
+      if (layers.length <= 1) return null
+      const activeLayerId = store.activeLayerId ?? 'A'
+      return h('nav', { className: 'bp-layernav', 'aria-label': t('layer') },
+        h('span', { className: 'bp-layernav-label' }, t('layer')),
+        layers.map(layer => h('button', {
+          type: 'button',
+          key: layer.letter,
+          className: `bp-layernav-item${layer.letter === activeLayerId ? ' active' : ''}`,
+          title: `${layer.letter} · ${layer.title ?? ''}`.trim(),
+          'aria-current': layer.letter === activeLayerId ? 'true' : undefined,
+          onClick: () => { if (layer.letter !== activeLayerId) activateLayer(layer.letter) },
+        }, layer.letter)))
+    }
+
     function DiagramHeader({ store }) {
       const bp = store.bp
       if (bp === null) return null
@@ -5414,6 +5432,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bp-backdrop', onClick: closeStudio }),
         h('div', { className: 'bp-shell', onClick: event => event.stopPropagation() },
           h(Header, { store }),
+          h(LayerNav, { store }),
           store.loading && bp === null ? h('div', { className: 'bp-loading' }, h('span', { className: 'bp-spinner' }), t('waiting')) : null,
           (store.landing || bp === null) && !store.loading ? h(EmptyState) : null,
           !store.landing && bp !== null ? h('div', { className: 'bp-body' },
@@ -5442,6 +5461,11 @@ window.__ModuleLoader__.load({
 .bp-backdrop{position:absolute;inset:0;background:rgba(8,12,20,.52);backdrop-filter:blur(2px)}
 .bp-shell{position:relative;display:flex;flex-direction:column;width:min(1500px,96vw);height:min(940px,92vh);background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:18px;box-shadow:0 28px 80px rgba(0,0,0,.35);overflow:hidden}
 .bp-header{display:flex;align-items:center;gap:16px;padding:12px 16px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:0 0 auto}
+.bp-layernav{display:flex;align-items:center;gap:4px;padding:5px 16px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);flex:0 0 auto;overflow-x:auto;scrollbar-width:thin}
+.bp-layernav-label{font-size:11px;color:var(--dsw-alias-label-secondary);margin-right:4px;white-space:nowrap}
+.bp-layernav-item{border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12.5px;font-weight:650;letter-spacing:.05em;padding:2px 9px;border-radius:7px;cursor:pointer;line-height:20px}
+.bp-layernav-item:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.bp-layernav-item.active{color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent)}
 .bp-brand{display:flex;align-items:center;gap:10px;min-width:220px}
 .bp-logo{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary) 28%,transparent)}
 .bp-brand-title{font-size:14px;font-weight:650;letter-spacing:.01em}

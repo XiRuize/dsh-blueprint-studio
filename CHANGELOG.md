@@ -2,6 +2,12 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.4.4] — 2026-11-08
+
+### Added
+
+- **Persistent layer navigation bar.** Every layer letter (A/B/C/…) is shown in a top bar; the current layer uses the brand color and the rest use secondary text. Clicking a letter switches directly to that layer, so navigating no longer requires drilling through module nodes. The bar scrolls horizontally for deep trees and is hidden while only the root layer exists.
+
 ## [0.4.3] — 2026-11-08
 
 ### Fixed
