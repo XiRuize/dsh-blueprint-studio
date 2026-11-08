@@ -2,6 +2,14 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.4.2] — 2026-11-08
+
+### Fixed
+
+- **Partial `blueprint update` no longer drops sibling modules or layers.** A patch that only contains a new child module (e.g. adding `B4` under `datahub`) previously replaced the whole `modules` array, so the existing `datahub` module disappeared and validation failed with `层 B 的 parentModuleId 不存在：datahub`. Modules are now merged by stable id and layers by letter; omitted entries are preserved.
+- Added explicit `removedModuleIds` / `removedLayerIds` for deletions, documented in the `update` tool description.
+- Added a regression test covering a B-layer child module update with an existing `datahub` parent anchor.
+
 ## [0.4.1] — 2026-11-08
 
 ### Added

@@ -34,7 +34,7 @@ const TOOL_DESCRIPTION = `在写代码之前，把需求整理成可协作的工
 
 action:
 - create：创建或整体覆盖蓝图（需要 blueprint 对象）。
-- update：在已有蓝图上合并更新：sections 未提交的 items 沿用旧值，显式 items: [] 会清空；diagrams 按 layerId+type 对齐（root 兼容旧 key），节点/边按 id 合并，未提交的节点/边和子层图保留，用 removedNodeIds / removedEdgeIds 显式删除。
+- update：在已有蓝图上合并更新：sections 未提交的 items 沿用旧值，显式 items: [] 会清空；diagrams 按 layerId+type 对齐（root 兼容旧 key），节点/边按 id 合并，未提交的节点/边和子层图保留，用 removedNodeIds / removedEdgeIds / removedModuleIds / removedLayerIds 显式删除。
 - get：读取当前蓝图全文；用户确认后、分派模块前必须先 get。
 - confirm：已禁用。确认只能由用户在「蓝图」面板发起，Host 会校验一次性确认令牌。
 - dispatch：已禁用。分派只能由用户在「蓝图」面板完成，Host 会校验一次性确认令牌。

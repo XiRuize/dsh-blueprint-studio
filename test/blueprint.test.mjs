@@ -827,3 +827,30 @@ test('editing the blueprint after confirm invalidates the token', async () => {
     await fs.rm(cwd, { recursive: true, force: true })
   }
 })
+
+test('partial module/layer updates preserve siblings and parent anchors', () => {
+  const previous = normalizeBlueprint({
+    title: 'Layered update',
+    layers: [
+      { letter: 'A', title: 'Overview', parentModuleId: null },
+      { letter: 'B', title: 'Data', parentModuleId: 'datahub' },
+    ],
+    modules: [
+      { id: 'datahub', name: 'Data hub', layerId: 'A', code: 'A1', parentId: null, dependsOn: [] },
+      { id: 'adapter', name: 'Adapter', layerId: 'B', code: 'B1', parentId: 'datahub', dependsOn: [] },
+    ],
+    diagrams: [],
+  }, undefined, { sessionId: 's' })
+
+  const merged = mergeBlueprintForUpdate(previous, {
+    modules: [{ id: 'probe', name: 'Probe', layerId: 'B', code: 'B2', parentId: 'datahub', dependsOn: [] }],
+  }, { sessionId: 's' })
+  assert.ok(merged.modules.some(module => module.id === 'datahub'))
+  assert.ok(merged.modules.some(module => module.id === 'adapter'))
+  assert.ok(merged.modules.some(module => module.id === 'probe'))
+  assert.equal(merged.layers.find(layer => layer.letter === 'B').parentModuleId, 'datahub')
+
+  const removed = mergeBlueprintForUpdate(previous, { removedModuleIds: ['adapter'] }, { sessionId: 's' })
+  assert.ok(removed.modules.some(module => module.id === 'datahub'))
+  assert.ok(!removed.modules.some(module => module.id === 'adapter'))
+})
