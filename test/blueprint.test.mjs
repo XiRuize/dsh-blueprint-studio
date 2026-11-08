@@ -854,3 +854,22 @@ test('partial module/layer updates preserve siblings and parent anchors', () => 
   assert.ok(removed.modules.some(module => module.id === 'datahub'))
   assert.ok(!removed.modules.some(module => module.id === 'adapter'))
 })
+
+test('explicit layered input can keep only the root module diagram', () => {
+  const blueprint = normalizeBlueprint({
+    title: 'Overview only',
+    layers: [{ letter: 'A', title: 'Overview', parentModuleId: null }],
+    modules: [{ id: 'A1', layerId: 'A', code: 'A1', name: 'Overview', dependsOn: [] }],
+    diagrams: [{ key: 'module', layerId: 'A', type: 'module', nodes: [{ id: 'n1', type: 'module', label: 'Overview' }], edges: [] }],
+  }, undefined, { sessionId: 's' })
+  assert.deepEqual(blueprint.diagrams.map(diagram => diagram.key), ['module'])
+
+  const previous = normalizeBlueprint({
+    title: 'All root diagrams',
+    layers: [{ letter: 'A', title: 'Overview', parentModuleId: null }],
+    modules: [],
+    diagrams: [{ key: 'usecase', layerId: 'A', type: 'usecase', nodes: [], edges: [] }],
+  }, undefined, { sessionId: 's' })
+  const reduced = mergeBlueprintForUpdate(previous, { removedDiagramKeys: ['usecase'] }, { sessionId: 's' })
+  assert.equal(reduced.diagrams.length, 0)
+})

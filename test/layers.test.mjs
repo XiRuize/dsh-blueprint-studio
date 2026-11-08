@@ -162,8 +162,8 @@ test('keeps child-layer diagrams out of the root eight and enforces layer+type u
   }, undefined, { sessionId: 's' })
 
   const root = blueprint.diagrams.filter(diagram => diagram.layerId === 'A')
-  assert.equal(root.length, 8)
-  assert.deepEqual(root.map(diagram => diagram.key), DIAGRAM_KEYS)
+  assert.equal(root.length, 2)
+  assert.deepEqual(root.map(diagram => diagram.key), ['usecase', 'class'])
   assert.ok(root.every(diagram => diagram.type === diagram.key))
   assert.equal(root.find(diagram => diagram.key === 'usecase').nodes[0].id, 'u1')
   assert.equal(root.find(diagram => diagram.key === 'class').nodes[0].id, 'c1')
@@ -182,7 +182,7 @@ test('keeps child-layer diagrams out of the root eight and enforces layer+type u
     diagrams: [{ key: 'B:state', nodes: [{ id: 's1', type: 'state', label: 'Idle' }], edges: [] }],
   }, undefined, { sessionId: 's' })
   assert.equal(minimal.diagrams.filter(diagram => diagram.layerId === 'B').length, 1)
-  assert.equal(minimal.diagrams.length, 9)
+  assert.equal(minimal.diagrams.length, 1)
 
   expectInvalid(
     () => normalizeBlueprint({ diagrams: [{ key: 'bogus', nodes: [], edges: [] }] }),
@@ -295,7 +295,7 @@ test('enforces readable upper limits instead of silently truncating', () => {
     /模块 .*500/,
   )
 
-  const childLayers = 32
+  const childLayers = 33
   const layers = [{ letter: 'A' }]
   const diagrams = []
   for (let index = 0; index < childLayers; index += 1) {

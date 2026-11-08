@@ -2,6 +2,14 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.4.3] — 2026-11-08
+
+### Fixed
+
+- **Root layer A is no longer forced to eight diagrams when the input is explicitly layered.** A root that only needs the module overview can now keep exactly its explicit diagrams; legacy/untyped input still gets the eight default slots. Added `removedDiagramKeys` to `blueprint update` so the agent can deliberately strip root detail diagrams after moving them to child layers.
+- **Tool summaries now list every layer** (letter, title, parent module) in `get`/`update` output, so an agent can verify the actual layer tree instead of inferring it from its plan.
+- Regression tests cover an explicit root with only the module diagram and removal of a root diagram via `removedDiagramKeys`.
+
 ## [0.4.2] — 2026-11-08
 
 ### Fixed
