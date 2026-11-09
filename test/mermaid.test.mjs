@@ -108,7 +108,7 @@ test('maps state diagrams including initial, final and labels', () => {
   ])
 })
 
-test('maps flowcharts to usecase nodes and keeps edge labels', () => {
+test('maps flowcharts to plan-flowchart node types and keeps edge labels', () => {
   const parsed = parse(`flowchart TD
   %% comment
   A[User opens page] --> B{Logged in?}
@@ -120,20 +120,27 @@ test('maps flowcharts to usecase nodes and keeps edge labels', () => {
   click C href "https://example.com"
 `)
   assert.equal(parsed.kind, 'flowchart')
-  assert.equal(parsed.diagramKey, 'usecase')
+  assert.equal(parsed.diagramKey, 'flowchart')
   assert.deepEqual(parsed.nodes.map(node => node.label).sort(), ['Dashboard', 'E', 'Logged in?', 'Login', 'User opens page'])
-  assert.ok(parsed.nodes.every(node => node.type === 'usecase'))
+  const byLabel = new Map(parsed.nodes.map(node => [node.label, node]))
+  assert.equal(byLabel.get('User opens page').type, 'process')
+  assert.equal(byLabel.get('Logged in?').type, 'decision')
+  assert.equal(byLabel.get('Logged in?').condition, 'Logged in?')
+  assert.equal(byLabel.get('Dashboard').type, 'process')
+  assert.equal(byLabel.get('Login').type, 'process')
+  assert.equal(byLabel.get('E').type, 'process')
   const byId = new Map(parsed.nodes.map(node => [node.id, node]))
   const edges = parsed.edges.map(edge => ({
     from: byId.get(edge.from).label,
     to: byId.get(edge.to).label,
     label: edge.label,
+    kind: edge.kind,
   }))
   assert.deepEqual(edges, [
-    { from: 'User opens page', to: 'Logged in?', label: undefined },
-    { from: 'Logged in?', to: 'Dashboard', label: 'yes' },
-    { from: 'Logged in?', to: 'Login', label: 'no' },
-    { from: 'User opens page', to: 'E', label: 'optional' },
+    { from: 'User opens page', to: 'Logged in?', label: undefined, kind: 'flow' },
+    { from: 'Logged in?', to: 'Dashboard', label: 'yes', kind: 'flow' },
+    { from: 'Logged in?', to: 'Login', label: 'no', kind: 'flow' },
+    { from: 'User opens page', to: 'E', label: 'optional', kind: 'flow' },
   ])
 })
 
