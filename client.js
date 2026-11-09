@@ -112,6 +112,9 @@ window.__ModuleLoader__.load({
       diagrams: 'Diagrams', undo: 'Undo', redo: 'Redo', undoDone: 'Undid the last blueprint change', redoDone: 'Redid the blueprint change',
       backToStart: 'Welcome', continueEditing: 'Continue editing current blueprint', historyHint: 'Ctrl+Z / Ctrl+Y',
       classDiagram: 'Class diagram', stateDiagram: 'State diagram', classNode: 'Class', interface: 'Interface',
+      flowchart: 'Plan flowchart', flowStart: 'Start', flowEnd: 'End', flowProcess: 'Step', flowDecision: 'Decision',
+      flowGroup: 'Group', flowNote: 'Note', condition: 'Condition', owner: 'Owner', parentGroup: 'Parent group',
+      noParentGroup: 'No group', collapsed: 'Collapsed', flow: 'Flow', dashed: 'Dashed', nodeVerification: 'Verification',
       stateNode: 'State', initial: 'Initial', final: 'Final', choice: 'Choice', members: 'Members',
       field: 'Field', method: 'Method', addMethod: 'Add method', transition: 'Transition',
       extends: 'Extends', implements: 'Implements', association: 'Association', dependency: 'Dependency',
@@ -240,6 +243,9 @@ window.__ModuleLoader__.load({
       diagrams: '图解', undo: '撤销', redo: '重做', undoDone: '已撤销上一步蓝图修改', redoDone: '已重做蓝图修改',
       backToStart: '初始页', continueEditing: '继续编辑当前蓝图', historyHint: 'Ctrl+Z / Ctrl+Y',
       classDiagram: '类图', stateDiagram: '状态图', classNode: '类', interface: '接口',
+      flowchart: '计划流程图', flowStart: '开始', flowEnd: '结束', flowProcess: '步骤', flowDecision: '判断',
+      flowGroup: '分组', flowNote: '备注', condition: '条件', owner: '负责人', parentGroup: '所属分组',
+      noParentGroup: '不分组', collapsed: '折叠', flow: '实线', dashed: '虚线', nodeVerification: '验证',
       stateNode: '状态', initial: '初始', final: '结束', choice: '选择', members: '成员',
       field: '字段', method: '方法', addMethod: '新增方法', transition: '转移',
       extends: '继承', implements: '实现', association: '关联', dependency: '依赖',
@@ -851,6 +857,7 @@ window.__ModuleLoader__.load({
             tplDiagram('c4', 'C4 图', [], []),
             tplDiagram('class', '类图', [], []),
             tplDiagram('state', '状态图', [], []),
+            tplDiagram('flowchart', '计划流程图', [], []),
           ],
           modules: [
             tplModule('web-ui', '前端应用', '实现登录、项目列表与仪表盘页面，接入后端 REST 接口；验收：核心流程可点通且刷新不丢数据。', []),
@@ -944,6 +951,7 @@ window.__ModuleLoader__.load({
             tplDiagram('c4', 'C4 图', [], []),
             tplDiagram('class', '类图', [], []),
             tplDiagram('state', '状态图', [], []),
+            tplDiagram('flowchart', '计划流程图', [], []),
           ],
           modules: [
             tplModule('cli-parser', '命令解析', '解析子命令、选项与位置参数，生成执行计划并处理用法错误；验收：未知选项退出码为 2。', []),
@@ -1035,6 +1043,7 @@ window.__ModuleLoader__.load({
             tplDiagram('c4', 'C4 图', [], []),
             tplDiagram('class', '类图', [], []),
             tplDiagram('state', '状态图', [], []),
+            tplDiagram('flowchart', '计划流程图', [], []),
           ],
           modules: [
             tplModule('pipe-ingest', '采集', '实现数据源配置、增量游标与原始数据落地；验收：重复运行不重复采集。', []),
@@ -1126,6 +1135,7 @@ window.__ModuleLoader__.load({
             tplDiagram('c4', 'C4 图', [], []),
             tplDiagram('class', '类图', [], []),
             tplDiagram('state', '状态图', [], []),
+            tplDiagram('flowchart', '计划流程图', [], []),
           ],
           modules: [
             tplModule('plugin-host', 'Host 工具', '注册带 schema 的工具并实现业务处理；验收：工具可被 Agent 调用且返回结构化结果。', []),
@@ -1158,12 +1168,21 @@ window.__ModuleLoader__.load({
       initial: { label: 'initial', color: '#64748b', w: 34, h: 34 },
       final: { label: 'final', color: '#64748b', w: 40, h: 40 },
       choice: { label: 'choice', color: '#f59e0b', w: 48, h: 44 },
+      start: { label: 'flowStart', color: '#22c55e', w: 140, h: 48 },
+      end: { label: 'flowEnd', color: '#ef4444', w: 140, h: 48 },
+      decision: { label: 'flowDecision', color: '#f59e0b', w: 180, h: 110 },
+      group: { label: 'flowGroup', color: '#8b5cf6', w: 340, h: 220 },
+      note: { label: 'flowNote', color: '#eab308', w: 200, h: 96 },
     }
 
-    const DIAGRAM_TYPE_ORDER = ['usecase', 'dfd', 'module', 'sequence', 'er', 'c4', 'class', 'state']
+    const DIAGRAM_TYPE_ORDER = ['usecase', 'dfd', 'module', 'sequence', 'er', 'c4', 'class', 'state', 'flowchart']
     const DIAGRAM_TITLE_KEYS = {
       usecase: 'usecase', dfd: 'dfd', module: 'module', sequence: 'sequence', er: 'er', c4: 'c4',
-      class: 'classDiagram', state: 'stateDiagram',
+      class: 'classDiagram', state: 'stateDiagram', flowchart: 'flowchart',
+    }
+    const FLOW_TYPE_LABEL_KEYS = {
+      start: 'flowStart', end: 'flowEnd', process: 'flowProcess',
+      decision: 'flowDecision', group: 'flowGroup', note: 'flowNote',
     }
 
     // Root diagrams keep their legacy key ("usecase"); child layers use
@@ -1470,7 +1489,12 @@ window.__ModuleLoader__.load({
       if (type === 'c4') return ['person', 'system', 'container', 'component', 'database', 'external']
       if (type === 'class') return ['class', 'interface']
       if (type === 'state') return ['state', 'initial', 'final', 'choice']
+      if (type === 'flowchart') return ['start', 'end', 'process', 'decision', 'group', 'note']
       return ['module', 'external']
+    }
+    function typeLabel(type, diagramType) {
+      if (diagramType === 'flowchart' && FLOW_TYPE_LABEL_KEYS[type] !== undefined) return t(FLOW_TYPE_LABEL_KEYS[type])
+      return t(TYPE_META[type]?.label ?? type)
     }
     function defaultEdgeKind(key) {
       const type = deriveType(key)
@@ -1481,6 +1505,7 @@ window.__ModuleLoader__.load({
       if (type === 'c4') return 'uses'
       if (type === 'class') return 'association'
       if (type === 'state') return 'transition'
+      if (type === 'flowchart') return 'flow'
       return 'depends'
     }
     function edgeKindsFor(key) {
@@ -1490,6 +1515,7 @@ window.__ModuleLoader__.load({
       if (type === 'c4') return ['uses', 'contains', 'realizes', 'depends']
       if (type === 'class') return ['extends', 'implements', 'association', 'dependency']
       if (type === 'state') return ['transition']
+      if (type === 'flowchart') return ['flow', 'dashed']
       return ['association', 'include', 'extend', 'flow', 'depends']
     }
     function classGeometry(node) {
@@ -1537,6 +1563,282 @@ window.__ModuleLoader__.load({
       return [...next]
     }
 
+    // Plan Flowchart layout is deterministic and top-down: roots are explicit
+    // start nodes or nodes without incoming edges, DFS back edges are ignored for
+    // ranking (cycles can never inflate rank), and decision successors fan out
+    // left/right around their parent. Groups are containers derived from the
+    // bounding box of the nodes whose parentGroup points at them.
+    const FLOW_LAYOUT_MAX_NODES = 300
+    const FLOW_LAYOUT_MAX_EDGES = 4000
+
+    function layoutFlowchartGroups(nodes) {
+      const list = Array.isArray(nodes) ? nodes : []
+      const groups = list.filter(node => node.type === 'group')
+      if (groups.length === 0) return
+      const byId = new Map(list.map(node => [node.id, node]))
+      const childrenOf = new Map()
+      for (const node of list) {
+        const parent = node.parentGroup
+        if (typeof parent !== 'string' || parent === '' || parent === node.id) continue
+        if (!childrenOf.has(parent)) childrenOf.set(parent, [])
+        childrenOf.get(parent).push(node)
+      }
+      const depthOf = group => {
+        let depth = 0
+        let current = group
+        const seen = new Set([group.id])
+        while (typeof current?.parentGroup === 'string' && current.parentGroup !== '') {
+          if (seen.has(current.parentGroup) || depth > groups.length) break
+          seen.add(current.parentGroup)
+          const parent = byId.get(current.parentGroup)
+          if (parent === undefined || parent.type !== 'group') break
+          depth += 1
+          current = parent
+        }
+        return depth
+      }
+      // Inner groups first so an outer group box includes the nested one.
+      const ordered = [...groups].sort((left, right) => depthOf(right) - depthOf(left))
+      let fallback = 0
+      for (const group of ordered) {
+        const children = childrenOf.get(group.id) ?? []
+        if (children.length === 0) {
+          if (typeof group.x !== 'number') group.x = 90 + (fallback % 4) * 40
+          if (typeof group.y !== 'number') group.y = 100 + (fallback % 4) * 40
+          fallback += 1
+          if (typeof group.w !== 'number') group.w = TYPE_META.group.w
+          if (typeof group.h !== 'number') group.h = TYPE_META.group.h
+          continue
+        }
+        let minX = Infinity
+        let minY = Infinity
+        let maxX = -Infinity
+        let maxY = -Infinity
+        for (const child of children) {
+          if (typeof child.x !== 'number' || typeof child.y !== 'number') continue
+          const size = sizeOf(child)
+          minX = Math.min(minX, child.x)
+          minY = Math.min(minY, child.y)
+          maxX = Math.max(maxX, child.x + size.w)
+          maxY = Math.max(maxY, child.y + size.h)
+        }
+        if (!Number.isFinite(minX) || !Number.isFinite(minY)) continue
+        group.x = minX - 36
+        group.y = minY - 48
+        group.w = Math.max(240, maxX - minX + 72)
+        group.h = Math.max(130, maxY - minY + 84)
+      }
+    }
+
+    function layoutFlowchart(diagram) {
+      const nodes = diagram.nodes ?? []
+      if (nodes.length === 0) return
+      const byId = new Map(nodes.map(node => [node.id, node]))
+      const body = nodes.filter(node => node.type !== 'group' && node.type !== 'note')
+      const notes = nodes.filter(node => node.type === 'note')
+      const centered = 520
+      const marginX = 80
+      const topY = 90
+      const gapX = 64
+      const gapY = 88
+
+      const gridFallback = () => {
+        body.forEach((node, index) => {
+          const size = sizeOf(node)
+          node.x = marginX + (index % 5) * 230
+          node.y = topY + Math.floor(index / 5) * 150
+          node.w = size.w
+          node.h = size.h
+        })
+        let right = marginX
+        for (const node of body) right = Math.max(right, (node.x ?? 0) + sizeOf(node).w)
+        notes.forEach((node, index) => {
+          const size = sizeOf(node)
+          node.x = body.length > 0 ? right + 80 : marginX
+          node.y = topY + index * (size.h + 40)
+          node.w = size.w
+          node.h = size.h
+        })
+        layoutFlowchartGroups(nodes)
+      }
+      if (body.length > FLOW_LAYOUT_MAX_NODES) {
+        gridFallback()
+        return
+      }
+
+      const adjacency = new Map(body.map(node => [node.id, []]))
+      const allEdges = []
+      for (const edge of diagram.edges ?? []) {
+        const from = byId.get(edge.from)
+        const to = byId.get(edge.to)
+        if (from === undefined || to === undefined) continue
+        if (from.type === 'group' || from.type === 'note' || to.type === 'group' || to.type === 'note') continue
+        if (edge.from === edge.to) continue
+        if (allEdges.length >= FLOW_LAYOUT_MAX_EDGES) break
+        allEdges.push(edge)
+        adjacency.get(edge.from)?.push(edge)
+      }
+
+      // Iterative DFS: every edge that points at a node still on the stack is a
+      // back edge and must not participate in ranking.
+      const state = new Map(body.map(node => [node.id, 0]))
+      const backEdges = new Set()
+      for (const root of body) {
+        if (state.get(root.id) !== 0) continue
+        state.set(root.id, 1)
+        const stack = [{ id: root.id, index: 0 }]
+        while (stack.length > 0) {
+          const top = stack[stack.length - 1]
+          const outgoing = adjacency.get(top.id) ?? []
+          if (top.index >= outgoing.length) {
+            state.set(top.id, 2)
+            stack.pop()
+            continue
+          }
+          const edge = outgoing[top.index]
+          top.index += 1
+          const targetState = state.get(edge.to) ?? 2
+          if (targetState === 1) {
+            backEdges.add(edge)
+          } else if (targetState === 0) {
+            state.set(edge.to, 1)
+            stack.push({ id: edge.to, index: 0 })
+          }
+        }
+      }
+
+      // Edges into a start node are ignored for ranking so start always stays at
+      // rank 0 even if the author drew an incoming loop.
+      const rankEdges = allEdges.filter(edge => !backEdges.has(edge) && byId.get(edge.to)?.type !== 'start')
+      const rank = new Map(body.map(node => [node.id, 0]))
+      const indegree = new Map(body.map(node => [node.id, 0]))
+      const rankOut = new Map(body.map(node => [node.id, []]))
+      for (const edge of rankEdges) {
+        indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1)
+        rankOut.get(edge.from)?.push(edge)
+      }
+      const queue = body.filter(node => (indegree.get(node.id) ?? 0) === 0).map(node => node.id)
+      const processed = new Set()
+      for (let head = 0; head < queue.length; head += 1) {
+        const id = queue[head]
+        if (processed.has(id)) continue
+        processed.add(id)
+        for (const edge of rankOut.get(id) ?? []) {
+          rank.set(edge.to, Math.max(rank.get(edge.to) ?? 0, (rank.get(id) ?? 0) + 1))
+          indegree.set(edge.to, (indegree.get(edge.to) ?? 1) - 1)
+          if ((indegree.get(edge.to) ?? 0) === 0) queue.push(edge.to)
+        }
+      }
+      // Defensive: any node the topological pass missed keeps rank 0 instead of
+      // looping forever; DFS back-edge removal normally makes the graph a DAG.
+      for (const node of body) if (!processed.has(node.id)) processed.add(node.id)
+      for (const node of body) if (node.type === 'start') rank.set(node.id, 0)
+
+      let maxRank = 0
+      for (const value of rank.values()) maxRank = Math.max(maxRank, value)
+      for (const node of body) if (node.type === 'end') rank.set(node.id, Math.min(maxRank + 1, body.length))
+
+      const rows = new Map()
+      const orderIndex = new Map(body.map((node, index) => [node.id, index]))
+      for (const node of body) {
+        const depth = rank.get(node.id) ?? 0
+        if (!rows.has(depth)) rows.set(depth, [])
+        rows.get(depth).push(node)
+      }
+      const incoming = new Map(body.map(node => [node.id, []]))
+      for (const edge of rankEdges) incoming.get(edge.to)?.push(edge)
+
+      const centers = new Map()
+      let cursorY = topY
+      const depths = [...rows.keys()].sort((left, right) => left - right)
+      for (const depth of depths) {
+        const row = rows.get(depth) ?? []
+        const preferred = new Map()
+        row.forEach((node, index) => {
+          const direct = incoming.get(node.id) ?? []
+          const branchParent = direct
+            .map(edge => byId.get(edge.from))
+            .find(parent => parent !== undefined && parent.type === 'decision')
+          let value = null
+          if (branchParent !== undefined) {
+            const branches = rankOut.get(branchParent.id) ?? []
+            if (branches.length >= 2) {
+              const position = branches.findIndex(edge => edge.to === node.id)
+              if (position >= 0) {
+                const side = position % 2 === 0 ? 1 : -1
+                const distance = 170 + Math.floor(position / 2) * 190
+                value = (centers.get(branchParent.id) ?? centered) + side * distance
+              }
+            }
+          }
+          if (value === null) {
+            const parentCenters = direct
+              .map(edge => centers.get(edge.from))
+              .filter(item => typeof item === 'number' && Number.isFinite(item))
+            value = parentCenters.length > 0
+              ? parentCenters.reduce((sum, item) => sum + item, 0) / parentCenters.length
+              : centered + (index - (row.length - 1) / 2) * 260
+          }
+          preferred.set(node.id, value)
+        })
+        row.sort((left, right) => {
+          const leftValue = preferred.get(left.id) ?? centered
+          const rightValue = preferred.get(right.id) ?? centered
+          if (leftValue !== rightValue) return leftValue - rightValue
+          return (orderIndex.get(left.id) ?? 0) - (orderIndex.get(right.id) ?? 0)
+        })
+        let cursorX = -Infinity
+        let rowHeight = 0
+        for (const node of row) {
+          const size = sizeOf(node)
+          node.w = size.w
+          node.h = size.h
+          let x = (preferred.get(node.id) ?? centered) - size.w / 2
+          if (Number.isFinite(cursorX) && x < cursorX + gapX) x = cursorX + gapX
+          x = Math.max(marginX, x)
+          node.x = x
+          cursorX = x + size.w
+          centers.set(node.id, x + size.w / 2)
+          rowHeight = Math.max(rowHeight, size.h)
+        }
+        for (const node of row) node.y = cursorY + (rowHeight - (node.h ?? sizeOf(node).h)) / 2
+        cursorY += rowHeight + gapY
+      }
+
+      let contentRight = marginX
+      for (const node of body) contentRight = Math.max(contentRight, (node.x ?? 0) + sizeOf(node).w)
+      notes.forEach((node, index) => {
+        const size = sizeOf(node)
+        node.x = body.length > 0 ? contentRight + 90 : marginX
+        node.y = topY + index * (size.h + 40)
+        node.w = size.w
+        node.h = size.h
+      })
+      layoutFlowchartGroups(nodes)
+    }
+
+    // A group hides its descendants while collapsed. Nested groups inherit the
+    // hidden state, and the map is scoped to this diagram only.
+    function flowchartHiddenIds(nodes) {
+      const hidden = new Set()
+      const byId = new Map((nodes ?? []).map(node => [node.id, node]))
+      for (const node of nodes ?? []) {
+        let parentId = node.parentGroup
+        const seen = new Set()
+        while (typeof parentId === 'string' && parentId !== '' && !seen.has(parentId)) {
+          seen.add(parentId)
+          const parent = byId.get(parentId)
+          if (parent === undefined) break
+          if (parent.type === 'group' && parent.collapsed === true) {
+            hidden.add(node.id)
+            break
+          }
+          parentId = parent.parentGroup
+        }
+      }
+      return hidden
+    }
+
     function layoutDiagram(diagram) {
       const nodes = diagram.nodes ?? []
       if (nodes.length === 0) return
@@ -1544,7 +1846,9 @@ window.__ModuleLoader__.load({
       const system = nodes.find(node => node.type === 'system')
       const gapX = 70
       const gapY = 56
-      if (type === 'usecase') {
+      if (type === 'flowchart') {
+        layoutFlowchart(diagram)
+      } else if (type === 'usecase') {
         const actors = nodes.filter(node => node.type === 'actor')
         const usecases = nodes.filter(node => node.type === 'usecase')
         let x = 70
@@ -1809,6 +2113,16 @@ window.__ModuleLoader__.load({
             if (typeof edge.order !== 'number') edge.order = index + 1
           })
           diagram.height = 170 + Math.max(1, (diagram.edges ?? []).length) * 56 + 90
+        }
+        if (type === 'flowchart') {
+          // Groups are containers: recompute their box whenever this pass laid
+          // out new nodes or a group is still missing geometry. A fully
+          // hand-placed flowchart is never re-flowed.
+          const groups = nodes.filter(node => node.type === 'group')
+          const incomplete = groups.some(node =>
+            typeof node.x !== 'number' || typeof node.y !== 'number'
+            || typeof node.w !== 'number' || typeof node.h !== 'number')
+          if (missing || incomplete) layoutFlowchartGroups(nodes)
         }
       }
     }
@@ -2198,6 +2512,7 @@ window.__ModuleLoader__.load({
             { key: 'c4', title: 'C4 图', nodes: [], edges: [] },
             { key: 'class', title: t('classDiagram'), nodes: [], edges: [] },
             { key: 'state', title: t('stateDiagram'), nodes: [], edges: [] },
+            { key: 'flowchart', title: t('flowchart'), nodes: [], edges: [] },
           ],
           modules: [],
           createdAt: now,
@@ -2447,7 +2762,14 @@ window.__ModuleLoader__.load({
             h(Icon, { name: 'plus', size: 14 }), t('addSection'))))
     }
 
-    function NodeShape({ node, selected, highlighted, onPointerDown, onClick, onDoubleClick, onEnterChild, childLayer, diagramType, index }) {
+    function flowConditionWidth(condition) {
+      const lines = wrapLines(String(condition ?? ''), 200).slice(0, 2)
+      if (lines.length === 0) return 0
+      return Math.min(260, Math.max(...lines.map(line =>
+        [...line].reduce((sum, char) => sum + (/[\u3000-\u9fff\uff00-\uffef]/.test(char) ? 11 : 6.5), 0))) + 18)
+    }
+
+    function NodeShape({ node, selected, highlighted, onPointerDown, onClick, onDoubleClick, onEnterChild, childLayer, diagramType, index, onToggleGroup }) {
       const size = sizeOf(node)
       const w = size.w
       const height = size.h
@@ -2455,7 +2777,99 @@ window.__ModuleLoader__.load({
       const color = meta.color
       const lines = wrapLines(node.label, w - 24)
       const shape = []
-      if (node.type === 'actor') {
+      const isFlowchart = diagramType === 'flowchart'
+      if (isFlowchart && node.type === 'group') {
+        const collapsed = node.collapsed === true
+        const headerHeight = 40
+        shape.push(
+          h('rect', {
+            key: 'shape', x: 0, y: 0, width: w, height: collapsed ? headerHeight : height, rx: 12,
+            fill: `color-mix(in srgb, ${color} 7%, transparent)`,
+            stroke: color, strokeWidth: 1.6, strokeDasharray: '7 5',
+            pointerEvents: 'none',
+          }),
+          h('rect', {
+            key: 'head', x: 0, y: 0, width: w, height: headerHeight, rx: 12,
+            fill: `color-mix(in srgb, ${color} 15%, transparent)`,
+            pointerEvents: 'none',
+          }),
+          h('text', {
+            key: 'marker', x: 13, y: 25, fill: color, fontSize: 13, fontWeight: 700, pointerEvents: 'none',
+          }, collapsed ? '▶' : '▼'),
+          h('text', {
+            key: 'label', x: 32, y: 25, fill: 'var(--dsw-alias-label-primary)', fontSize: 12.5, fontWeight: 650, pointerEvents: 'none',
+          }, String(node.label ?? '').length > Math.max(8, Math.floor((w - 60) / 7))
+            ? `${String(node.label ?? '').slice(0, Math.max(8, Math.floor((w - 60) / 7)))}…`
+            : String(node.label ?? '')),
+          h('rect', {
+            key: 'hit', x: 0, y: 0, width: w, height: headerHeight, rx: 12, fill: 'transparent',
+            style: { cursor: 'pointer' },
+            onPointerDown: event => event.stopPropagation(),
+            onClick: event => {
+              event.stopPropagation()
+              if (onToggleGroup !== undefined) onToggleGroup(node)
+              else onClick?.(event)
+            },
+          }),
+          h('title', null, collapsed ? t('collapsed') : t('flowGroup')))
+        if (!collapsed && height > headerHeight + 10) {
+          shape.push(h('line', {
+            key: 'rule', x1: 0, y1: headerHeight, x2: w, y2: headerHeight,
+            stroke: color, strokeWidth: 1, opacity: 0.45, pointerEvents: 'none',
+          }))
+        }
+      } else if (isFlowchart && node.type === 'note') {
+        const fold = Math.min(20, height / 3)
+        shape.push(
+          h('path', {
+            key: 'shape',
+            d: `M0 0H${w - fold}L${w} ${fold}V${height}H0Z`,
+            fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 1.6,
+          }),
+          h('path', {
+            key: 'fold', d: `M${w - fold} 0V${fold}H${w}`,
+            fill: `color-mix(in srgb, ${color} 22%, transparent)`, stroke: color, strokeWidth: 1.3,
+          }),
+          labelText(w / 2, height / 2 + (lines.length === 1 ? 4 : -2), lines, { size: 12 }))
+      } else if (isFlowchart && (node.type === 'start' || node.type === 'end')) {
+        shape.push(
+          h('rect', {
+            key: 'shape', x: 0, y: 0, width: w, height, rx: height / 2,
+            fill: `color-mix(in srgb, ${color} 16%, transparent)`, stroke: color, strokeWidth: 1.8,
+          }),
+          labelText(w / 2, height / 2 + 4, lines, { weight: 650 }))
+      } else if (isFlowchart && node.type === 'decision') {
+        shape.push(
+          h('polygon', {
+            key: 'shape',
+            points: `${w / 2},2 ${w - 2},${height / 2} ${w / 2},${height - 2} 2,${height / 2}`,
+            fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 1.9,
+          }),
+          labelText(w / 2, height / 2 + (lines.length === 1 ? 4 : 0), wrapLines(node.label, w * 0.55), { weight: 600, size: 12 }))
+        if (typeof node.condition === 'string' && node.condition.trim() !== '') {
+          const conditionLines = wrapLines(node.condition, 200).slice(0, 2)
+          const conditionWidth = flowConditionWidth(node.condition)
+          const conditionTop = height / 2 - conditionLines.length * 7 - 3
+          shape.push(h('g', { key: 'condition' },
+            h('rect', {
+              x: w + 10, y: conditionTop, width: conditionWidth, height: conditionLines.length * 14 + 8, rx: 6,
+              fill: 'var(--dsw-alias-bg-base)', stroke: 'var(--dsw-alias-border-l1)',
+            }),
+            h('text', {
+              x: w + 19, y: conditionTop + 15, fill: 'var(--dsw-alias-label-secondary)', fontSize: 10.8, fontWeight: 600,
+            }, conditionLines.map((line, lineIndex) => h('tspan', {
+              key: lineIndex, x: w + 19, dy: lineIndex === 0 ? 0 : 13,
+            }, line)))))
+        }
+      } else if (isFlowchart && node.type === 'process') {
+        shape.push(
+          h('rect', {
+            key: 'shape', x: 0, y: 0, width: w, height, rx: 8,
+            fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 1.8,
+          }),
+          h('rect', { key: 'bar', x: 0, y: 0, width: 5, height, rx: 2.5, fill: color }),
+          labelText(w / 2, height / 2 + (lines.length === 1 ? 4 : -2), lines, { weight: 550 }))
+      } else if (node.type === 'actor') {
         const cx = w / 2
         shape.push(
           h('circle', { key: 'head', cx, cy: 17, r: 9, fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 2 }),
@@ -2600,6 +3014,7 @@ window.__ModuleLoader__.load({
           h('rect', { key: 'shape', x: 0, y: 0, width: w, height, rx: 8, fill: 'var(--dsw-alias-bg-layer-1)', stroke: color, strokeWidth: 1.8 }),
           labelText(w / 2, height / 2 - (lines.length - 1) * 7 + 4, lines))
       }
+      const outlineHeight = isFlowchart && node.type === 'group' && node.collapsed === true ? 40 : height
       return h('g', {
         transform: `translate(${node.x ?? 0} ${node.y ?? 0})`,
         className: `bp-node${selected ? ' selected' : ''}${highlighted ? ' linked' : ''}`,
@@ -2612,11 +3027,11 @@ window.__ModuleLoader__.load({
         'data-module-id': node.moduleId,
       },
         highlighted && !selected ? h('rect', {
-          key: 'linked-halo', x: -6, y: -6, width: w + 12, height: height + 12, rx: 12,
+          key: 'linked-halo', x: -6, y: -6, width: w + 12, height: outlineHeight + 12, rx: 12,
           fill: 'none', stroke: 'var(--dsw-alias-brand-primary)', strokeWidth: 2, strokeDasharray: '4 4',
           className: 'bp-node-linked',
         }) : null,
-        selected ? h('rect', { x: -6, y: -6, width: w + 12, height: height + 12, rx: 12, fill: 'none', stroke: 'var(--dsw-alias-brand-primary)', strokeWidth: 1.4, strokeDasharray: '5 4' }) : null,
+        selected ? h('rect', { x: -6, y: -6, width: w + 12, height: outlineHeight + 12, rx: 12, fill: 'none', stroke: 'var(--dsw-alias-brand-primary)', strokeWidth: 1.4, strokeDasharray: '5 4' }) : null,
         shape,
         childLayer !== undefined && childLayer !== null ? h('g', {
           key: 'enter-child',
@@ -2666,10 +3081,80 @@ window.__ModuleLoader__.load({
       return { x1, y1, x2: shortX, y2: shortY, mx: (x1 + shortX) / 2, my: (y1 + shortY) / 2 }
     }
 
+    // Orthogonal / polyline routing for plan flowcharts. Edges leave from a side
+    // of the source rect and enter a side of the target rect, so branches and
+    // merges keep clean vertical trunks.
+    function flowchartEdgeGeometry(diagram, edge) {
+      const from = diagram.nodes.find(node => node.id === edge.from)
+      const to = diagram.nodes.find(node => node.id === edge.to)
+      if (from === undefined || to === undefined) return null
+      const a = sizeOf(from)
+      const b = sizeOf(to)
+      const fx = from.x ?? 0
+      const fy = from.y ?? 0
+      const tx = to.x ?? 0
+      const ty = to.y ?? 0
+      const fcx = fx + a.w / 2
+      const tcx = tx + b.w / 2
+      let points
+      if (from.id === to.id) {
+        const x = fx + a.w
+        const y = fy + a.h / 2
+        points = [{ x, y }, { x: x + 46, y }, { x: x + 46, y: y - 42 }, { x: fx + a.w - 12, y: y - 42 }]
+      } else if (ty >= fy + a.h - 4) {
+        const startY = fy + a.h
+        if (Math.abs(fcx - tcx) < 2) {
+          points = [{ x: fcx, y: startY }, { x: tcx, y: ty }]
+        } else {
+          const midY = (startY + ty) / 2
+          points = [{ x: fcx, y: startY }, { x: fcx, y: midY }, { x: tcx, y: midY }, { x: tcx, y: ty }]
+        }
+      } else if (ty + b.h <= fy + 4) {
+        const endY = ty + b.h
+        if (Math.abs(fcx - tcx) < 2) {
+          points = [{ x: fcx, y: fy }, { x: tcx, y: endY }]
+        } else {
+          const midY = (fy + endY) / 2
+          points = [{ x: fcx, y: fy }, { x: fcx, y: midY }, { x: tcx, y: midY }, { x: tcx, y: endY }]
+        }
+      } else {
+        const startY = fy + a.h / 2
+        const endY = ty + b.h / 2
+        if (tcx >= fcx) {
+          const startX = fx + a.w
+          const endX = tx
+          const midX = (startX + endX) / 2
+          points = [{ x: startX, y: startY }, { x: midX, y: startY }, { x: midX, y: endY }, { x: endX, y: endY }]
+        } else {
+          const startX = fx
+          const endX = tx + b.w
+          const midX = (startX + endX) / 2
+          points = [{ x: startX, y: startY }, { x: midX, y: startY }, { x: midX, y: endY }, { x: endX, y: endY }]
+        }
+      }
+      const middle = points.length >= 4
+        ? { x: (points[1].x + points[2].x) / 2, y: (points[1].y + points[2].y) / 2 }
+        : { x: (points[0].x + points[points.length - 1].x) / 2, y: (points[0].y + points[points.length - 1].y) / 2 }
+      const d = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`).join(' ')
+      return {
+        points,
+        d,
+        x1: points[0].x,
+        y1: points[0].y,
+        x2: points[points.length - 1].x,
+        y2: points[points.length - 1].y,
+        mx: middle.x,
+        my: middle.y,
+      }
+    }
+
     function Edge({ diagram, edge, selected, onSelect }) {
-      const geo = edgeGeometry(diagram, edge)
+      const isFlowchart = diagramTypeOf(diagram) === 'flowchart'
+      const geo = isFlowchart ? flowchartEdgeGeometry(diagram, edge) : edgeGeometry(diagram, edge)
       if (geo === null) return null
-      const dashed = ['depends', 'include', 'return', 'implements', 'dependency'].includes(edge.kind)
+      const dashed = isFlowchart
+        ? edge.kind === 'dashed'
+        : ['depends', 'include', 'return', 'implements', 'dependency'].includes(edge.kind)
       const relationKind = diagramTypeOf(diagram) === 'class' && ['extends', 'implements', 'association', 'dependency'].includes(edge.kind)
       const displayLabel = typeof edge.label === 'string' && edge.label.trim() !== ''
         ? edge.label
@@ -2681,14 +3166,25 @@ window.__ModuleLoader__.load({
         onClick: event => { event.stopPropagation(); onSelect() },
         style: { cursor: 'pointer' },
       },
-        h('line', { x1: geo.x1, y1: geo.y1, x2: geo.x2, y2: geo.y2, stroke: 'transparent', strokeWidth: 14 }),
-        h('line', {
-          x1: geo.x1, y1: geo.y1, x2: geo.x2, y2: geo.y2,
-          stroke: selected ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-          strokeWidth: selected ? 2 : 1.5,
-          strokeDasharray: dashed ? '6 4' : undefined,
-          markerEnd: 'url(#bp-arrow)',
-        }),
+        isFlowchart
+          ? h('path', { d: geo.d, fill: 'none', stroke: 'transparent', strokeWidth: 14 })
+          : h('line', { x1: geo.x1, y1: geo.y1, x2: geo.x2, y2: geo.y2, stroke: 'transparent', strokeWidth: 14 }),
+        isFlowchart
+          ? h('path', {
+              d: geo.d, fill: 'none',
+              stroke: selected ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
+              strokeWidth: selected ? 2 : 1.5,
+              strokeDasharray: dashed ? '6 4' : undefined,
+              strokeLinejoin: 'round',
+              markerEnd: 'url(#bp-arrow)',
+            })
+          : h('line', {
+              x1: geo.x1, y1: geo.y1, x2: geo.x2, y2: geo.y2,
+              stroke: selected ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
+              strokeWidth: selected ? 2 : 1.5,
+              strokeDasharray: dashed ? '6 4' : undefined,
+              markerEnd: 'url(#bp-arrow)',
+            }),
         showLabel ? h('g', null,
           h('rect', { x: geo.mx - width / 2, y: geo.my - 10, width, height: 20, rx: 6, fill: 'var(--dsw-alias-bg-base)', stroke: 'var(--dsw-alias-border-l1)' }),
           h('text', { x: geo.mx, y: geo.my + 4, textAnchor: 'middle', fontSize: 11, fill: 'var(--dsw-alias-label-secondary)' }, displayLabel)) : null,
@@ -2703,17 +3199,24 @@ window.__ModuleLoader__.load({
       const H = 1200
       const nodes = diagram?.nodes ?? []
       if (nodes.length === 0) return { x: 70, y: 30, zoom: 1 }
+      const hiddenIds = diagramTypeOf(diagram) === 'flowchart' ? flowchartHiddenIds(nodes) : new Set()
+      const isFlowchart = diagramTypeOf(diagram) === 'flowchart'
       let minX = Infinity
       let minY = Infinity
       let maxX = -Infinity
       let maxY = -Infinity
       for (const node of nodes) {
+        if (hiddenIds.has(node.id)) continue
         const size = sizeOf(node)
         minX = Math.min(minX, node.x ?? 0)
         minY = Math.min(minY, node.y ?? 0)
-        maxX = Math.max(maxX, (node.x ?? 0) + size.w)
+        const conditionExtra = isFlowchart && node.type === 'decision' && typeof node.condition === 'string' && node.condition.trim() !== ''
+          ? flowConditionWidth(node.condition) + 10
+          : 0
+        maxX = Math.max(maxX, (node.x ?? 0) + size.w + conditionExtra)
         maxY = Math.max(maxY, (node.y ?? 0) + size.h)
       }
+      if (!Number.isFinite(minX) || !Number.isFinite(minY)) return { x: 70, y: 30, zoom: 1 }
       const width = Math.max(120, maxX - minX)
       const height = Math.max(120, maxY - minY, diagram?.height ?? 0)
       const zoom = Math.min(1.5, Math.max(0.35, Math.min((W - 220) / width, (H - 180) / height)))
@@ -2872,7 +3375,27 @@ window.__ModuleLoader__.load({
         set({ connectFrom: null, mode: 'select', selected: { kind: 'edge', id } })
       }
 
-      const ordered = [...(diagram.nodes ?? [])].sort((a, b) => (a.type === 'system' ? -1 : b.type === 'system' ? 1 : 0))
+      const toggleGroup = node => {
+        mutate(current => {
+          const target = current.diagrams.find(item => item.key === tabKey)
+          const found = target?.nodes.find(item => item.id === node.id)
+          if (found !== undefined) found.collapsed = found.collapsed !== true
+        }, { undoLabel: 'toggle-group' })
+        set({ selected: { kind: 'node', id: node.id } })
+      }
+
+      const hiddenIds = diagramType === 'flowchart' ? flowchartHiddenIds(diagram.nodes ?? []) : new Set()
+      const ordered = [...(diagram.nodes ?? [])]
+        .filter(node => !hiddenIds.has(node.id))
+        .sort((a, b) => {
+          if (diagramType === 'flowchart') {
+            const rank = node => (node.type === 'group' ? 0 : node.type === 'note' ? 2 : 1)
+            return rank(a) - rank(b)
+          }
+          return a.type === 'system' ? -1 : b.type === 'system' ? 1 : 0
+        })
+      const visibleEdges = (diagram.edges ?? []).filter(edge =>
+        !hiddenIds.has(edge.from) && !hiddenIds.has(edge.to))
       const focusedRequirement = store.focusRequirement
       const highlightedNodes = new Set(
         focusedRequirement === null || focusedRequirement === undefined
@@ -2907,7 +3430,7 @@ window.__ModuleLoader__.load({
                   selectedId: store.selected?.kind === 'edge' ? store.selected.id : null,
                   onSelect: id => set({ selected: { kind: 'edge', id } }),
                 })
-              : (diagram.edges ?? []).map(edge => h(Edge, {
+              : visibleEdges.map(edge => h(Edge, {
                   key: edge.id, diagram, edge,
                   selected: store.selected?.kind === 'edge' && store.selected.id === edge.id,
                   onSelect: () => set({ selected: { kind: 'edge', id: edge.id } }),
@@ -2929,6 +3452,7 @@ window.__ModuleLoader__.load({
                   event.stopPropagation()
                   activateLayer(childLayer.letter)
                 },
+                onToggleGroup: diagramType === 'flowchart' ? toggleGroup : undefined,
                 index,
                 selected: store.selected?.kind === 'node' && store.selected.id === node.id,
                 highlighted: highlightedNodes.has(node.id),
@@ -2980,6 +3504,10 @@ window.__ModuleLoader__.load({
         const isErEntity = diagramType === 'er' && node.type === 'entity'
         const isClassNode = diagramType === 'class' && (node.type === 'class' || node.type === 'interface')
         const isC4 = diagramType === 'c4'
+        const isFlowchart = diagramType === 'flowchart'
+        const groupOptions = isFlowchart
+          ? (diagram?.nodes ?? []).filter(item => item.type === 'group' && item.id !== node.id)
+          : []
         return h('div', { className: 'bp-inspector' },
           h('div', { className: 'bp-kicker' }, t('inspector')),
           h('label', { className: 'bp-field' }, h('span', null, t('nodeLabel')),
@@ -2989,7 +3517,29 @@ window.__ModuleLoader__.load({
               found.type = event.target.value
               const meta = TYPE_META[event.target.value]
               if (meta) { found.w = meta.w; found.h = meta.h }
-            }) }, typesFor(diagramType).map(type => h('option', { key: type, value: type }, t(TYPE_META[type]?.label ?? type))))),
+            }) }, typesFor(diagramType).map(type => h('option', { key: type, value: type }, typeLabel(type, diagramType))))),
+          isFlowchart && node.type === 'decision' ? h('label', { className: 'bp-field' }, h('span', null, t('condition')),
+            h('input', { className: 'bp-input', value: node.condition ?? '', onChange: event => updateNode(found => { found.condition = event.target.value }) })) : null,
+          isFlowchart ? h('label', { className: 'bp-field' }, h('span', null, t('owner')),
+            h('input', { className: 'bp-input', value: node.owner ?? '', onChange: event => updateNode(found => { found.owner = event.target.value }) })) : null,
+          isFlowchart ? h('label', { className: 'bp-field' }, h('span', null, t('nodeVerification')),
+            h('input', { className: 'bp-input', value: node.verification ?? '', onChange: event => updateNode(found => { found.verification = event.target.value }) })) : null,
+          isFlowchart ? h('label', { className: 'bp-field' }, h('span', null, t('parentGroup')),
+            h('select', {
+              className: 'bp-input', value: node.parentGroup ?? '',
+              onChange: event => updateNode(found => {
+                const value = event.target.value
+                if (value === '') delete found.parentGroup
+                else found.parentGroup = value
+              }),
+            },
+              h('option', { value: '' }, t('noParentGroup')),
+              groupOptions.map(group => h('option', { key: group.id, value: group.id }, group.label ?? group.id)))) : null,
+          isFlowchart && node.type === 'group' ? h('label', { className: 'bp-check' },
+            h('input', {
+              type: 'checkbox', checked: node.collapsed === true,
+              onChange: event => updateNode(found => { found.collapsed = event.target.checked }),
+            }), t('collapsed')) : null,
           isC4 ? h('label', { className: 'bp-field' }, h('span', null, t('technology')),
             h('input', { className: 'bp-input', value: node.technology ?? '', onChange: event => updateNode(found => { found.technology = event.target.value }) })) : null,
           node.type === 'system' || node.type === 'module' || node.type === 'usecase' || isC4
@@ -4347,9 +4897,9 @@ window.__ModuleLoader__.load({
           h('div', { className: 'bp-seg' },
             typesFor(activeType ?? (activeLayerId === 'A' ? 'usecase' : 'module')).map(type => h('button', {
               type: 'button', key: type, className: 'bp-seg-btn bp-add-type',
-              title: `${t('addNode')} · ${t(TYPE_META[type].label)}`,
+              title: `${t('addNode')} · ${typeLabel(type, activeType ?? (activeLayerId === 'A' ? 'usecase' : 'module'))}`,
               onClick: () => addNode(store, type),
-            }, h('span', { className: 'bp-type-dot', style: { background: TYPE_META[type].color } }), t(TYPE_META[type].label)))),
+            }, h('span', { className: 'bp-type-dot', style: { background: TYPE_META[type].color } }), typeLabel(type, activeType ?? (activeLayerId === 'A' ? 'usecase' : 'module'))))),
           h('button', { type: 'button', className: 'bp-btn bp-ghost bp-import', title: t('importDiagram'), onClick: () => set({ importOpen: true }) },
             h(Icon, { name: 'download', size: 15 }), h('span', { className: 'bp-import-label' }, t('importDiagram'))),
           button('bp-ghost', () => { layoutDiagram(activeDiagram); mutate(() => {}); }, h(Icon, { name: 'layout', size: 15 }), { title: t('autoLayout'), disabled: activeDiagram === undefined }),
@@ -4369,7 +4919,7 @@ window.__ModuleLoader__.load({
       const tabKey = diagram.key
       const meta = TYPE_META[type] ?? TYPE_META.usecase
       const id = `n${Date.now().toString(36)}`
-      const label = t(meta.label)
+      const label = typeLabel(type, diagramType)
       mutate(current => {
         const target = current.diagrams.find(item => item.key === tabKey)
         if (target === undefined) return
@@ -5880,14 +6430,24 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
       inject: ['slots', 'locale', 'remote', 'remote.workspaceFiles', 'remote.session', 'remote.commands'],
       apply,
       __test: {
+        DIAGRAM_TYPE_ORDER,
+        Edge,
         ImportFailure,
         MAX_IMPORT_BYTES,
         MAX_IMPORT_NODES,
+        NodeShape,
+        TEMPLATES,
+        defaultEdgeKind,
         detectImportSource,
+        edgeKindsFor,
         ensureLayout,
+        flowchartHiddenIds,
         importErrorMessage,
         layoutDiagram,
+        layoutFlowchart,
+        layoutFlowchartGroups,
         parseMermaid,
+        typesFor,
       },
     }
   },
