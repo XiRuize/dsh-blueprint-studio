@@ -14,7 +14,7 @@ const React = {
     setState(patch) { this.state = { ...this.state, ...patch } }
   },
   Fragment: Symbol('Fragment'),
-  createElement() { return null },
+  createElement(type, props, ...children) { return { type, props: props ?? {}, children } },
   useState() { return [undefined, () => {}] },
   useEffect() {},
   useRef() { return { current: null } },
@@ -25,7 +25,11 @@ const client = captured.factory(name => {
   if (name === 'react') return React
   throw new Error(`unexpected require: ${name}`)
 })
-const { parseMermaid, detectImportSource, ensureLayout, layoutDiagram, MAX_IMPORT_BYTES, MAX_IMPORT_NODES } = client.__test
+const {
+  parseMermaid, detectImportSource, ensureLayout, layoutDiagram, Edge, NodeShape, flowchartHiddenIds,
+  DIAGRAM_TYPE_ORDER, TEMPLATES, defaultEdgeKind, edgeKindsFor, typesFor,
+  MAX_IMPORT_BYTES, MAX_IMPORT_NODES,
+} = client.__test
 const parse = input => JSON.parse(JSON.stringify(parseMermaid(input)))
 
 function expectFailure(run, code) {
@@ -236,4 +240,186 @@ test('rejects oversized, over-limit and unsupported input with typed errors', ()
   expectFailure(() => parseMermaid('sequenceDiagram\n A->>B: hi'), 'unsupported')
   expectFailure(() => parseMermaid('not a diagram at all'), 'unsupported')
   expectFailure(() => parseMermaid('classDiagram\n%% only comments'), 'empty')
+})
+
+function planDiagram() {
+  return {
+    key: 'flowchart',
+    type: 'flowchart',
+    nodes: [
+      { id: 'start', type: 'start', label: '开始' },
+      { id: 'build', type: 'process', label: '实现', parentGroup: 'delivery' },
+      { id: 'check', type: 'decision', label: '通过？', condition: '测试全部通过', parentGroup: 'delivery' },
+      { id: 'fix', type: 'process', label: '修复', parentGroup: 'delivery' },
+      { id: 'ship', type: 'process', label: '交付' },
+      { id: 'delivery', type: 'group', label: '交付阶段', collapsed: false },
+      { id: 'hint', type: 'note', label: '冻结变更' },
+      { id: 'end', type: 'end', label: '结束' },
+    ],
+    edges: [
+      { id: 'e1', from: 'start', to: 'build', kind: 'flow' },
+      { id: 'e2', from: 'build', to: 'check', label: '提交', kind: 'flow' },
+      { id: 'e3', from: 'check', to: 'fix', label: '否', kind: 'dashed' },
+      { id: 'e4', from: 'check', to: 'ship', label: '是', kind: 'flow' },
+      { id: 'e5', from: 'fix', to: 'check', label: '再验', kind: 'dashed' },
+      { id: 'e6', from: 'ship', to: 'end', kind: 'flow' },
+    ],
+  }
+}
+
+function walkElements(element, visit) {
+  if (element === null || element === undefined || element === false) return
+  if (Array.isArray(element)) {
+    for (const item of element) walkElements(item, visit)
+    return
+  }
+  if (typeof element !== 'object') return
+  visit(element)
+  for (const child of element.children ?? []) walkElements(child, visit)
+}
+
+function findElement(element, predicate) {
+  let found = null
+  walkElements(element, item => { if (found === null && predicate(item)) found = item })
+  return found
+}
+
+function elementText(element) {
+  if (element === null || element === undefined || element === false) return ''
+  if (typeof element === 'string' || typeof element === 'number') return String(element)
+  if (Array.isArray(element)) return element.map(elementText).join('')
+  return (element.children ?? []).map(elementText).join('')
+}
+
+test('flowchart is the ninth tab and every template carries an empty plan slot', () => {
+  assert.deepEqual([...DIAGRAM_TYPE_ORDER], ['usecase', 'dfd', 'module', 'sequence', 'er', 'c4', 'class', 'state', 'flowchart'])
+  assert.deepEqual([...typesFor('flowchart')], ['start', 'end', 'process', 'decision', 'group', 'note'])
+  assert.equal(defaultEdgeKind('flowchart'), 'flow')
+  assert.deepEqual([...edgeKindsFor('flowchart')], ['flow', 'dashed'])
+  for (const template of TEMPLATES) {
+    const blueprint = template.build()
+    const diagram = blueprint.diagrams.find(item => item.key === 'flowchart' || item.type === 'flowchart')
+    assert.ok(diagram, `${template.key} template has a flowchart slot`)
+    assert.equal(diagram.nodes.length, 0)
+    assert.equal(diagram.edges.length, 0)
+    assert.equal(blueprint.diagrams.length, 9)
+  }
+})
+
+test('flowchart layout is deterministic, top-down and branches decisions', () => {
+  const diagram = planDiagram()
+  layoutDiagram(diagram)
+  const byId = new Map(diagram.nodes.map(node => [node.id, node]))
+  const start = byId.get('start')
+  const build = byId.get('build')
+  const check = byId.get('check')
+  const fix = byId.get('fix')
+  const ship = byId.get('ship')
+  const end = byId.get('end')
+  assert.ok(start.y < build.y && build.y < check.y, 'ranks flow top-down')
+  assert.ok(check.y < fix.y, 'decision child sits below the decision')
+  assert.ok((fix.x - check.x) * (ship.x - check.x) < 0, 'decision successors fan out to opposite sides')
+  assert.ok(end.y > check.y, 'end is below the merge')
+
+  const delivery = byId.get('delivery')
+  const children = ['build', 'check', 'fix'].map(id => byId.get(id))
+  const minX = Math.min(...children.map(node => node.x))
+  const maxX = Math.max(...children.map(node => node.x + node.w))
+  assert.ok(delivery.x <= minX && delivery.x + delivery.w >= maxX, 'group wraps its children')
+  assert.ok(delivery.y < Math.min(...children.map(node => node.y)), 'group header sits above children')
+  assert.ok(byId.get('hint').x > Math.max(...children.map(node => node.x + node.w)), 'note sits beside the flow')
+
+  const snapshot = diagram.nodes.map(node => [node.id, node.x, node.y, node.w, node.h])
+  layoutDiagram(diagram)
+  assert.deepEqual(diagram.nodes.map(node => [node.id, node.x, node.y, node.w, node.h]), snapshot)
+})
+
+test('flowchart layout survives cycles and keeps existing coordinates', () => {
+  const cycle = {
+    key: 'flowchart', type: 'flowchart',
+    nodes: [
+      { id: 'a', type: 'process', label: 'A' },
+      { id: 'b', type: 'process', label: 'B' },
+      { id: 'c', type: 'process', label: 'C' },
+    ],
+    edges: [
+      { id: '1', from: 'a', to: 'b' },
+      { id: '2', from: 'b', to: 'c' },
+      { id: '3', from: 'c', to: 'a' },
+    ],
+  }
+  layoutDiagram(cycle)
+  assert.ok(cycle.nodes.every(node => Number.isFinite(node.x) && Number.isFinite(node.y)))
+  assert.equal(new Set(cycle.nodes.map(node => node.y)).size, 3, 'a cycle still yields three ranks')
+
+  const blueprint = { diagrams: [{
+    key: 'flowchart', type: 'flowchart',
+    nodes: [
+      { id: 's', type: 'start', label: 'S', x: 5, y: 6, w: 140, h: 48 },
+      { id: 'p', type: 'process', label: 'P' },
+      { id: 'g', type: 'group', label: 'G' },
+    ],
+    edges: [{ id: 'e', from: 's', to: 'p' }],
+  }] }
+  ensureLayout(blueprint)
+  const placed = blueprint.diagrams[0].nodes.find(node => node.id === 's')
+  assert.deepEqual([placed.x, placed.y, placed.w, placed.h], [5, 6, 140, 48])
+  assert.ok(Number.isFinite(blueprint.diagrams[0].nodes.find(node => node.id === 'p').x))
+  assert.ok(Number.isFinite(blueprint.diagrams[0].nodes.find(node => node.id === 'g').w))
+})
+
+test('flowchart group collapse hides descendants only in its own diagram', () => {
+  const nodes = planDiagram().nodes
+  assert.deepEqual([...flowchartHiddenIds(nodes)], [])
+  nodes.find(node => node.id === 'delivery').collapsed = true
+  assert.deepEqual([...flowchartHiddenIds(nodes)].sort(), ['build', 'check', 'fix'])
+})
+
+test('flowchart NodeShape renders capsules, diamonds, groups and notes', () => {
+  const decision = NodeShape({
+    node: { id: 'd', type: 'decision', label: '通过？', condition: '测试全部通过', x: 0, y: 0, w: 180, h: 110 },
+    diagramType: 'flowchart', index: 0,
+  })
+  assert.equal(findElement(decision, item => item.type === 'polygon')?.type, 'polygon')
+  assert.match(elementText(decision), /测试全部通过/)
+
+  const start = NodeShape({ node: { id: 's', type: 'start', label: '开始', x: 0, y: 0, w: 140, h: 48 }, diagramType: 'flowchart', index: 0 })
+  const capsule = findElement(start, item => item.type === 'rect' && item.props.height === 48 && item.props.rx === 24)
+  assert.ok(capsule, 'start node is a capsule')
+
+  const note = NodeShape({ node: { id: 'n', type: 'note', label: '备注', x: 0, y: 0, w: 200, h: 96 }, diagramType: 'flowchart', index: 0 })
+  assert.ok(findElement(note, item => item.type === 'path' && String(item.props.d).includes('L')), 'note has a folded corner path')
+
+  const collapsed = NodeShape({
+    node: { id: 'g', type: 'group', label: '阶段', collapsed: true, x: 0, y: 0, w: 400, h: 300 },
+    diagramType: 'flowchart', index: 0, onToggleGroup: () => {},
+  })
+  assert.ok(findElement(collapsed, item => item.type === 'text' && String(elementText(item)).includes('阶段')))
+  assert.ok(!findElement(collapsed, item => item.type === 'rect' && item.props.height === 300), 'collapsed group only renders its header')
+
+  const expanded = NodeShape({
+    node: { id: 'g', type: 'group', label: '阶段', collapsed: false, x: 0, y: 0, w: 400, h: 300 },
+    diagramType: 'flowchart', index: 0, onToggleGroup: () => {},
+  })
+  assert.ok(findElement(expanded, item => item.type === 'rect' && item.props.height === 300), 'expanded group renders its container')
+})
+
+test('flowchart Edge renders orthogonal paths, labels and dashed kinds', () => {
+  const diagram = {
+    key: 'flowchart', type: 'flowchart',
+    nodes: [
+      { id: 'a', type: 'process', label: 'A', x: 100, y: 100 },
+      { id: 'b', type: 'process', label: 'B', x: 100, y: 300 },
+    ],
+    edges: [],
+  }
+  const flow = Edge({ diagram, edge: { id: 'e1', from: 'a', to: 'b', label: '通过', kind: 'flow' }, selected: false, onSelect: () => {} })
+  const path = findElement(flow, item => item.type === 'path' && String(item.props.d).includes('L') && item.props.markerEnd !== undefined)
+  assert.ok(path, 'flow edge uses a polyline path')
+  assert.equal(path.props.strokeDasharray, undefined)
+  assert.equal(path.props.markerEnd, 'url(#bp-arrow)')
+  assert.match(elementText(flow), /通过/)
+
+  const dashed = Edge({ diagram, edge: { id: 'e2', from: 'a', to: 'b', label: '否', kind: 'dashed' }, selected: false, onSelect: () => {} })
+  assert.equal(findElement(dashed, item => item.type === 'path' && String(item.props.d).includes('L') && item.props.markerEnd !== undefined).props.strokeDasharray, '6 4')
 })
