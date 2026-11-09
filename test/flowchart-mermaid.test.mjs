@@ -262,3 +262,24 @@ test('a flowchart no longer imports into the legacy usecase diagram', () => {
   assert.equal(saved.type, 'flowchart')
   assert.deepEqual(saved.nodes.map(node => node.type).sort(), ['end', 'process'])
 })
+
+test('note exports as a comment only and never as a process rectangle', () => {
+  const blueprint = normalizeBlueprint({
+    diagrams: [{
+      key: 'flowchart',
+      nodes: [
+        { id: 'start', type: 'start', label: 'Start' },
+        { id: 'note-1', type: 'note', label: 'freeze before release' },
+        { id: 'end', type: 'end', label: 'End' },
+      ],
+      edges: [{ from: 'start', to: 'end', kind: 'flow' }],
+    }],
+  }, undefined, { sessionId: 's' })
+  const exported = mermaidFor(blueprint, 'flowchart')
+  assert.match(exported, /%% note freeze before release/)
+  assert.doesNotMatch(exported, /note-1\[/)
+
+  const fromClient = client.__test.flowchartMermaidSource(blueprint.diagrams[0])
+  assert.match(fromClient, /%% note freeze before release/)
+  assert.doesNotMatch(fromClient, /note-1\[/)
+})

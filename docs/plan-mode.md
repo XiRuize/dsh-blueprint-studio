@@ -1,6 +1,6 @@
 # Plan Mode（计划模式）
 
-`v0.5` 为 Blueprint Studio 增加 plan-mode 预置提示词与计划自检，目标是让智能体在写代码前先给出可审阅、可执行、可回滚的实施计划。此能力不修改蓝图数据模型、不改客户端 UI：提示词与自检逻辑集中在 `lib/plan.js`，系统提示段只追加约束。
+`v0.5` 为 Blueprint Studio 增加 Plan Flowchart（第 9 类图）、画布/分组/折叠/自上而下布局、Mermaid flowchart 导入导出、plan-mode 预置提示词与计划自检。计划图写入 `blueprint.diagrams` 的 `flowchart` 类型，客户端 UI 与分层作用域共用同一套模型。
 
 ## 使用方式
 
@@ -156,7 +156,7 @@ flowchart TD
 1. 智能体先调用 `blueprint(action="create")` 生成需求蓝图。
 2. 进入 plan mode，按 `PLAN_MODE_PROMPT` 输出计划与 `flowchart TD`，可对计划对象调用 `analyzePlan` 自检。
 3. 用户确认计划后，才按模块分派实现；确认与分派仍由用户在「蓝图」面板发起并校验一次性令牌。
-4. 本文档不改变图模型：计划图是独立的计划对象/Mermaid 文本，不写入 `blueprint.diagrams` 的既有类型体系。
+4. 计划图是 `blueprint.diagrams` 中的第 9 类图 `flowchart`，与需求栏、模块、验收、版本历史和导出共用同一份数据。
 
 ## 参考
 

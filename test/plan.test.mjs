@@ -239,3 +239,14 @@ test('analyzePlan never throws on malformed data', () => {
     }
   }
 })
+
+test('the built-in Mermaid plan template passes its own checks', () => {
+  const result = analyzePlan(PLAN_MODE_PROMPT)
+  assert.deepEqual(result.issues, [])
+  assert.equal(result.coverage.flowchart, true)
+  assert.ok(result.coverage.startCount >= 1)
+  assert.ok(result.coverage.endCount >= 1)
+  assert.ok(result.coverage.decisionCount >= 1)
+  assert.equal(result.coverage.unverifiedProcessCount, 0)
+  assert.equal(result.coverage.failureBranch, true)
+})

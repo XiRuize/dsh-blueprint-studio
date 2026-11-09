@@ -2,6 +2,27 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.5.0] — 2026-11-09
+
+### Added
+
+- **Plan Flowchart, the ninth diagram type.** `start`/`end` capsules, `process` rectangles, `decision` diamonds, `group` containers and `note` cards; labelled solid/dashed edges, deterministic top-down rank layout with orthogonal paths, and collapsible groups.
+- **Plan mode contract.** `PLAN_MODE_PROMPT` requires goal/non-goal, constraints, ordered steps, decision branches, parallel groups, per-step verification and rollback before implementation; it is injected into the Host system prompt.
+- **Implementation-plan starter.** A fifth welcome template with a populated flowchart containing a decision, a group, verification on every process and a retry/rollback loop.
+- **Plan checks.** `/blueprint check` now appends the nine `plan-*` rules when the blueprint contains a flowchart: missing plan, missing terminals, decision branches/labels, unverified steps, failure branch, dangling group and node-count guidance.
+- **Mermaid flowchart interop.** `flowchart TD/LR` now maps to the plan flowchart (rectangle/decision/stadium, labels, dashed edges, one-level `subgraph` groups); export emits `flowchart TD` with groups and labels.
+
+### Changed
+
+- The layer command/palette and template slots expose nine diagrams; old eight-diagram blueprints never gain a flowchart automatically.
+- Mermaid export is intentionally lossy: notes are comments, and GUI-only `condition`/`owner`/`verification`/`collapsed` metadata is not encoded.
+- README, `docs/plan-mode.md`, and the built-in prompt example now describe the implemented model and pass the plan checks themselves.
+
+### Fixed
+
+- Note nodes were exported both as a comment and as a process rectangle, so re-import changed their type; they are now comment-only.
+- A key-only `{ "key": "flowchart" }` input now counts as an explicit diagram model instead of auto-adding eight empty root slots.
+- Added readable errors for nested/unclosed/empty subgraphs and unsupported Mermaid shapes.
 ## [0.4.4] — 2026-11-08
 
 ### Added

@@ -91,6 +91,10 @@ window.__ModuleLoader__.load({
       importErrorEmpty: 'No importable nodes were found.',
       importErrorMissingDiagram: 'The target diagram does not exist in this blueprint.',
       importErrorParse: 'Could not parse the pasted content.',
+      importErrorNestedSubgraph: 'Nested subgraphs are not supported; flatten them into one level.',
+      importErrorUnclosedSubgraph: 'A subgraph is not closed with end.',
+      importErrorEmptySubgraph: 'A subgraph needs a title.',
+      importErrorUnsupportedShape: 'This Mermaid node shape is not supported.',
       replaceDiagram: 'Replace current diagram', appendDiagram: 'Append to current diagram', importAction: 'Import',
       diffBase: 'From', diffTarget: 'To', diffEmpty: 'No semantic changes between these versions.',
       diffAdded: 'Added', diffRemoved: 'Removed', diffModified: 'Modified',
@@ -224,6 +228,10 @@ window.__ModuleLoader__.load({
       importErrorEmpty: '没有找到可导入的节点。',
       importErrorMissingDiagram: '当前蓝图缺少目标图。',
       importErrorParse: '无法解析粘贴的内容。',
+      importErrorNestedSubgraph: '不支持嵌套 subgraph，请扁平化为一层。',
+      importErrorUnclosedSubgraph: 'subgraph 没有用 end 闭合。',
+      importErrorEmptySubgraph: 'subgraph 缺少标题。',
+      importErrorUnsupportedShape: '不支持这种 Mermaid 节点形状。',
       replaceDiagram: '替换当前图', appendDiagram: '追加到当前图', importAction: '导入',
       diffBase: '基准', diffTarget: '对比', diffEmpty: '这两个版本之间没有语义变化。',
       diffAdded: '新增', diffRemoved: '删除', diffModified: '修改',
@@ -1192,6 +1200,8 @@ window.__ModuleLoader__.load({
           diagrams: [
             {
               key: 'flowchart',
+              layerId: 'A',
+              type: 'flowchart',
               title: '实施计划',
               nodes: [
                 { id: 'start', type: 'start', label: '开始' },
@@ -5128,7 +5138,7 @@ window.__ModuleLoader__.load({
       const children = new Map()
       const loose = []
       for (const node of nodes) {
-        if (node.type === 'group') continue
+        if (node.type === 'group' || node.type === 'note') continue
         if (node.parentGroup !== undefined && groupIds.has(node.parentGroup)) {
           if (!children.has(node.parentGroup)) children.set(node.parentGroup, [])
           children.get(node.parentGroup).push(node)
@@ -5394,6 +5404,10 @@ window.__ModuleLoader__.load({
         'too-large': 'importErrorTooLarge',
         'too-many-nodes': 'importErrorTooManyNodes',
         unsupported: 'importErrorUnsupported',
+        'unsupported-shape': 'importErrorUnsupportedShape',
+        'nested-subgraph': 'importErrorNestedSubgraph',
+        'unclosed-subgraph': 'importErrorUnclosedSubgraph',
+        'empty-subgraph': 'importErrorEmptySubgraph',
         empty: 'importErrorEmpty',
         'missing-diagram': 'importErrorMissingDiagram',
       }

@@ -132,7 +132,7 @@ test('legacy and untyped blueprints keep exactly the original eight diagrams', (
   assert.equal(flowchartOf(again), undefined)
 })
 
-test('untyped legacy input can opt in to flowchart explicitly, producing nine slots', () => {
+test('untyped legacy input with an explicit flowchart keeps exactly the provided diagrams', () => {
   const blueprint = normalizeBlueprint({
     title: 'Legacy plus plan',
     diagrams: [
@@ -141,8 +141,8 @@ test('untyped legacy input can opt in to flowchart explicitly, producing nine sl
     ],
   }, undefined, { sessionId: 's' })
 
-  assert.equal(blueprint.diagrams.length, 9)
-  assert.deepEqual(blueprint.diagrams.map(diagram => diagram.key), [...LEGACY_DIAGRAM_KEYS, 'flowchart'])
+  assert.equal(blueprint.diagrams.length, 2)
+  assert.deepEqual(blueprint.diagrams.map(diagram => diagram.key), ['usecase', 'flowchart'])
   assert.ok(flowchartOf(blueprint).nodes.length > 0)
 })
 
@@ -187,4 +187,17 @@ test('update merge keeps flowchart fields and edge kinds by node id', () => {
   assert.equal(build.owner, '后端')
   assert.equal(build.verification, '单元测试与接口验收通过')
   assert.equal(diagram.edges[0].kind, 'dashed')
+})
+
+test('a key-only flowchart is an explicit diagram model', () => {
+  const blueprint = normalizeBlueprint({
+    title: 'Key-only plan',
+    diagrams: [{
+      key: 'flowchart',
+      nodes: [{ id: 'start', type: 'start', label: 'Start' }, { id: 'end', type: 'end', label: 'End' }],
+      edges: [{ from: 'start', to: 'end', kind: 'flow' }],
+    }],
+  }, undefined, { sessionId: 's' })
+  assert.equal(blueprint.diagrams.length, 1)
+  assert.equal(blueprint.diagrams[0].type, 'flowchart')
 })

@@ -21,7 +21,7 @@ Blueprint Studio is a [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 
 ```
 prompt ──▶ requirements ──▶ diagrams ──▶ human review ──▶ confirm ──▶ N subagents
-             (7 columns)     (8 views)    edit / expand / diff            (per module)
+             (7 columns)     (9 views)    edit / expand / diff            (per module)
 ```
 
 ## Why
@@ -37,7 +37,7 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
 ## Features
 
 - **Seven requirement columns** — goals, actors, functional, non-functional, constraints, acceptance, risks; every item is editable, addable and removable.
-- **Eight editable diagrams**
+- **Nine editable diagrams**
   - UML use case: actors, use cases, system boundary;
   - data flow: external entity, process, data store, labelled flows;
   - module dependency;
@@ -45,20 +45,22 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
   - ER: entities with typed fields and primary keys, relationship diamonds, cardinality;
   - C4: person, system, container, component, database, external system, with technology and responsibility labels;
   - class: classes/interfaces, fields and methods, extends/implements/association/dependency;
-  - state: states, initial/final, choice, labelled transitions.
+  - state: states, initial/final, choice, labelled transitions;
+  - **plan flowchart**: start/end, process, decision, group container, note; labelled solid/dashed edges, top-down orthogonal layout, collapsible groups.
 - **Visual editing on an SVG canvas** — drag nodes, pan/zoom, connect nodes, edit labels and edge kinds, ER field editor, delete, deterministic auto-layout.
 - **Undo / redo** — `Ctrl+Z` and `Ctrl+Shift+Z` / `Ctrl+Y`, plus toolbar buttons. Fast typing and dragging coalesce into one step; a save or an agent update does not silently discard the local undo stack.
 - **Welcome screen round-trip** — one click returns from the manual editor to the initial generate screen; “继续编辑当前蓝图” brings you back without losing the file.
-- **Offline welcome templates** — four starters (web app, CLI, data pipeline, DSH plugin) create a complete draft with requirements, three populated diagrams and 3–4 dependent modules in one click, without calling the agent.
+- **Offline welcome templates** — five starters (web app, CLI, data pipeline, DSH plugin, implementation plan) create a complete draft with requirements and modules in one click, without calling the agent. The implementation-plan starter ships a populated plan flowchart with decisions, groups, verification and rollback.
 - **AI generate / expand** — one button sends a focused instruction to the agent; the studio refreshes when the agent writes the blueprint.
 - **Version history** — every agent or human save archives the previous content. Compare any two versions with a semantic diff (requirements, nodes, edges, fields, modules) including concrete added/removed node and edge labels; restore a version with one click; create manual snapshots.
 - **Requirement ↔ node ↔ module traceability** — link any diagram node to one or more requirement items, attach nodes/files/acceptance criteria to a module, highlight linked nodes from the requirement list, and pass the linked scope into dispatch prompts.
 - **Live dispatch board** — child subagent sessions of the current conversation, refreshed every five seconds, with module status, one-click navigation, cancel, retry, and manual status updates.
-- **Layered module scopes** — root layer `A`, child layers `B`/`C`/…, module codes `A1`/`B1`; double-click a module or use its corner button to drill down, or jump directly with the persistent A/B/C layer bar; breadcrumbs to return, eight diagrams per layer created lazily.
+- **Layered module scopes** — root layer `A`, child layers `B`/`C`/…, module codes `A1`/`B1`; double-click a module or use its corner button to drill down, or jump directly with the persistent A/B/C layer bar; breadcrumbs to return, nine diagrams per layer created lazily.
 - **Global search** — requirement code/text, module code/name/summary and layer letter/title; results jump to the right layer, diagram and node.
 - **Markdown/HTML export** — current-layer or all-layer Markdown and a single-file offline HTML review page, exposed through `/blueprint export`.
+- **Plan mode** — a built-in plan contract (goal/non-goal, constraints, ordered steps, decision branches, parallel groups, verification, rollback) and a five-step starter template; the agent must produce a plan flowchart and wait for confirmation before coding.
 - **Layered acceptance verification** — every module carries independent `tests` / `reviewer` / `human` layers with evidence. `/blueprint verify` records a layer, a failed layer forces `needs-rework`, and only three passes can make a module `done`; the Modules panel shows all three layers and records verification without leaving the studio.
-- **Self-check and coverage** — 19 structural/coverage rules and a requirement-module matrix through `/blueprint check` and the Checks panel.
+- **Self-check and coverage** — 19 structural/coverage rules plus 9 plan-mode rules, and a requirement-module matrix through `/blueprint check` and the Checks panel.
 - **Stable-ID requirement review** — added/removed/modified by `uid`, word-level highlighting, and per-item accept/reject with undo.
 - **draw.io & Mermaid interop** — import `.drawio`/XML or Mermaid by paste or file, replacing or appending to the target diagram; export the current diagram back to draw.io XML or Mermaid.
 - **One-click dispatch** — confirmation marks the blueprint `confirmed` and asks the agent to spawn one subagent per module, respecting dependencies.
@@ -88,10 +90,10 @@ A GitHub URL is a **git dependency**: pnpm shells out to `git ls-remote`, so it 
 
 ```bash
 dsh plugin --profile <profile> add \
-  https://github.com/XiRuize/dsh-blueprint-studio/releases/download/v0.4.4/dsh-blueprint-studio-0.4.4.tgz
+  https://github.com/XiRuize/dsh-blueprint-studio/releases/download/v0.5.0/dsh-blueprint-studio-0.5.0.tgz
 ```
 
-Or download `dsh-blueprint-studio-0.4.4.tgz` from [Releases](https://github.com/XiRuize/dsh-blueprint-studio/releases) and point `install_bundle` at the local `.tgz` / extracted directory.
+Or download `dsh-blueprint-studio-0.5.0.tgz` from [Releases](https://github.com/XiRuize/dsh-blueprint-studio/releases) and point `install_bundle` at the local `.tgz` / extracted directory.
 
 If you prefer the git URL, install Git for Windows first (`winget install --id Git.Git -e`) and reopen the terminal. Behind a proxy, set `HTTPS_PROXY` for pnpm, or configure Git's proxy/SSH transport separately.
 
@@ -182,8 +184,8 @@ Click **Import diagram** in the diagram toolbar and choose **Mermaid** (or leave
 
 - `classDiagram` → the class diagram: `class` nodes, `+name: type` fields, `+method() return` methods, `<|--` extends, `<|..` implements, `-->` association, `..>` dependency;
 - `stateDiagram-v2` → the state diagram: `[*] --> State` initial, `State --> [*]` final, `A --> B : label` transitions, `state "Label" as id`;
-- `flowchart TD/LR` (or `graph`) → the use case diagram: `A[Label]`, `A(Label)`, `A{Decision}`, labelled edges such as `A -- label --> B`, and `-->|label|`;
-- `%%` comments, blank lines and decorative directives (`classDef`, `style`, `click`, `linkStyle`, `direction`, notes, subgraphs) are ignored.
+- `flowchart TD/LR` (or `graph`) → the **plan flowchart**: `A[Step]`, `A{Decision}`, `([Start])`/`([End])`, `subgraph` groups, labelled edges such as `A -- label --> B`, `-->|label|`, and `-.->` dashed edges;
+- `%%` comments and blank lines are ignored; `subgraph` becomes a group container. Notes are exported as comments and are therefore not round-tripped; `condition`, `owner`, `verification` and `collapsed` are GUI-only metadata and are not encoded in Mermaid.
 
 Mermaid import is intentionally strict: input over 200 KB or more than 200 parsed nodes is rejected with a bilingual error. Members that cannot be mapped are kept as a field with note `unparsed member`, so no source text is silently dropped.
 
