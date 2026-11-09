@@ -23,6 +23,7 @@ import {
   SECTION_DEFS,
 } from './lib/blueprint.js'
 import { CHECK_RULES, analyzeBlueprint, coverageMatrix } from './lib/checks.js'
+import { PLAN_CHECK_RULES, analyzePlan } from './lib/plan.js'
 import { exportHtml, exportMarkdown } from './lib/export.js'
 import { PLAN_MODE_PROMPT } from './lib/plan.js'
 
@@ -611,10 +612,18 @@ export function apply(ctx, rawConfig) {
             let result
             try {
               const analyzed = analyzeBlueprint(blueprint)
+              const hasFlowchart = (blueprint.diagrams ?? []).some(diagram => diagram.type === 'flowchart' || diagram.key === 'flowchart' || String(diagram.key).endsWith(':flowchart'))
+              const planned = hasFlowchart ? analyzePlan(blueprint) : { issues: [], coverage: null }
+              const issues = [...analyzed.issues, ...planned.issues]
+              const summary = { error: 0, warn: 0, info: 0 }
+              for (const issue of issues) {
+                if (summary[issue.severity] !== undefined) summary[issue.severity] += 1
+              }
               result = {
-                issues: analyzed.issues,
-                coverage: coverageMatrix(blueprint),
-                summary: analyzed.summary,
+                issues,
+                coverage: { ...coverageMatrix(blueprint), plan: planned.coverage },
+                summary,
+                rules: [...CHECK_RULES, ...PLAN_CHECK_RULES],
               }
             } catch (error) {
               return { kind: 'error', text: `蓝图自检失败：${errorMessage(error)}` }
@@ -626,7 +635,7 @@ export function apply(ctx, rawConfig) {
                 issues: limited.issues,
                 coverage: result.coverage,
                 summary: result.summary,
-                rules: CHECK_RULES,
+                rules: result.rules,
                 truncated: limited.truncated,
               }),
             }
