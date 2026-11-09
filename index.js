@@ -28,7 +28,7 @@ import { exportHtml, exportMarkdown } from './lib/export.js'
 export const name = 'blueprint-studio'
 export const inject = ['tools']
 
-const TOOL_DESCRIPTION = `在写代码之前，把需求整理成可协作的工程蓝图：需求栏目、用例图、数据流图、模块图、时序图、ER 图、C4 图，以及可独立分派的模块列表。
+const TOOL_DESCRIPTION = `在写代码之前，把需求整理成可协作的工程蓝图：需求栏目、用例图、数据流图、模块图、时序图、ER 图、C4 图、类图、状态图，以及用于编排实施步骤的计划流程图（可选），另有可独立分派的模块列表。
 
 蓝图会保存到当前会话工作区的 .dsh/blueprints/<sessionId>.json，用户在「蓝图」面板中能直接看到、手工增删改，之后点击「确认并分派」。每次保存会自动归档上一版，可在「版本」里对比和恢复。
 
@@ -52,12 +52,12 @@ blueprint 结构：
   ],
   "sections": [{"key":"goals|actors|functional|nonfunctional|constraints|acceptance|risks|自定义","title":"栏目名","items":[{"id":"i1","uid":"goals:i1","code":"R1","text":"条目文本","moduleId":"可选模块 id"}]}],
   "diagrams": [{
-    "key": "usecase|dfd|module|sequence|er|c4|class|state（仅 A 层）；子层用 \"B:dfd\"",
+    "key": "usecase|dfd|module|sequence|er|c4|class|state|flowchart（仅 A 层）；子层用 \"B:dfd\"",
     "layerId": "A",
-    "type": "usecase|dfd|module|sequence|er|c4|class|state",
+    "type": "usecase|dfd|module|sequence|er|c4|class|state|flowchart",
     "title": "图解名",
-    "nodes": [{"id":"u1","type":"...","label":"名称","technology":"可选","description":"可选","requirementIds":["goals:i1"],"fields":[{"name":"id","type":"uuid","key":true}]}],
-    "edges": [{"from":"u1","to":"u2","label":"标签","kind":"association|flow|depends|sync|async|return|relationship","cardinality":"1..*","order":1}]
+    "nodes": [{"id":"u1","type":"...","label":"名称","technology":"可选","description":"可选","parentGroup":"可选，同图 group 节点 id","condition":"可选，decision 条件","owner":"可选，负责人","verification":"可选，验证方式","collapsed":false,"requirementIds":["goals:i1"],"fields":[{"name":"id","type":"uuid","key":true}]}],
+    "edges": [{"from":"u1","to":"u2","label":"标签","kind":"association|flow|depends|sync|async|return|relationship|dashed","cardinality":"1..*","order":1}]
   }],
   "modules": [{"id":"auth","name":"认证模块","layerId":"A","code":"A1","parentId":null,"summary":"范围、接口与验收要点","dependsOn":["db"],"nodeIds":["usecase:u1"],"files":["lib/auth.js"],"acceptance":["登录成功后返回会话令牌"],"status":"pending","verification":{"tests":{"status":"pending","evidence":[]},"reviewer":{"status":"pending","evidence":[]},"human":{"status":"pending","evidence":[]}}}]
 }
@@ -66,7 +66,7 @@ blueprint 结构：
 - A 是根层（总览），始终存在；子层 letter 唯一，可写 A–Z、AA/AB…，id 与 letter 相同。
 - 子层通过 parentModuleId 指向父层中的模块；父子不能成环，层数 ≤64，层级深度 ≤4（A 算第 1 层）。
 - 模块保留稳定 id；layerId 默认 A，code 形如 A1/B1（前缀必须等于 layer.letter，全局唯一），parentId 在根层为 null、子层等于该层 parentModuleId。
-- 仅根层 A 自动补齐 8 张图；子层只在 diagrams 显式出现时创建，对应 key 为 "<letter>:<type>"，同一 layer+type 唯一。
+- 仅根层 A 自动补齐原有 8 张图；计划流程图（flowchart）是第 9 张可选图，只有 diagrams 中显式出现时才创建（旧蓝图不会被自动补出）。子层只在 diagrams 显式出现时创建，对应 key 为 "<letter>:<type>"，同一 layer+type 唯一。
 - 条目 uid 为 "<sectionKey>:<id>"，code 全局唯一且只增不改（R1/R2…）；可选 moduleId 指向模块 id，不存在时保留原值并由自检报告。
 - 上限：需求条目 ≤2000、图实例 ≤256、模块 ≤500、层 ≤64、深度 ≤4；超出会返回可读错误，不会静默截断。
 
@@ -77,6 +77,7 @@ blueprint 结构：
 - sequence：participant、actor（用 kind=sync/async/return 表示同步/异步/返回消息，order 表示消息顺序）。
 - er：entity（用 fields 写字段，key=true 表示主键）、relationship（菱形关系，边上写 cardinality）。
 - c4：person、system、container、component、database、external（technology/description 写技术栈和职责）。
+- flowchart：start（开始）、end（结束）、process（步骤）、decision（判断，用 condition 写条件）、group（阶段分组，label 必填，可 collapsed）、note（备注）；边 kind 只用 flow（实线，默认）或 dashed（虚线）；可用 parentGroup 把步骤归入同图的 group，用 owner/verification 写负责人和验证方式。
 
 要求：
 - 用例图至少包含 actor 与 usecase；需要系统边界时加一个 type=system 的节点。
@@ -85,6 +86,7 @@ blueprint 结构：
 - 时序图参与者放节点，消息放边，按 order 从上到下。
 - ER 图实体字段写在 fields，关系边上写基数。
 - C4 图用 technology 写技术选型，description 写职责。
+- 计划流程图可选：用 start/end 界定范围，process 写可执行步骤，decision 的 condition 写分支条件，group 组织阶段并用 parentGroup 归属步骤；只在需要时显式创建 flowchart。
 - 可追踪：节点用 requirementIds 引用 "<sectionKey>:<itemId>"（如 goals:i1）；模块用 nodeIds 引用 "<diagramKey>:<nodeId>"（如 usecase:u1），并用 files、acceptance 写清涉及文件与验收标准。
 - 分层验证：模块的 verification 分 tests / reviewer / human 三层，只能由用户执行 /blueprint verify 写入；工具 update 会保留旧值，不能通过传 verification 绕过。任一层 failed 会把模块置为 needs-rework，三层全部 passed 才会置为 done，其余情况保持原状态。
 - 模块拆分到「一个子代理能独立完成」的粒度，并在 summary 里写清交付物与验收标准。
