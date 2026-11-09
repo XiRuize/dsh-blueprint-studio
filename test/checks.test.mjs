@@ -115,7 +115,14 @@ test('coverage spans an eight-level layer tree and counts child layers', () => {
     })
   }
 
-  const blueprint = { layers, modules, sections }
+  const blueprint = {
+    layers,
+    modules,
+    sections,
+    diagrams: letters.slice(1).map(letter => ({
+      key: `${letter}:module`, layerId: letter, type: 'module', nodes: [], edges: [],
+    })),
+  }
   const result = analyzeBlueprint(blueprint)
 
   assert.deepEqual(result.issues, [])
@@ -198,6 +205,7 @@ test('reports structural, traceability and quality problems with stable severiti
   assert.deepEqual(issueCodes(result), [
     'dfd-process-unbalanced',
     'edge-broken',
+    'layer-child-diagram-missing',
     'layer-empty',
     'layer-parent-missing',
     'module-acceptance-missing',
@@ -274,7 +282,7 @@ test('reports structural, traceability and quality problems with stable severiti
 
   assert.equal(issuesWithCode(result, 'module-no-requirement').length, 3)
   assert.equal(result.summary.error, 9)
-  assert.equal(result.summary.warn, 11)
+  assert.equal(result.summary.warn, 12)
   assert.equal(result.summary.info, 3)
   assert.equal(result.summary.error + result.summary.warn + result.summary.info, result.issues.length)
 })
@@ -364,7 +372,7 @@ test('coverage numbers follow moduleId attribution and expose every gap list', (
   assert.equal(issuesWithCode(result, 'layer-empty').length, 1)
   assert.equal(issuesWithCode(result, 'module-no-requirement').length, 1)
   assert.equal(result.summary.error, 1)
-  assert.equal(result.summary.warn, 4)
+  assert.equal(result.summary.warn, 6)
   assert.equal(result.summary.info, 1)
 })
 
@@ -437,4 +445,28 @@ test('group and note containers are not reported as isolated nodes', () => {
   const result = analyzeBlueprint(blueprint)
   const isolated = result.issues.filter(issue => issue.code === 'node-isolated')
   assert.deepEqual(isolated.map(issue => issue.details.nodeId), ['process-1'])
+})
+
+test('complex root-only blueprints and child layers without diagrams are reported', () => {
+  const modules = Array.from({ length: 6 }, (_, index) => ({
+    id: `m${index + 1}`,
+    name: `Module ${index + 1}`,
+    acceptance: ['done'],
+  }))
+  const flat = normalizeBlueprint({ modules }, undefined, { sessionId: 's' })
+  assert.ok(analyzeBlueprint(flat).issues.some(issue => issue.code === 'layer-flat-complex'))
+
+  const layered = normalizeBlueprint({
+    layers: [
+      { letter: 'A' },
+      { letter: 'B', parentModuleId: 'm1' },
+    ],
+    modules: [
+      { id: 'm1', name: 'Parent' },
+      { id: 'b1', name: 'Child', layerId: 'B', parentId: 'm1' },
+    ],
+  }, undefined, { sessionId: 's' })
+  const result = analyzeBlueprint(layered)
+  assert.ok(result.issues.some(issue => issue.code === 'layer-child-diagram-missing'))
+  assert.ok(!result.issues.some(issue => issue.code === 'layer-flat-complex'))
 })

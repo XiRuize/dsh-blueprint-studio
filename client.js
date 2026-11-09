@@ -140,6 +140,8 @@ window.__ModuleLoader__.load({
       includeDescendants: 'Include descendant modules', layerSummary: '{visible} items in this layer · {unassigned} unassigned · {subtree} in subtree',
       layerGap: '{count} items belong to other layers', createLayer: 'Create sublayer', enterChildLayer: 'Open sublayer',
       layerCreated: 'Created layer {letter}', layerExists: 'This module already has a sublayer.', maxDepth: 'Maximum layer depth reached',
+      layerNudge: 'This is a complex blueprint with {count} modules but only layer A. Consider creating a child layer for one root module and moving implementation details down.',
+      layerNudgeAction: 'Open modules',
       backToParentLayer: 'Back to parent layer', currentLayer: 'Current layer', searchPlaceholder: 'Search requirements, modules and layers…',
       searchNoResults: 'No matches', searchRequirements: 'Requirements', searchModules: 'Modules', searchLayers: 'Layers',
       searchHint: '↑↓ to choose · Enter to open · Esc to close', layer: 'Layer', sublayerOf: 'Sublayer of',
@@ -278,6 +280,8 @@ window.__ModuleLoader__.load({
       includeDescendants: '包含子孙模块', layerSummary: '本层 {visible} 条 · 未归属 {unassigned} · 子树 {subtree}',
       layerGap: '另有 {count} 条属于其他层', createLayer: '创建子层', enterChildLayer: '进入子层',
       layerCreated: '已创建层 {letter}', layerExists: '该模块已有子层。', maxDepth: '已达到最大层深',
+      layerNudge: '这是一个有 {count} 个模块的复杂蓝图，但目前只有 A 层。建议为一个根模块创建子层，把实现细节下放。',
+      layerNudgeAction: '打开模块',
       backToParentLayer: '返回上一层', currentLayer: '当前层', searchPlaceholder: '检索需求、模块与层…',
       searchNoResults: '没有匹配结果', searchRequirements: '需求', searchModules: '模块', searchLayers: '层',
       searchHint: '↑↓ 选择 · Enter 定位 · Esc 关闭', layer: '层', sublayerOf: '子层，父模块',
@@ -734,9 +738,20 @@ window.__ModuleLoader__.load({
     }
 
     function generatePrompt(task) {
-      return `请为下面的任务创建工程蓝图（先不要写代码）：\n\n${task}\n\n请调用 blueprint 工具 action="create" 保存蓝图。要求：\n1. sections 覆盖 goals、actors、functional、nonfunctional、constraints、acceptance、risks 七个栏目，每条都写成可验收的具体描述；\n2. diagrams 至少给出 usecase（actor + usecase，必要时加 system 边界）、dfd（entity → process → store，边上写数据名称）、module（模块依赖，边用 depends）；涉及交互流程时补 sequence（消息按 order 排序），涉及数据模型时补 er（实体 fields + 关系 cardinality），涉及系统分层时补 c4（person/container/component 与 technology）；\n3. modules 拆成 3–7 个可以由一个子代理独立完成的模块，summary 写清交付物、接口与验收标准；\n4. prompt 字段填写用户的原始需求。\n完成后用 2–3 句话向用户说明方案，并请他在「蓝图」面板检查、修改后点击「确认并分派」。`
-    }
+      return `请为下面的任务创建工程蓝图（先不要写代码）：
 
+${task}
+
+请调用 blueprint 工具 action="create" 保存蓝图。要求：
+1. sections 覆盖 goals、actors、functional、nonfunctional、constraints、acceptance、risks 七个栏目，每条写成可验收的具体描述；
+2. 复杂任务必须分层：如果模块数 ≥6、跨 3 个以上领域、存在多个适配器/外部系统，或预计需要 2 个以上子代理并行，必须设计至少 2 层（根层 A + 子层 B/C），用 parentModuleId 指向根层父模块；根层 A 只保留总览模块图和用例概览，具体接口/数据流/时序/类/状态放到子层；每个子层必须显式给出至少 <letter>:module，涉及接口时补 <letter>:dfd 或 <letter>:sequence。只写 layers/modules 不写子层图视为未完成；
+3. 简单任务若确实不需要子层，在 summary/risks 写明原因，不要静默只做 A；
+4. diagrams 至少给出 usecase（actor + usecase）、dfd（entity → process → store）、module（模块依赖）；涉及交互补 sequence，涉及数据模型补 er，涉及系统分层补 c4；
+5. modules 拆成 3–8 个可由一个子代理独立完成的模块，summary 写清交付物、接口与验收标准；叶子模块才分派；
+6. prompt 字段填写用户的原始需求。
+
+完成后用 2–3 句话向用户说明分层方案，并请他在「蓝图」面板检查、修改后点击「确认并分派」。`
+    }
     function expandSectionPrompt(section) {
       return `当前会话已有工程蓝图。请先调用 blueprint(action="get") 读取用户可能手工修改过的最新版本，然后只扩充栏目「${section.title}」（key=${section.key}）：补充更具体、可验收、彼此不重复的条目，保留现有条目和用户修改。最后调用 blueprint(action="update") 保存完整蓝图，不要删除其他栏目、图解或模块。完成后用一句话说明新增了什么。`
     }
@@ -2859,7 +2874,10 @@ window.__ModuleLoader__.load({
             h('label', { className: 'bp-check' },
               h('input', { type: 'checkbox', checked: includeDescendants, onChange: event => setIncludeDescendants(event.target.checked) }),
               t('includeDescendants')),
-            foreignCount > 0 ? h('div', { className: 'bp-layer-gap' }, t('layerGap', { count: foreignCount })) : null)),
+            foreignCount > 0 ? h('div', { className: 'bp-layer-gap' }, t('layerGap', { count: foreignCount })) : null,
+            bp.layers.length <= 1 && bp.modules.length >= 6 ? h('div', { className: 'bp-layer-nudge' },
+              h('div', null, t('layerNudge', { count: bp.modules.length })),
+              h('button', { type: 'button', onClick: () => set({ panel: 'board' }) }, t('layerNudgeAction'))) : null)),
         h('div', { className: 'bp-sections' },
           visibleSections.map(entry => h(Section, {
             key: entry.section.key, section: entry.section, store,
@@ -6713,6 +6731,8 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-layer-summary{margin-top:6px;font-size:10px;line-height:1.5;color:var(--dsw-alias-label-secondary);display:flex;flex-direction:column;gap:3px}
 .bp-layer-summary .bp-check{font-size:10px;color:var(--dsw-alias-label-secondary)}
 .bp-layer-gap{color:var(--dsw-alias-state-warn-primary)}
+.bp-layer-nudge{margin-top:8px;padding:8px 9px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary) 30%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 8%,transparent);font-size:11px;line-height:1.5;color:var(--dsw-alias-label-secondary)}
+.bp-layer-nudge button{margin-top:6px;border:0;background:transparent;color:var(--dsw-alias-brand-primary);font:inherit;font-weight:650;padding:0;cursor:pointer}
 .bp-item-module{flex:0 0 auto;max-width:74px;margin-top:4px;padding:0 4px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:9px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bp-tab.missing{opacity:.55;border-style:dashed}
 .bp-tab.missing:hover{opacity:.85}

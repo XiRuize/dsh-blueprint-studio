@@ -2,6 +2,18 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.6.0] — 2026-11-09
+
+### Added
+
+- **Complex-task layering contract.** The system and generation prompts now require at least two layers when a task has ≥6 modules, spans ≥3 domains, contains multiple adapters/external systems, or needs two or more parallel subagents. Root layer A keeps the overview; child layers carry interfaces, data flows and sequences; every child layer must explicitly provide `<letter>:module` and, where relevant, `<letter>:dfd` / `<letter>:sequence`.
+- **Flat-blueprint check.** `layer-flat-complex` warns when a blueprint has ≥6 modules but no child layers; `layer-child-diagram-missing` warns when a child layer has modules but no diagram of its own.
+- **In-studio nudge.** A complex single-layer blueprint shows a hint in the requirement panel with a jump to the module panel, so the missing decomposition is visible before confirmation.
+
+### Changed
+
+- The generation prompt now asks for 3–8 dispatchable leaf modules and explains when a child layer is mandatory instead of treating layers as optional decoration.
+
 ## [0.5.2] — 2026-11-09
 
 ### Fixed

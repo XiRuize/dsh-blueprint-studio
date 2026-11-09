@@ -696,7 +696,18 @@ export function apply(ctx, rawConfig) {
 可用节点类型：${NODE_TYPES.join('、')}。固定栏目：${SECTION_DEFS.map(item => item.key).join('、')}。固定图解：${DIAGRAM_DEFS.map(item => item.key).join('、')}。
 蓝图由插件自动保存到工作区并自动归档历史版本；不要用 write/edit 手工改蓝图文件。
 
-${PLAN_MODE_PROMPT}`,
+${PLAN_MODE_PROMPT}
+
+## 复杂任务分层要求
+
+在复杂任务中不要只画 A 层：
+
+- 复杂度触发（满足任一）：模块数 ≥6、跨 3 个以上领域、存在多个适配器/外部系统、预计需要 2 个以上子代理并行。
+- 触发后必须设计至少 2 层：根层 A + 一个或多个子层 B/C；子层用 parentModuleId 指向根层的父模块。
+- 根层 A 只保留总览模块图和必要的用例概览；具体接口、数据流、时序、类/状态放到对应子层。
+- 每个子层必须显式提供 diagrams，至少 letter:module；涉及接口时补 letter:dfd 或 letter:sequence。只写 layers/modules 而不写子层图，视为未完成。
+- 子层模块 code 使用 B1/C1；父模块只负责汇总，叶子模块才分派。
+- 简单任务确实不需要子层时，在 summary/risks 中写明原因，不要静默只做 A 层。`,
         }),
       )
     }
