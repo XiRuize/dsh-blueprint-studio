@@ -2,6 +2,12 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.5.2] — 2026-11-09
+
+### Fixed
+
+- **State diagrams no longer stretch into one very wide horizontal row.** State ranks are now laid out top-to-bottom with a compact rank gap; states in the same rank fan out horizontally. An eight-state chain stays under 500 px wide and under 1000 px tall instead of spanning 2,000+ px horizontally.
+
 ## [0.5.1] — 2026-11-09
 
 ### Added

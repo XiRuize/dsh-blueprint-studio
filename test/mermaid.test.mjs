@@ -345,6 +345,29 @@ test('flowchart layout is deterministic, top-down and branches decisions', () =>
   assert.deepEqual(diagram.nodes.map(node => [node.id, node.x, node.y, node.w, node.h]), snapshot)
 })
 
+test('state layout is compact and vertical instead of one long horizontal row', () => {
+  const diagram = {
+    key: 'state',
+    type: 'state',
+    nodes: [
+      { id: 's0', type: 'initial', label: 'idle' },
+      ...Array.from({ length: 7 }, (_, index) => ({ id: `s${index + 1}`, type: 'state', label: `state-${index + 1}` })),
+      { id: 's8', type: 'final', label: 'done' },
+    ],
+    edges: Array.from({ length: 8 }, (_, index) => ({ from: `s${index}`, to: `s${index + 1}` })),
+  }
+  layoutDiagram(diagram)
+  const xs = diagram.nodes.map(node => node.x)
+  const ys = diagram.nodes.map(node => node.y)
+  const width = Math.max(...diagram.nodes.map(node => node.x + node.w)) - Math.min(...xs)
+  const height = Math.max(...diagram.nodes.map(node => node.y + node.h)) - Math.min(...ys)
+  assert.ok(width < 500, `state chain should not be horizontally stretched: ${width}px`)
+  assert.ok(height < 1000, `state chain should stay compact: ${height}px`)
+  for (let index = 1; index < diagram.nodes.length; index += 1) {
+    assert.ok(diagram.nodes[index].y > diagram.nodes[index - 1].y)
+  }
+})
+
 test('flowchart layout survives cycles and keeps existing coordinates', () => {
   const cycle = {
     key: 'flowchart', type: 'flowchart',

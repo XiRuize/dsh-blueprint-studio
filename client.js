@@ -2173,14 +2173,15 @@ window.__ModuleLoader__.load({
         }
         for (const [depth, list] of columns) {
           list.sort((left, right) => (typeOrder[left.type] ?? 9) - (typeOrder[right.type] ?? 9))
-          let y = 110
+          let x = 90
+          const y = 110 + depth * 96
           for (const node of list) {
             const size = sizeOf(node)
-            node.x = 90 + depth * 270
+            node.x = x
             node.y = y
             node.w = size.w
             node.h = size.h
-            y += size.h + 56
+            x += size.w + 56
           }
         }
       } else {
