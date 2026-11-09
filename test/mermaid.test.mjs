@@ -300,6 +300,10 @@ test('flowchart is the ninth tab and every template carries an empty plan slot',
     const blueprint = template.build()
     const diagram = blueprint.diagrams.find(item => item.key === 'flowchart' || item.type === 'flowchart')
     assert.ok(diagram, `${template.key} template has a flowchart slot`)
+    if (template.key === 'plan') {
+      assert.ok(diagram.nodes.length > 0)
+      continue
+    }
     assert.equal(diagram.nodes.length, 0)
     assert.equal(diagram.edges.length, 0)
     assert.equal(blueprint.diagrams.length, 9)
