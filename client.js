@@ -81,7 +81,7 @@ window.__ModuleLoader__.load({
       importSourceMermaid: 'Mermaid', importDetected: 'Detected: {kind}',
       importReplace: 'Replace current diagram? Choose Cancel to append instead.', exportDrawio: 'draw.io XML',
       importTitle: 'Import diagram', importHint: 'Paste draw.io XML or Mermaid, or choose a file. draw.io vertices/edges map to the current diagram; Mermaid maps to the matching diagram automatically.',
-      importMermaidHint: 'Mermaid support: classDiagram, stateDiagram-v2, and flowchart TD/LR. Comments and style directives are ignored. Limits: 200 KB input and 200 nodes.',
+      importMermaidHint: 'Mermaid support: classDiagram, stateDiagram-v2, and flowchart TD/LR (flowcharts import into the plan flowchart). Comments and style directives are ignored. Limits: 200 KB input and 200 nodes.',
       importPlaceholder: '<mxfile>…</mxfile>', importAutoPlaceholder: 'Paste draw.io XML (<mxfile>…</mxfile>) or Mermaid such as classDiagram / stateDiagram-v2 / flowchart.',
       importMermaidPlaceholder: 'classDiagram\n  class Animal {\n    +String name\n    +move() void\n  }\n  class Dog\n  Animal <|-- Dog',
       importSuccess: 'Imported {nodes} nodes and {edges} edges into {diagram}',
@@ -111,7 +111,7 @@ window.__ModuleLoader__.load({
       diffShowDetails: 'Show details', diffHideDetails: 'Hide details',
       diagrams: 'Diagrams', undo: 'Undo', redo: 'Redo', undoDone: 'Undid the last blueprint change', redoDone: 'Redid the blueprint change',
       backToStart: 'Welcome', continueEditing: 'Continue editing current blueprint', historyHint: 'Ctrl+Z / Ctrl+Y',
-      classDiagram: 'Class diagram', stateDiagram: 'State diagram', classNode: 'Class', interface: 'Interface',
+      classDiagram: 'Class diagram', stateDiagram: 'State diagram', flowchart: 'Plan flowchart', classNode: 'Class', interface: 'Interface',
       stateNode: 'State', initial: 'Initial', final: 'Final', choice: 'Choice', members: 'Members',
       field: 'Field', method: 'Method', addMethod: 'Add method', transition: 'Transition',
       extends: 'Extends', implements: 'Implements', association: 'Association', dependency: 'Dependency',
@@ -209,7 +209,7 @@ window.__ModuleLoader__.load({
       importSourceMermaid: 'Mermaid', importDetected: '识别为：{kind}',
       importReplace: '替换当前图？选择“取消”则追加。', exportDrawio: 'draw.io XML',
       importTitle: '导入图', importHint: '粘贴 draw.io XML 或 Mermaid，也可选择文件；draw.io 会映射到当前图，Mermaid 会按图类型自动选择目标图。',
-      importMermaidHint: 'Mermaid 支持：classDiagram、stateDiagram-v2、flowchart TD/LR。注释与样式指令会被忽略。限制：输入 200KB、节点 200 个。',
+      importMermaidHint: 'Mermaid 支持：classDiagram、stateDiagram-v2、flowchart TD/LR（flowchart 导入到计划流程图）。注释与样式指令会被忽略。限制：输入 200KB、节点 200 个。',
       importPlaceholder: '<mxfile>…</mxfile>', importAutoPlaceholder: '粘贴 draw.io XML（<mxfile>…</mxfile>）或 Mermaid，例如 classDiagram / stateDiagram-v2 / flowchart。',
       importMermaidPlaceholder: 'classDiagram\n  class Animal {\n    +String name\n    +move() void\n  }\n  class Dog\n  Animal <|-- Dog',
       importSuccess: '已导入 {nodes} 个节点、{edges} 条连线到「{diagram}」',
@@ -239,7 +239,7 @@ window.__ModuleLoader__.load({
       diffShowDetails: '展开', diffHideDetails: '收起',
       diagrams: '图解', undo: '撤销', redo: '重做', undoDone: '已撤销上一步蓝图修改', redoDone: '已重做蓝图修改',
       backToStart: '初始页', continueEditing: '继续编辑当前蓝图', historyHint: 'Ctrl+Z / Ctrl+Y',
-      classDiagram: '类图', stateDiagram: '状态图', classNode: '类', interface: '接口',
+      classDiagram: '类图', stateDiagram: '状态图', flowchart: '计划流程图', classNode: '类', interface: '接口',
       stateNode: '状态', initial: '初始', final: '结束', choice: '选择', members: '成员',
       field: '字段', method: '方法', addMethod: '新增方法', transition: '转移',
       extends: '继承', implements: '实现', association: '关联', dependency: '依赖',
@@ -4452,6 +4452,85 @@ window.__ModuleLoader__.load({
       download(`${bp.id ?? 'blueprint'}.json`, JSON.stringify(bp, null, 2), 'application/json;charset=utf-8')
     }
 
+    // Numeric entities keep quotes/brackets out of Mermaid syntax while still
+    // round-tripping to the exact label text on import.
+    function mermaidFlowText(value) {
+      return String(value ?? '')
+        .replace(/#/g, '#35;')
+        .replace(/"/g, '#34;')
+        .replace(/\[/g, '#91;')
+        .replace(/\]/g, '#93;')
+        .replace(/\{/g, '#123;')
+        .replace(/\}/g, '#125;')
+        .replace(/\(/g, '#40;')
+        .replace(/\)/g, '#41;')
+        .replace(/\|/g, '#124;')
+        .replace(/\r?\n/g, ' ')
+        .trim()
+    }
+
+    function mermaidFlowId(value, used) {
+      let base = String(value ?? '').replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^[-.]+|[-.]+$/g, '')
+      if (base === '') base = 'node'
+      if (!/^[A-Za-z_]/.test(base)) base = `n_${base}`
+      let candidate = base
+      let index = 2
+      while (used.has(candidate)) candidate = `${base}_${index++}`
+      used.add(candidate)
+      return candidate
+    }
+
+    function flowchartMermaidSource(diagram) {
+      const nodes = Array.isArray(diagram?.nodes) ? diagram.nodes : []
+      const groups = nodes.filter(node => node.type === 'group')
+      const groupIds = new Set(groups.map(node => node.id))
+      const used = new Set()
+      const ids = new Map()
+      const idOf = node => {
+        if (!ids.has(node.id)) ids.set(node.id, mermaidFlowId(node.id, used))
+        return ids.get(node.id)
+      }
+      const lines = ['flowchart TD']
+      for (const node of nodes) {
+        if (node.type === 'note') lines.push(`  %% note ${mermaidFlowText(node.label).replace(/\r?\n/g, ' ')}`)
+      }
+      const children = new Map()
+      const loose = []
+      for (const node of nodes) {
+        if (node.type === 'group') continue
+        if (node.parentGroup !== undefined && groupIds.has(node.parentGroup)) {
+          if (!children.has(node.parentGroup)) children.set(node.parentGroup, [])
+          children.get(node.parentGroup).push(node)
+        } else {
+          loose.push(node)
+        }
+      }
+      const emit = node => {
+        const rawLabel = node.type === 'decision'
+          ? node.label ?? node.condition
+          : node.label ?? node.condition ?? node.id
+        const label = mermaidFlowText(rawLabel ?? node.id)
+        if (node.type === 'start' || node.type === 'end') lines.push(`  ${idOf(node)}(["${label}"])`)
+        else if (node.type === 'decision') lines.push(`  ${idOf(node)}{"${label}"}`)
+        else lines.push(`  ${idOf(node)}["${label}"]`)
+      }
+      for (const node of loose) emit(node)
+      for (const group of groups) {
+        lines.push(`  subgraph ${idOf(group)}["${mermaidFlowText(group.label || group.id)}"]`)
+        for (const node of children.get(group.id) ?? []) emit(node)
+        lines.push('  end')
+      }
+      for (const edge of Array.isArray(diagram?.edges) ? diagram.edges : []) {
+        const from = ids.get(edge.from)
+        const to = ids.get(edge.to)
+        if (from === undefined || to === undefined) continue
+        const label = mermaidFlowText(edge.label ?? '')
+        const arrow = edge.kind === 'dashed' ? '-.->' : '-->'
+        lines.push(`  ${from} ${arrow}${label === '' ? '' : `|${label}|`} ${to}`)
+      }
+      return lines.join('\n')
+    }
+
     function exportMermaid() {
       const bp = state.bp
       if (bp === null) return
@@ -4516,6 +4595,10 @@ window.__ModuleLoader__.load({
             lines.push(`  ${fromToken} --> ${toToken}${label}`)
           }
           parts.push(`%% ${diagram.title}\n${lines.join('\n')}`)
+          continue
+        }
+        if (diagramType === 'flowchart') {
+          parts.push(`%% ${diagram.title}\n${flowchartMermaidSource(diagram)}`)
           continue
         }
         const header = diagramType === 'module' || diagramType === 'c4' ? 'graph TD' : 'flowchart LR'
@@ -4707,12 +4790,21 @@ window.__ModuleLoader__.load({
         : 'mermaid'
     }
 
+    function decodeMermaidEntities(value) {
+      return String(value ?? '')
+        .replace(/#quot;/gi, '"')
+        .replace(/#(\d+);/g, (whole, code) => {
+          const point = Number(code)
+          return Number.isFinite(point) && point >= 0 && point <= 0x10ffff ? String.fromCodePoint(point) : whole
+        })
+    }
+
     function cleanMermaidLabel(value) {
       let label = String(value ?? '').trim()
       if ((label.startsWith('"') && label.endsWith('"')) || (label.startsWith("'") && label.endsWith("'"))) {
         label = label.slice(1, -1)
       }
-      return label.replace(/\\"/g, '"').trim()
+      return decodeMermaidEntities(label.replace(/\\"/g, '"')).trim()
     }
 
     function cleanMermaidToken(value) {
@@ -4953,17 +5045,46 @@ window.__ModuleLoader__.load({
       return { nodes, edges }
     }
 
-    function flowNodeLabel(shape) {
-      const label = String(shape ?? '')
-        .replace(/^[\[({<>/]+/, '')
-        .replace(/[\]})>/]+$/, '')
-        .trim()
-      return cleanMermaidLabel(label)
-    }
+    const FLOWCHART_END_LABEL = /^(?:结束|完成|终止|end|done|finish|finished|complete|completed)$/i
 
     function firstFlowToken(value) {
       const token = String(value ?? '').trim().split(/\s+/).filter(Boolean)[0] ?? ''
       return cleanMermaidToken(token)
+    }
+
+    // A stadium is the only Mermaid shape that can represent start/end, so when
+    // the label does not say "done" it is treated as the start of the flow.
+    function flowTerminalType(label) {
+      return FLOWCHART_END_LABEL.test(String(label ?? '').trim()) ? 'end' : 'start'
+    }
+
+    function flowShapeDescriptor(shape) {
+      if (shape.startsWith('([') && shape.endsWith('])')) return { kind: 'stadium', label: shape.slice(2, -2) }
+      if (shape.startsWith('[[') && shape.endsWith(']]')) return { unsupported: 'subroutine' }
+      if (shape.startsWith('[(') && shape.endsWith(')]')) return { unsupported: 'cylinder' }
+      if ((shape.startsWith('[/') && shape.endsWith('/]')) || (shape.startsWith('[\\') && shape.endsWith('\\]'))) {
+        return { unsupported: 'parallelogram' }
+      }
+      if (shape.startsWith('>') && shape.endsWith(']')) return { unsupported: 'asymmetric' }
+      if (shape.startsWith('[') && shape.endsWith(']')) return { kind: 'process', label: shape.slice(1, -1) }
+      if (shape.startsWith('((') && shape.endsWith('))')) return { unsupported: 'circle' }
+      if (shape.startsWith('(') && shape.endsWith(')')) return { kind: 'process', label: shape.slice(1, -1) }
+      if (shape.startsWith('{{') && shape.endsWith('}}')) return { unsupported: 'hexagon' }
+      if (shape.startsWith('{') && shape.endsWith('}')) return { kind: 'decision', label: shape.slice(1, -1) }
+      return { unsupported: 'unknown' }
+    }
+
+    function flowGroupSpec(raw) {
+      const value = String(raw ?? '').trim()
+      const explicit = /^([A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff.-]*)\s*\[([\s\S]*)\]$/.exec(value)
+      if (explicit !== null) {
+        return { token: cleanMermaidToken(explicit[1]), label: cleanMermaidLabel(explicit[2]) }
+      }
+      return { token: cleanMermaidToken(value), label: cleanMermaidLabel(value) }
+    }
+
+    function isFlowchartDecoration(line) {
+      return /^(?:classDef\b|style\b|linkStyle\b|click\b|cssClass\b|direction\b|accTitle\b|accDescr\b|note\b|link\b|callback\b|title\b|config\b)/.test(line)
     }
 
     function parseFlowchart(lines) {
@@ -4971,58 +5092,101 @@ window.__ModuleLoader__.load({
       const edges = []
       const byToken = new Map()
       const used = new Set()
-      const ensure = (token, label) => {
+      const groupStack = []
+      const ensure = (token, label, kind, parentGroup) => {
         const key = cleanMermaidToken(token)
         if (key === '') return undefined
         const found = byToken.get(key)
         if (found !== undefined) {
-          if (label !== undefined && label !== '') found.label = cleanMermaidLabel(label)
+          if (found.type !== 'group') {
+            if (label !== undefined && label !== '') found.label = cleanMermaidLabel(label)
+            if (kind !== undefined) {
+              found.type = kind
+              if (kind === 'decision') found.condition = found.label
+              else if (found.condition !== undefined) delete found.condition
+            }
+            if (parentGroup !== undefined && found.parentGroup === undefined) found.parentGroup = parentGroup
+          }
           return found
         }
         if (nodes.length >= MAX_IMPORT_NODES) throw new ImportFailure('too-many-nodes')
-        const node = { id: mermaidNodeId(key, used), type: 'usecase', label: label === undefined || label === '' ? key : cleanMermaidLabel(label) }
+        const labelText = label === undefined || label === '' ? key : cleanMermaidLabel(label)
+        const node = { id: mermaidNodeId(key, used), type: kind ?? 'process', label: labelText }
+        if (node.type === 'decision') node.condition = labelText
+        if (parentGroup !== undefined) node.parentGroup = parentGroup
         nodes.push(node)
         byToken.set(key, node)
         return node
       }
-      const definition = /([A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff.-]*)\s*(\[\[[\s\S]*?\]\]|\[\([\s\S]*?\)\]|\[[\s\S]*?\]|\(\([\s\S]*?\)\)|\([\s\S]*?\)|\{\{[\s\S]*?\}\}|\{[\s\S]*?\}|>[\s\S]*?\]|\/[\s\S]*?\/)/g
+      const definition = /([A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff.-]*)\s*(\[\[[\s\S]*?\]\]|\[\([\s\S]*?\)\]|\(\[(?:"(?:\\.|[^"\\])*"|[^\]\n]*)\]\)|\[\/[\s\S]*?\/\]|\[\\[\s\S]*?\\\]|\[(?:"(?:\\.|[^"\\])*"|[^\]\n]*)\]|\(\([\s\S]*?\)\)|\((?:"(?:\\.|[^"\\])*"|[^)\n]*)\)|\{\{(?:"(?:\\.|[^"\\])*"|[^}\n]*)\}\}|\{(?:"(?:\\.|[^"\\])*"|[^}\n]*)\}|>(?:"(?:\\.|[^"\\])*"|[^\]\n]*)\])/g
       for (const raw of lines) {
         let line = String(raw ?? '').trim()
         if (line === '') continue
-        if (/^(?:subgraph|end)\b/.test(line)) continue
-        if (isMermaidDecoration(line)) continue
+        if (/^end\s*;?\s*$/.test(line)) {
+          if (groupStack.length > 0) groupStack.pop()
+          continue
+        }
+        if (/^subgraph\b/.test(line)) {
+          if (groupStack.length > 0) throw new ImportFailure('nested-subgraph', line.slice(0, 80))
+          const spec = flowGroupSpec(line.replace(/^subgraph\b\s*/, ''))
+          const label = spec.label === '' ? spec.token : spec.label
+          if (label === '') throw new ImportFailure('empty-subgraph', line.slice(0, 80))
+          if (nodes.length >= MAX_IMPORT_NODES) throw new ImportFailure('too-many-nodes')
+          const token = spec.token === '' ? label : spec.token
+          const group = { id: mermaidNodeId(token, used), type: 'group', label }
+          nodes.push(group)
+          byToken.set(cleanMermaidToken(token), group)
+          groupStack.push(group)
+          continue
+        }
+        if (isFlowchartDecoration(line)) continue
+        const parentGroup = groupStack.length > 0 ? groupStack[groupStack.length - 1].id : undefined
         line = line.replace(definition, (whole, token, shape) => {
-          ensure(token, flowNodeLabel(shape))
+          const descriptor = flowShapeDescriptor(shape)
+          if (descriptor.unsupported !== undefined) {
+            throw new ImportFailure('unsupported-shape', `${descriptor.unsupported} shape near "${line.slice(0, 60)}"`)
+          }
+          const label = cleanMermaidLabel(descriptor.label)
+          ensure(token, label, descriptor.kind === 'stadium' ? flowTerminalType(label) : descriptor.kind, parentGroup)
           return token
         })
         line = line.replace(/;+\s*$/, '')
-        line = line.replace(/--\s*([^>\n]+?)\s*-->/g, (match, label) => ` -->|${String(label).trim().replace(/\|/g, ' ')}| `)
-        line = line.replace(/-\.->|==>|-->|--x|--o|---|--/g, ' --> ')
-        const chunks = line.split('-->')
-        if (chunks.length < 2) {
+        if (line === '') continue
+        // Inline edge labels: "A -- yes --> B" and "A -. retry .-> B".
+        line = line.replace(/--\s+([^>\n]+?)\s+-->/g, (whole, label) => `-->|${String(label).trim().replace(/\|/g, ' ')}|`)
+        line = line.replace(/-\.\s+([^.\n]+?)\s+\.->/g, (whole, label) => `-.->|${String(label).trim().replace(/\|/g, ' ')}|`)
+        line = line.replace(/==\s+([^=\n]+?)\s+==>/g, (whole, label) => `==>|${String(label).trim().replace(/\|/g, ' ')}|`)
+        const connectors = []
+        const connectorPattern = /(-\.->|-->|---|==>|--x|--o)/g
+        let match
+        while ((match = connectorPattern.exec(line)) !== null) {
+          const info = { kind: match[1] === '-.->' ? 'dashed' : 'flow', end: match.index + match[0].length, start: match.index, label: '' }
+          const pipe = /^\s*\|([^|]*)\|/.exec(line.slice(info.end))
+          if (pipe !== null) {
+            info.label = cleanMermaidLabel(pipe[1])
+            info.end += pipe[0].length
+          }
+          connectors.push(info)
+        }
+        if (connectors.length === 0) {
           const token = firstFlowToken(line)
-          if (/^[A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff.-]*$/.test(token)) ensure(token)
+          if (/^[A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff.-]*$/.test(token)) ensure(token, undefined, undefined, parentGroup)
           continue
         }
-        let previous = firstFlowToken(chunks[0])
-        if (previous === '') continue
-        ensure(previous)
-        for (let index = 1; index < chunks.length; index += 1) {
-          let segment = chunks[index].trim()
-          let label = ''
-          const labeled = /^\|([^|]*)\|/.exec(segment)
-          if (labeled !== null) {
-            label = labeled[1].trim()
-            segment = segment.slice(labeled[0].length).trim()
+        const endpoints = [line.slice(0, connectors[0].start)]
+        for (let index = 0; index < connectors.length; index += 1) {
+          const end = index + 1 < connectors.length ? connectors[index + 1].start : line.length
+          endpoints.push(line.slice(connectors[index].end, end))
+        }
+        for (let index = 0; index < connectors.length; index += 1) {
+          const from = ensure(firstFlowToken(endpoints[index]), undefined, undefined, parentGroup)
+          const to = ensure(firstFlowToken(endpoints[index + 1]), undefined, undefined, parentGroup)
+          if (from !== undefined && to !== undefined) {
+            pushMermaidEdge(edges, from.id, to.id, connectors[index].kind, connectors[index].label)
           }
-          const token = firstFlowToken(segment)
-          if (token === '') continue
-          const from = ensure(previous)
-          const to = ensure(token)
-          if (from !== undefined && to !== undefined) pushMermaidEdge(edges, from.id, to.id, 'association', label)
-          previous = token
         }
       }
+      if (groupStack.length > 0) throw new ImportFailure('unclosed-subgraph', groupStack[groupStack.length - 1].label)
       return { nodes, edges }
     }
 
@@ -5052,7 +5216,7 @@ window.__ModuleLoader__.load({
       if (parsed.edges.length > 4000) parsed.edges = parsed.edges.slice(0, 4000)
       return {
         kind,
-        diagramKey: kind === 'class' ? 'class' : kind === 'state' ? 'state' : 'usecase',
+        diagramKey: kind === 'class' ? 'class' : kind === 'state' ? 'state' : 'flowchart',
         nodes: parsed.nodes,
         edges: parsed.edges,
       }
@@ -5885,6 +6049,7 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
         MAX_IMPORT_NODES,
         detectImportSource,
         ensureLayout,
+        flowchartMermaidSource,
         importErrorMessage,
         layoutDiagram,
         parseMermaid,
