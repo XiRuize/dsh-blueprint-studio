@@ -68,6 +68,8 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
 - **Exports** — JSON, Mermaid (flowchart, sequence, ER), SVG, draw.io XML.
 - **Bilingual UI** — English and 简体中文.
 
+![Plan flowchart UI](docs/plan-mode.png)
+
 ![Layered module scopes and checks panel](docs/layers.png)
 
 ## Install
