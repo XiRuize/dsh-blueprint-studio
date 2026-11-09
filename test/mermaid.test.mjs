@@ -125,7 +125,10 @@ test('maps flowcharts to plan-flowchart node types and keeps edge labels', () =>
 `)
   assert.equal(parsed.kind, 'flowchart')
   assert.equal(parsed.diagramKey, 'flowchart')
-  assert.deepEqual(parsed.nodes.map(node => node.label).sort(), ['Dashboard', 'E', 'Logged in?', 'Login', 'User opens page'])
+  const labels = parsed.nodes.map(node => node.label)
+  for (const label of ['Dashboard', 'E', 'Logged in?', 'Login', 'User opens page']) assert.ok(labels.includes(label))
+  assert.ok(labels.includes('开始'))
+  assert.ok(labels.includes('结束'))
   const byLabel = new Map(parsed.nodes.map(node => [node.label, node]))
   assert.equal(byLabel.get('User opens page').type, 'process')
   assert.equal(byLabel.get('Logged in?').type, 'decision')
@@ -145,6 +148,10 @@ test('maps flowcharts to plan-flowchart node types and keeps edge labels', () =>
     { from: 'Logged in?', to: 'Dashboard', label: 'yes', kind: 'flow' },
     { from: 'Logged in?', to: 'Login', label: 'no', kind: 'flow' },
     { from: 'User opens page', to: 'E', label: 'optional', kind: 'flow' },
+    { from: '开始', to: 'User opens page', label: undefined, kind: 'flow' },
+    { from: 'Dashboard', to: '结束', label: undefined, kind: 'flow' },
+    { from: 'Login', to: '结束', label: undefined, kind: 'flow' },
+    { from: 'E', to: '结束', label: undefined, kind: 'flow' },
   ])
 })
 

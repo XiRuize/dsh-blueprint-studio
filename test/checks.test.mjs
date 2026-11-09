@@ -421,3 +421,20 @@ test('the rule catalog is unique, documented and severity-consistent', () => {
   assert.ok(['edge-broken', 'module-dep-cycle', 'requirement-unassigned', 'module-acceptance-missing']
     .every(code => codes.includes(code)))
 })
+
+test('group and note containers are not reported as isolated nodes', () => {
+  const blueprint = normalizeBlueprint({
+    diagrams: [{
+      key: 'flowchart',
+      nodes: [
+        { id: 'group-1', type: 'group', label: 'Phase' },
+        { id: 'note-1', type: 'note', label: 'Remember' },
+        { id: 'process-1', type: 'process', label: 'Lonely step' },
+      ],
+      edges: [],
+    }],
+  }, undefined, { sessionId: 's' })
+  const result = analyzeBlueprint(blueprint)
+  const isolated = result.issues.filter(issue => issue.code === 'node-isolated')
+  assert.deepEqual(isolated.map(issue => issue.details.nodeId), ['process-1'])
+})

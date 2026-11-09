@@ -92,6 +92,8 @@ test('maps solid, plain and dashed edges and keeps every label', () => {
     { from: 'Four', to: 'Five', label: 'retry', kind: 'dashed' },
     { from: 'Five', to: 'Six', label: 'done', kind: 'flow' },
     { from: 'Six', to: 'Seven', label: 'with spaces', kind: 'flow' },
+    { from: '开始', to: 'One', label: undefined, kind: 'flow' },
+    { from: 'Seven', to: '结束', label: undefined, kind: 'flow' },
   ])
 })
 
@@ -115,7 +117,7 @@ test('creates a group node and parentGroup for each one-level subgraph', () => {
   assert.equal(byLabel.get('路由').parentGroup, front.id)
   assert.equal(byLabel.get('API').parentGroup, back.id)
   assert.equal(byLabel.get('验收').parentGroup, undefined)
-  assert.equal(parsed.edges.length, 2)
+  assert.equal(parsed.edges.length, 6)
 })
 
 test('rejects a second nested subgraph level and unclosed subgraphs', () => {
@@ -147,7 +149,11 @@ test('keeps quoted, escaped and bracketed labels on import', () => {
   const parsed = parse(String.raw`flowchart TD
   A["带 \"引号\" 和 [括号] 的标签"] --> B["另一个 (标签)"]
 `)
-  assert.deepEqual(parsed.nodes.map(node => node.label).sort(), ['另一个 (标签)', '带 "引号" 和 [括号] 的标签'])
+  const labels = parsed.nodes.map(node => node.label)
+  assert.ok(labels.includes('另一个 (标签)'))
+  assert.ok(labels.includes('带 "引号" 和 [括号] 的标签'))
+  assert.ok(labels.includes('开始'))
+  assert.ok(labels.includes('结束'))
 })
 
 test('exports a flowchart TD with subgraphs, stadiums, diamonds, labels and dashes', () => {
@@ -252,7 +258,7 @@ test('a flowchart no longer imports into the legacy usecase diagram', () => {
   const parsed = parse('flowchart TD\n A[步骤] --> B([完成])')
   assert.equal(parsed.diagramKey, 'flowchart')
   assert.notEqual(parsed.diagramKey, 'usecase')
-  assert.deepEqual(parsed.nodes.map(node => node.type).sort(), ['end', 'process'])
+  assert.deepEqual(parsed.nodes.map(node => node.type).sort(), ['end', 'process', 'start'])
 
   const merged = normalizeBlueprint({
     layers: [{ letter: 'A' }],
@@ -260,7 +266,7 @@ test('a flowchart no longer imports into the legacy usecase diagram', () => {
   }, undefined, { sessionId: 's' })
   const saved = merged.diagrams.find(diagram => diagram.key === 'flowchart')
   assert.equal(saved.type, 'flowchart')
-  assert.deepEqual(saved.nodes.map(node => node.type).sort(), ['end', 'process'])
+  assert.deepEqual(saved.nodes.map(node => node.type).sort(), ['end', 'process', 'start'])
 })
 
 test('note exports as a comment only and never as a process rectangle', () => {

@@ -2,6 +2,17 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.5.1] — 2026-11-09
+
+### Added
+
+- **Explicit UI language switch.** The header now has a `中 / EN` control. The selected language is stored in `localStorage` and survives closing/reopening the studio; without a stored preference the host locale is still followed.
+
+### Fixed
+
+- `group` and `note` nodes no longer produce `node-isolated` warnings; group containers legitimately have no incoming/outgoing edges.
+- Mermaid flowchart import now infers missing terminals: when no `start`/`end` nodes exist, synthetic capsules are added around the root and leaf steps so imported plans do not fail `plan-terminal-missing`.
+
 ## [0.5.0] — 2026-11-09
 
 ### Added

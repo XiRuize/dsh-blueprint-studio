@@ -95,6 +95,7 @@ window.__ModuleLoader__.load({
       importErrorUnclosedSubgraph: 'A subgraph is not closed with end.',
       importErrorEmptySubgraph: 'A subgraph needs a title.',
       importErrorUnsupportedShape: 'This Mermaid node shape is not supported.',
+      language: 'Language',
       replaceDiagram: 'Replace current diagram', appendDiagram: 'Append to current diagram', importAction: 'Import',
       diffBase: 'From', diffTarget: 'To', diffEmpty: 'No semantic changes between these versions.',
       diffAdded: 'Added', diffRemoved: 'Removed', diffModified: 'Modified',
@@ -232,6 +233,7 @@ window.__ModuleLoader__.load({
       importErrorUnclosedSubgraph: 'subgraph 没有用 end 闭合。',
       importErrorEmptySubgraph: 'subgraph 缺少标题。',
       importErrorUnsupportedShape: '不支持这种 Mermaid 节点形状。',
+      language: '语言',
       replaceDiagram: '替换当前图', appendDiagram: '追加到当前图', importAction: '导入',
       diffBase: '基准', diffTarget: '对比', diffEmpty: '这两个版本之间没有语义变化。',
       diffAdded: '新增', diffRemoved: '删除', diffModified: '修改',
@@ -285,6 +287,30 @@ window.__ModuleLoader__.load({
     let ctxRef = null
     let translate = key => (ZH[key] ?? EN[key] ?? key)
 
+    const UI_LANGUAGE_KEY = 'blueprint-studio.ui-language'
+    function readStoredLanguage() {
+      try {
+        const value = window.localStorage?.getItem(UI_LANGUAGE_KEY)
+        return value === 'zh' || value === 'en' ? value : null
+      } catch {
+        return null
+      }
+    }
+    let uiLanguage = readStoredLanguage()
+    let languageLocked = uiLanguage !== null
+    function applyUiLanguage(language) {
+      uiLanguage = language === 'en' ? 'en' : 'zh'
+      dict = uiLanguage === 'zh' ? ZH : EN
+      translate = key => dict[key] ?? EN[key] ?? key
+      state = Object.assign({}, state, { lang: uiLanguage })
+    }
+    function setUiLanguage(language) {
+      languageLocked = true
+      applyUiLanguage(language)
+      try { window.localStorage?.setItem(UI_LANGUAGE_KEY, uiLanguage) } catch {}
+      for (const listener of listeners) listener()
+    }
+
     function currentLocaleId() {
       try {
         const snapshot = ctxRef?.locale?.getLocale?.()
@@ -319,6 +345,7 @@ window.__ModuleLoader__.load({
       error: null,
       toast: null,
       tab: 'usecase',
+      lang: uiLanguage ?? 'zh',
       activeLayerId: 'A',
       selected: null,
       focusRequirement: null,
@@ -5835,6 +5862,43 @@ window.__ModuleLoader__.load({
       return { nodes, edges }
     }
 
+    function completePlanTerminals(parsed) {
+      const nodes = parsed.nodes
+      const edges = parsed.edges
+      const hasStart = nodes.some(node => node.type === 'start')
+      const hasEnd = nodes.some(node => node.type === 'end')
+      if (hasStart && hasEnd) return
+      const isContainer = node => node.type === 'group' || node.type === 'note'
+      const candidates = nodes.filter(node => !isContainer(node))
+      if (candidates.length === 0) return
+      const incoming = new Set(edges.map(edge => edge.to))
+      const outgoing = new Set(edges.map(edge => edge.from))
+      const roots = candidates.filter(node => !incoming.has(node.id))
+      const leaves = candidates.filter(node => !outgoing.has(node.id))
+      const used = new Set(nodes.map(node => node.id))
+      const freshId = base => {
+        let id = base
+        let index = 2
+        while (used.has(id)) id = `${base}-${index++}`
+        used.add(id)
+        return id
+      }
+      if (!hasStart) {
+        const start = freshId('__start')
+        nodes.push({ id: start, type: 'start', label: t('flowStart') })
+        for (const target of roots.length > 0 ? roots : [candidates[0]]) {
+          edges.push({ from: start, to: target.id, kind: 'flow' })
+        }
+      }
+      if (!hasEnd) {
+        const end = freshId('__end')
+        nodes.push({ id: end, type: 'end', label: t('flowEnd') })
+        for (const source of leaves.length > 0 ? leaves : [candidates[candidates.length - 1]]) {
+          edges.push({ from: source.id, to: end, kind: 'flow' })
+        }
+      }
+    }
+
     function parseMermaid(input) {
       const text = String(input ?? '').replace(/^\uFEFF/, '')
       if (utf8Length(text) > MAX_IMPORT_BYTES) throw new ImportFailure('too-large', '200 KB')
@@ -5859,12 +5923,14 @@ window.__ModuleLoader__.load({
       if (parsed.nodes.length === 0) throw new ImportFailure('empty')
       if (parsed.nodes.length > MAX_IMPORT_NODES) throw new ImportFailure('too-many-nodes')
       if (parsed.edges.length > 4000) parsed.edges = parsed.edges.slice(0, 4000)
-      return {
+      const result = {
         kind,
         diagramKey: kind === 'class' ? 'class' : kind === 'state' ? 'state' : 'flowchart',
         nodes: parsed.nodes,
         edges: parsed.edges,
       }
+      if (kind === 'flowchart') completePlanTerminals(result)
+      return result
     }
 
 
@@ -6126,6 +6192,19 @@ window.__ModuleLoader__.load({
             title: bp.modules.length === 0 ? t('dispatchBlocked') : t('confirmHint'),
             onClick: dispatch,
           }, h(Icon, { name: 'send', size: 15 }), bp.status === 'dispatched' ? t('dispatching') : t('confirmDispatch')) : null,
+          h('div', { className: 'bp-lang-switch', role: 'group', 'aria-label': t('language') },
+            h('button', {
+              type: 'button',
+              className: store.lang === 'zh' ? 'active' : '',
+              onClick: () => setUiLanguage('zh'),
+              title: '中文',
+            }, '中'),
+            h('button', {
+              type: 'button',
+              className: store.lang === 'en' ? 'active' : '',
+              onClick: () => setUiLanguage('en'),
+              title: 'English',
+            }, 'EN')),
           button('bp-close', closeStudio, h(Icon, { name: 'close', size: 17 }), { title: t('close') })))
     }
 
@@ -6286,6 +6365,9 @@ window.__ModuleLoader__.load({
 .bp-sep{opacity:.5}
 .bp-muted{color:var(--dsw-alias-label-secondary);font-size:12px}
 .bp-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.bp-lang-switch{display:flex;align-items:center;padding:2px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-2)}
+.bp-lang-switch button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;font-weight:650;line-height:18px;padding:1px 7px;border-radius:5px;cursor:pointer}
+.bp-lang-switch button.active{color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-bg-base);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-brand-primary) 25%,transparent)}
 .bp-btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
 .bp-btn:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-overlay)}
 .bp-btn:disabled{opacity:.45;cursor:not-allowed}
@@ -6661,10 +6743,13 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
       } catch {
         translate = key => dict[key] ?? EN[key] ?? key
       }
+      if (!languageLocked) uiLanguage = currentLocaleId().toLowerCase().startsWith('zh') ? 'zh' : 'en'
+      applyUiLanguage(uiLanguage)
       try {
         if (ctx.locale?.subscribe) {
           ctx.effect(() => ctx.locale.subscribe(() => {
-            dict = currentLocaleId().toLowerCase().startsWith('zh') ? ZH : EN
+            if (languageLocked) return
+            applyUiLanguage(currentLocaleId().toLowerCase().startsWith('zh') ? 'zh' : 'en')
             for (const listener of listeners) listener()
           }))
         }

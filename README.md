@@ -66,7 +66,7 @@ Agents are fast at writing code and bad at guessing intent. A blueprint is a che
 - **One-click dispatch** — confirmation marks the blueprint `confirmed` and asks the agent to spawn one subagent per module, respecting dependencies.
 - **Local-first storage** — `<workspace>/.dsh/blueprints/<sessionId>.json`, reviewable and diffable in Git.
 - **Exports** — JSON, Mermaid (flowchart, sequence, ER), SVG, draw.io XML.
-- **Bilingual UI** — English and 简体中文.
+- **Bilingual UI** — English and 简体中文, with an explicit `中 / EN` header switch that persists across sessions.
 
 ![Plan flowchart UI](docs/plan-mode.png)
 
@@ -92,10 +92,10 @@ A GitHub URL is a **git dependency**: pnpm shells out to `git ls-remote`, so it 
 
 ```bash
 dsh plugin --profile <profile> add \
-  https://github.com/XiRuize/dsh-blueprint-studio/releases/download/v0.5.0/dsh-blueprint-studio-0.5.0.tgz
+  https://github.com/XiRuize/dsh-blueprint-studio/releases/download/v0.5.1/dsh-blueprint-studio-0.5.1.tgz
 ```
 
-Or download `dsh-blueprint-studio-0.5.0.tgz` from [Releases](https://github.com/XiRuize/dsh-blueprint-studio/releases) and point `install_bundle` at the local `.tgz` / extracted directory.
+Or download `dsh-blueprint-studio-0.5.1.tgz` from [Releases](https://github.com/XiRuize/dsh-blueprint-studio/releases) and point `install_bundle` at the local `.tgz` / extracted directory.
 
 If you prefer the git URL, install Git for Windows first (`winget install --id Git.Git -e`) and reopen the terminal. Behind a proxy, set `HTTPS_PROXY` for pnpm, or configure Git's proxy/SSH transport separately.
 
