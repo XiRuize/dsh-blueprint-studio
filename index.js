@@ -24,6 +24,7 @@ import {
 } from './lib/blueprint.js'
 import { CHECK_RULES, analyzeBlueprint, coverageMatrix } from './lib/checks.js'
 import { exportHtml, exportMarkdown } from './lib/export.js'
+import { PLAN_MODE_PROMPT } from './lib/plan.js'
 
 export const name = 'blueprint-studio'
 export const inject = ['tools']
@@ -682,7 +683,9 @@ export function apply(ctx, rawConfig) {
 简单问答、解释概念、单行小修不需要蓝图，直接回答或修改即可。
 
 可用节点类型：${NODE_TYPES.join('、')}。固定栏目：${SECTION_DEFS.map(item => item.key).join('、')}。固定图解：${DIAGRAM_DEFS.map(item => item.key).join('、')}。
-蓝图由插件自动保存到工作区并自动归档历史版本；不要用 write/edit 手工改蓝图文件。`,
+蓝图由插件自动保存到工作区并自动归档历史版本；不要用 write/edit 手工改蓝图文件。
+
+${PLAN_MODE_PROMPT}`,
         }),
       )
     }
