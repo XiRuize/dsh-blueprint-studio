@@ -15,7 +15,7 @@ const React = {
   },
   Fragment: Symbol('Fragment'),
   createElement(type, props, ...children) { return { type, props: props ?? {}, children } },
-  useState() { return [undefined, () => {}] },
+  useState(initial) { return [typeof initial === 'function' ? initial() : initial, () => {}] },
   useEffect() {},
   useRef() { return { current: null } },
   useMemo(callback) { return callback() },
@@ -29,8 +29,11 @@ const {
   parseMermaid, detectImportSource, ensureLayout, layoutDiagram, Edge, NodeShape, flowchartHiddenIds,
   DIAGRAM_TYPE_ORDER, TEMPLATES, defaultEdgeKind, edgeKindsFor, typesFor,
   MAX_IMPORT_BYTES, MAX_IMPORT_NODES,
+  mountAccess, mountFromDraft, mountKind, moduleMounts, validateMountDraft,
+  workspaceDispatchFor, workspaceDispatchLines, workspaceUnboundModules,
 } = client.__test
 const parse = input => JSON.parse(JSON.stringify(parseMermaid(input)))
+const plain = value => JSON.parse(JSON.stringify(value))
 
 function expectFailure(run, code) {
   assert.throws(run, failure => failure?.code === code)
@@ -456,4 +459,98 @@ test('flowchart Edge renders orthogonal paths, labels and dashed kinds', () => {
 
   const dashed = Edge({ diagram, edge: { id: 'e2', from: 'a', to: 'b', label: '否', kind: 'dashed' }, selected: false, onSelect: () => {} })
   assert.equal(findElement(dashed, item => item.type === 'path' && String(item.props.d).includes('L') && item.props.markerEnd !== undefined).props.strokeDasharray, '6 4')
+})
+
+test('workspace panel renders mounts, module mapping and the empty state', () => {
+  const { WorkspacePanel } = client.__test
+  const bp = {
+    modules: [{ id: 'm1', name: 'API', code: 'A1', layerId: 'A', mountIds: ['app'], execution: { adapter: 'cli', cwd: '../app' } }],
+    mounts: [{ id: 'app', label: 'App', root: '../app', kind: 'working', access: 'rw', readOnly: false }],
+  }
+  const text = elementText(WorkspacePanel({ store: { bp } }))
+  assert.match(text, /app/)
+  assert.match(text, /\.\.\/app/)
+  assert.match(text, /A1 API/)
+  assert.match(text, /1 个|1 bound/)
+
+  const emptyText = elementText(WorkspacePanel({ store: { bp: { modules: [], mounts: [] } } }))
+  assert.match(emptyText, /添加第一个挂载|Add the first mount/)
+  assert.match(emptyText, /还没有可映射的模块|No modules to map/)
+})
+
+test('validates and normalizes workspace mount drafts', () => {
+  assert.equal(validateMountDraft({ id: '', root: '/repo' }, []), 'workspaceMountIdRequired')
+  assert.equal(validateMountDraft({ id: '1bad', root: '/repo' }, []), 'workspaceMountIdInvalid')
+  assert.equal(validateMountDraft({ id: 'app', root: '/repo' }, [{ id: 'app' }]), 'workspaceMountIdDuplicate')
+  assert.equal(validateMountDraft({ id: 'app', root: '   ' }, []), 'workspaceMountRootRequired')
+  assert.equal(validateMountDraft({ id: 'app', root: '../app' }, []), null)
+
+  const mount = mountFromDraft({
+    id: ' snapshot-2024 ', label: ' Release ', root: ' ../archive ', kind: 'snapshot', access: 'rw',
+    ref: 'v1.2.3', checksum: 'abc123',
+  })
+  assert.deepEqual(plain(mount), {
+    id: 'snapshot-2024', label: 'Release', root: '../archive', kind: 'snapshot', access: 'rw', readOnly: true,
+    ref: 'v1.2.3', checksum: 'abc123',
+  })
+  const working = mountFromDraft({ id: 'app', root: '../app', kind: 'working', access: 'ro' })
+  assert.equal(working.readOnly, true)
+  assert.equal(mountAccess(working), 'ro')
+  assert.equal(mountKind({ kind: 'bogus' }), 'working')
+})
+
+test('workspace dispatch context mirrors the host packet projection', () => {
+  const bp = {
+    mounts: [
+      { id: 'app', root: '../app', kind: 'working', access: 'rw' },
+      { id: 'snap', root: '../snap', kind: 'snapshot', access: 'ro', ref: 'v1' },
+    ],
+    modules: [
+      {
+        id: 'm1', name: 'M1', mountIds: ['app', 'snap', 'gone'],
+        execution: { adapter: 'cli', agentProfile: 'fast', allow: ['node'], commands: ['npm test'] },
+      },
+      { id: 'm2', name: 'M2' },
+    ],
+  }
+  const context = workspaceDispatchFor(bp, bp.modules[0])
+  assert.deepEqual(plain(context.mounts).map(mount => mount.id), ['app', 'snap'])
+  assert.deepEqual(plain(context.mountIds), ['app', 'snap', 'gone'])
+  assert.deepEqual(plain(context.missingMountIds), ['gone'])
+  assert.equal(context.cwd, '../app')
+  assert.equal(context.adapter, 'cli')
+  assert.equal(context.agentProfile, 'fast')
+  assert.deepEqual(plain(context.allow), ['node'])
+  assert.deepEqual(plain(context.commands), ['npm test'])
+  assert.deepEqual(plain(moduleMounts(bp, bp.modules[1]).mounts), [])
+  assert.deepEqual(plain(workspaceUnboundModules(bp)).map(module => module.id), ['m2'])
+})
+
+test('workspace dispatch lines carry mounts, execution and unbound warnings', () => {
+  const bp = {
+    mounts: [
+      { id: 'app', root: '../app', kind: 'working', access: 'rw' },
+      { id: 'snap', root: '../snap', kind: 'snapshot', access: 'ro', ref: 'v1', checksum: 'abc' },
+    ],
+    modules: [
+      {
+        id: 'm1', name: 'M1', mountIds: ['app', 'snap', 'gone'],
+        execution: { adapter: 'http', agentProfile: 'reviewer', allow: ['net'], commands: ['npm run check'] },
+      },
+      { id: 'm2', name: 'M2' },
+    ],
+  }
+  const body = workspaceDispatchLines(bp, bp.modules[0]).join('\n')
+  assert.match(body, /id=app · root=\.\.\/app · kind=working · access=rw/)
+  assert.match(body, /id=snap · root=\.\.\/snap · kind=snapshot · access=ro · ref=v1 · checksum=abc/)
+  assert.match(body, /缺失的 mount：gone/)
+  assert.match(body, /cwd：\.\.\/app/)
+  assert.match(body, /adapter：http · agentProfile=reviewer/)
+  assert.match(body, /allow：net/)
+  assert.match(body, /commands：npm run check/)
+  assert.match(body, /mount-readonly-write/)
+
+  const unbound = workspaceDispatchLines(bp, bp.modules[1]).join('\n')
+  assert.match(unbound, /未绑定工作区，先确认路径/)
+  assert.match(unbound, /adapter：（未指定，Host 默认 dsh-subagent）/)
 })

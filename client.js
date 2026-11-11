@@ -145,6 +145,37 @@ window.__ModuleLoader__.load({
       backToParentLayer: 'Back to parent layer', currentLayer: 'Current layer', searchPlaceholder: 'Search requirements, modules and layers…',
       searchNoResults: 'No matches', searchRequirements: 'Requirements', searchModules: 'Modules', searchLayers: 'Layers',
       searchHint: '↑↓ to choose · Enter to open · Esc to close', layer: 'Layer', sublayerOf: 'Sublayer of',
+      workspace: 'Workspace',
+      workspaceHint: 'Map folders, repositories and archives to modules, and set how each module is dispatched.',
+      workspaceEmpty: 'No workspace mounts yet. Add the first mount to bind folders, repositories or archives to modules.',
+      workspaceAddFirstMount: 'Add the first mount', workspaceAddMount: 'Add mount',
+      workspaceMounts: 'Workspace mounts', workspaceNoMounts: 'No mounts yet.',
+      workspaceMountId: 'ID', workspaceMountLabel: 'Label', workspaceMountRoot: 'Root',
+      workspaceMountKind: 'Kind', workspaceMountAccess: 'Access', workspaceMountRef: 'Ref',
+      workspaceMountChecksum: 'Checksum', workspaceMountBoundModules: 'Modules',
+      workspaceKindWorking: 'working', workspaceKindSnapshot: 'snapshot', workspaceKindArchive: 'archive',
+      workspaceAccessRw: 'rw', workspaceAccessRo: 'ro', workspaceReadOnly: 'read-only',
+      workspaceSaveMount: 'Save mount', workspaceCancel: 'Cancel', workspaceDeleteMount: 'Delete mount',
+      workspaceDeleteMountConfirm: 'Delete mount {id}? Modules that reference it will be unbound.',
+      workspaceMountAdded: 'Mount added', workspaceMountDeleted: 'Mount deleted',
+      workspaceMountIdRequired: 'Mount ID is required.',
+      workspaceMountIdInvalid: 'Mount ID must start with a letter and contain only letters, digits, underscores or hyphens.',
+      workspaceMountIdDuplicate: 'This mount ID is already used.',
+      workspaceMountRootRequired: 'Root path is required.',
+      workspaceModules: 'Module mapping',
+      workspaceModuleHint: 'Bind mounts and execution settings per module. Changes save with the blueprint.',
+      workspaceUnbound: '{count} modules have no workspace mount',
+      workspaceAllBound: 'Every module is bound to a workspace mount',
+      workspaceUnboundModule: 'No workspace', workspaceNoModulesHint: 'No modules to map yet.',
+      workspaceChooseMounts: 'Select mounts', workspaceNoMountsOption: 'Add a mount first',
+      workspaceAdapter: 'Adapter', workspaceAdapterInherit: 'Default (dsh-subagent)',
+      workspaceCwd: 'cwd', workspaceAgentProfile: 'Agent profile',
+      workspaceMountMissing: 'Missing mount: {ids}', workspaceExecution: 'Execution',
+      workspaceModuleUnboundHint: 'No mount yet — confirm the working path before dispatch.',
+      workspaceCwdHint: 'Defaults to the first mount root', workspaceAgentProfileHint: 'Optional profile name',
+      workspaceMountRefHint: 'Branch, tag or commit', workspaceMountChecksumHint: 'Optional content hash',
+      workspaceMountIdHint: 'e.g. app, docs, archive-2024', workspaceRootHint: 'Relative or absolute path as written',
+      workspaceDeletingMount: 'Delete', workspaceBoundCount: '{count} bound',
     }
     const ZH = {
       open: '蓝图', title: '工程蓝图', subtitle: '先把系统画清楚，再开始写代码',
@@ -285,6 +316,37 @@ window.__ModuleLoader__.load({
       backToParentLayer: '返回上一层', currentLayer: '当前层', searchPlaceholder: '检索需求、模块与层…',
       searchNoResults: '没有匹配结果', searchRequirements: '需求', searchModules: '模块', searchLayers: '层',
       searchHint: '↑↓ 选择 · Enter 定位 · Esc 关闭', layer: '层', sublayerOf: '子层，父模块',
+      workspace: '工作区',
+      workspaceHint: '把文件夹、仓库与归档映射到模块，并设置每个模块的执行方式。',
+      workspaceEmpty: '还没有工作区挂载。添加第一个挂载，把文件夹、仓库或归档绑定到模块。',
+      workspaceAddFirstMount: '添加第一个挂载', workspaceAddMount: '添加挂载',
+      workspaceMounts: '工作区挂载', workspaceNoMounts: '还没有挂载。',
+      workspaceMountId: 'ID', workspaceMountLabel: '标签', workspaceMountRoot: '路径',
+      workspaceMountKind: '类型', workspaceMountAccess: '访问', workspaceMountRef: '引用',
+      workspaceMountChecksum: '校验和', workspaceMountBoundModules: '绑定模块',
+      workspaceKindWorking: 'working', workspaceKindSnapshot: 'snapshot', workspaceKindArchive: 'archive',
+      workspaceAccessRw: 'rw', workspaceAccessRo: 'ro', workspaceReadOnly: '只读',
+      workspaceSaveMount: '保存挂载', workspaceCancel: '取消', workspaceDeleteMount: '删除挂载',
+      workspaceDeleteMountConfirm: '删除挂载 {id}？引用它的模块会变为未绑定。',
+      workspaceMountAdded: '挂载已添加', workspaceMountDeleted: '挂载已删除',
+      workspaceMountIdRequired: '挂载 ID 不能为空。',
+      workspaceMountIdInvalid: '挂载 ID 必须以字母开头，只能包含字母、数字、下划线或连字符。',
+      workspaceMountIdDuplicate: '该挂载 ID 已存在。',
+      workspaceMountRootRequired: '路径不能为空。',
+      workspaceModules: '模块映射',
+      workspaceModuleHint: '为每个模块绑定挂载并设置执行方式，修改会随蓝图一起保存。',
+      workspaceUnbound: '{count} 个模块未绑定工作区',
+      workspaceAllBound: '所有模块都已绑定工作区',
+      workspaceUnboundModule: '未绑定工作区', workspaceNoModulesHint: '还没有可映射的模块。',
+      workspaceChooseMounts: '选择挂载', workspaceNoMountsOption: '请先添加挂载',
+      workspaceAdapter: '适配器', workspaceAdapterInherit: '默认（dsh-subagent）',
+      workspaceCwd: 'cwd', workspaceAgentProfile: 'Agent Profile',
+      workspaceMountMissing: '缺失挂载：{ids}', workspaceExecution: '执行环境',
+      workspaceModuleUnboundHint: '尚未绑定工作区，分派前请先确认路径。',
+      workspaceCwdHint: '默认使用第一个挂载的路径', workspaceAgentProfileHint: '可选的 profile 名称',
+      workspaceMountRefHint: '分支、标签或提交号', workspaceMountChecksumHint: '可选的内容校验和',
+      workspaceMountIdHint: '例如 app、docs、archive-2024', workspaceRootHint: '按实际写法填写相对或绝对路径',
+      workspaceDeletingMount: '删除', workspaceBoundCount: '{count} 个',
     }
 
     let dict = ZH
@@ -353,6 +415,7 @@ window.__ModuleLoader__.load({
       activeLayerId: 'A',
       selected: null,
       focusRequirement: null,
+      focusModuleId: null,
       mode: 'select',
       connectFrom: null,
       lastText: '',
@@ -814,6 +877,165 @@ window.__ModuleLoader__.load({
       toastTimer = setTimeout(() => set({ toast: null }), 3200)
     }
 
+    // Workspace Map (v0.7). The client mirrors the Host model without importing
+    // lib/: mounts are stable-id records, module.mountIds reference them, and
+    // module.execution carries cwd/adapter/agentProfile/allow/commands.
+    const MOUNT_KINDS = ['working', 'snapshot', 'archive']
+    const MOUNT_ACCESS = ['rw', 'ro']
+    const EXECUTION_ADAPTERS = ['dsh-subagent', 'cli', 'http', 'manual']
+    const MOUNT_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/u
+
+    function stringValue(value) {
+      if (typeof value === 'string') return value
+      return value === null || value === undefined ? '' : String(value)
+    }
+    function listValue(value) {
+      return Array.isArray(value)
+        ? value.map(stringValue).map(item => item.trim()).filter(item => item !== '')
+        : []
+    }
+    function blueprintMounts(bp) {
+      return (Array.isArray(bp?.mounts) ? bp.mounts : []).filter(mount =>
+        mount !== null && typeof mount === 'object' && !Array.isArray(mount))
+    }
+    function moduleMountIds(module) {
+      return listValue(module?.mountIds)
+    }
+    function moduleExecution(module) {
+      const value = module?.execution
+      return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null
+    }
+    function mountKind(mount) {
+      const kind = stringValue(mount?.kind).toLowerCase()
+      return MOUNT_KINDS.includes(kind) ? kind : 'working'
+    }
+    function mountAccess(mount) {
+      const access = stringValue(mount?.access).toLowerCase()
+      if (MOUNT_ACCESS.includes(access)) return access
+      return mount?.readOnly === true || mountKind(mount) !== 'working' ? 'ro' : 'rw'
+    }
+    function validateMountDraft(draft, mounts) {
+      const id = stringValue(draft?.id).trim()
+      if (id === '') return 'workspaceMountIdRequired'
+      if (!MOUNT_ID_PATTERN.test(id)) return 'workspaceMountIdInvalid'
+      if ((mounts ?? []).some(mount => stringValue(mount?.id).trim() === id)) return 'workspaceMountIdDuplicate'
+      if (stringValue(draft?.root).trim() === '') return 'workspaceMountRootRequired'
+      return null
+    }
+    function mountFromDraft(draft) {
+      const rawKind = stringValue(draft?.kind).toLowerCase()
+      const kind = MOUNT_KINDS.includes(rawKind) ? rawKind : 'working'
+      const rawAccess = stringValue(draft?.access).toLowerCase()
+      const access = MOUNT_ACCESS.includes(rawAccess) ? rawAccess : 'rw'
+      const mount = {
+        id: stringValue(draft?.id).trim(),
+        label: stringValue(draft?.label).trim(),
+        root: stringValue(draft?.root).trim(),
+        kind,
+        access,
+        readOnly: access === 'ro' || kind !== 'working',
+      }
+      const ref = stringValue(draft?.ref).trim()
+      if (ref !== '') mount.ref = ref
+      const checksum = stringValue(draft?.checksum).trim()
+      if (checksum !== '') mount.checksum = checksum
+      return mount
+    }
+    function emptyMountDraft() {
+      return { id: '', label: '', root: '', kind: 'working', access: 'rw', ref: '', checksum: '' }
+    }
+    function moduleMounts(bp, module) {
+      const byId = new Map()
+      for (const mount of blueprintMounts(bp)) {
+        const id = stringValue(mount.id).trim()
+        if (id !== '' && !byId.has(id)) byId.set(id, mount)
+      }
+      const mounts = []
+      const missing = []
+      for (const id of moduleMountIds(module)) {
+        const mount = byId.get(id)
+        if (mount === undefined) missing.push(id)
+        else mounts.push(mount)
+      }
+      return { mounts, missing }
+    }
+    function workspaceUnboundModules(bp) {
+      return (Array.isArray(bp?.modules) ? bp.modules : []).filter(module => moduleMounts(bp, module).mounts.length === 0)
+    }
+    // Same projection as lib/blueprint.js buildDispatchPacket: resolve mount ids
+    // in order, keep dangling ids visible, and fall back cwd to the first root.
+    function workspaceDispatchFor(bp, module) {
+      const { mounts, missing } = moduleMounts(bp, module)
+      const execution = moduleExecution(module)
+      return {
+        mounts,
+        mountIds: moduleMountIds(module),
+        missingMountIds: missing,
+        cwd: stringValue(execution?.cwd).trim() || stringValue(mounts[0]?.root).trim(),
+        allow: listValue(execution?.allow ?? execution?.allows),
+        commands: listValue(execution?.commands ?? execution?.cmd),
+        adapter: stringValue(execution?.adapter).trim() || null,
+        agentProfile: stringValue(execution?.agentProfile).trim(),
+      }
+    }
+    function workspaceDispatchLines(bp, module) {
+      const info = workspaceDispatchFor(bp, module)
+      const lines = []
+      if (info.mounts.length === 0) {
+        lines.push('  工作区：未绑定工作区，先确认路径。')
+      } else {
+        lines.push('  工作区挂载：')
+        for (const mount of info.mounts) {
+          const parts = [
+            `id=${stringValue(mount.id).trim()}`,
+            `root=${stringValue(mount.root).trim() || '（空）'}`,
+            `kind=${mountKind(mount)}`,
+            `access=${mountAccess(mount)}`,
+          ]
+          const ref = stringValue(mount.ref).trim()
+          if (ref !== '') parts.push(`ref=${ref}`)
+          const checksum = stringValue(mount.checksum).trim()
+          if (checksum !== '') parts.push(`checksum=${checksum}`)
+          lines.push(`    - ${parts.join(' · ')}`)
+        }
+      }
+      if (info.missingMountIds.length > 0) {
+        lines.push(`  缺失的 mount：${info.missingMountIds.join('、')}（Host 自检会报 mount-ref-missing）`)
+      }
+      if (info.cwd !== '') lines.push(`  cwd：${info.cwd}`)
+      const agentProfile = info.agentProfile !== '' ? ` · agentProfile=${info.agentProfile}` : ''
+      lines.push(info.adapter === null
+        ? `  adapter：（未指定，Host 默认 dsh-subagent）${agentProfile}`
+        : `  adapter：${info.adapter}${agentProfile}`)
+      if (info.allow.length > 0) lines.push(`  allow：${info.allow.join('、')}`)
+      if (info.commands.length > 0) lines.push(`  commands：${info.commands.join(' | ')}`)
+      const readOnly = info.mounts.filter(mount => mountAccess(mount) === 'ro' || mountReadOnly(mount))
+      if (readOnly.length > 0 && (info.allow.length > 0 || info.commands.length > 0)) {
+        lines.push(`  注意：模块声明了 allow/commands，但挂载 ${readOnly.map(mount => stringValue(mount.id).trim()).join('、')} 为只读；Host 自检会报 mount-readonly-write。`)
+      }
+      return lines
+    }
+    function mountReadOnly(mount) {
+      return mount?.readOnly === true || mountAccess(mount) === 'ro' || mountKind(mount) !== 'working'
+    }
+    function toggleModuleMount(module, mountId) {
+      const ids = moduleMountIds(module)
+      module.mountIds = ids.includes(mountId)
+        ? ids.filter(id => id !== mountId)
+        : [...ids, mountId]
+    }
+    function setModuleMountIds(module, ids) {
+      module.mountIds = [...new Set(listValue(ids))]
+    }
+    function setModuleExecutionField(module, key, value) {
+      const execution = { ...(moduleExecution(module) ?? {}) }
+      const next = stringValue(value).trim()
+      if (next === '') delete execution[key]
+      else execution[key] = next
+      if (Object.keys(execution).length === 0) delete module.execution
+      else module.execution = execution
+    }
+
     function generatePrompt(task) {
       return `请为下面的任务创建工程蓝图（先不要写代码）：
 
@@ -825,7 +1047,8 @@ ${task}
 3. 简单任务若确实不需要子层，在 summary/risks 写明原因，不要静默只做 A；
 4. diagrams 至少给出 usecase（actor + usecase）、dfd（entity → process → store）、module（模块依赖）；涉及交互补 sequence，涉及数据模型补 er，涉及系统分层补 c4；
 5. modules 拆成 3–8 个可由一个子代理独立完成的模块，summary 写清交付物、接口与验收标准；叶子模块才分派；
-6. prompt 字段填写用户的原始需求。
+6. prompt 字段填写用户的原始需求；
+7. 如果任务跨多个文件夹、仓库或归档，必须创建 mounts，并把相关模块的 mountIds 指向它们：working 挂载可写，snapshot/archive 只读，ro 归档不可写；每个挂载写清 id/label/root/kind/access，快照/归档补充 ref 或 checksum；执行字段在模块 execution 中写清 cwd、adapter（dsh-subagent/cli/http/manual）、agentProfile 以及需要的 commands。
 
 完成后用 2–3 句话向用户说明分层方案，并请他在「蓝图」面板检查、修改后点击「确认并分派」。`
     }
@@ -841,7 +1064,7 @@ ${task}
     }
 
     function dispatchPrompt() {
-      const base = `用户已在蓝图面板确认工程蓝图，Host 已校验一次性确认令牌并完成分派。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")：确认与分派只能由用户在面板完成，工具调用会被 Host 拒绝；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态。`
+      const base = `用户已在蓝图面板确认工程蓝图，Host 已校验一次性确认令牌并完成分派。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")：确认与分派只能由用户在面板完成，工具调用会被 Host 拒绝；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；模块绑定了 mounts 时，把 mounts（id/root/kind/access）、cwd、adapter/agentProfile、allow/commands 一并带入；未绑定工作区时先确认路径；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态。`
       const bp = state.bp
       if (bp === null) return base
       const blocks = []
@@ -849,10 +1072,12 @@ ${task}
         const nodeIds = Array.isArray(module.nodeIds) ? module.nodeIds : []
         const files = Array.isArray(module.files) ? module.files : []
         const acceptance = Array.isArray(module.acceptance) ? module.acceptance : []
-        if (nodeIds.length === 0 && files.length === 0 && acceptance.length === 0) continue
+        const hasWorkspace = moduleMountIds(module).length > 0 || moduleExecution(module) !== null
+        if (nodeIds.length === 0 && files.length === 0 && acceptance.length === 0 && !hasWorkspace) continue
         const deps = (module.dependsOn ?? []).map(id => bp.modules.find(item => item.id === id)?.name ?? id)
         const lines = [`模块「${module.name}」（id=${module.id}${deps.length > 0 ? `，依赖 ${deps.join('、')}` : ''}）`]
         if (module.summary) lines.push(`  范围摘要：${module.summary}`)
+        lines.push(...workspaceDispatchLines(bp, module))
         if (nodeIds.length > 0) {
           lines.push('  关联节点：')
           for (const ref of nodeIds) {
@@ -3949,9 +4174,74 @@ ${task}
         h('div', { className: 'bp-muted bp-verification-hint' }, t('verificationHint')))
     }
 
+    function AdapterSelect({ value, onChange, className }) {
+      return h('select', {
+        className: className ?? 'bp-input', value: value ?? '',
+        onChange: event => onChange(event.target.value),
+      },
+        h('option', { value: '' }, t('workspaceAdapterInherit')),
+        EXECUTION_ADAPTERS.map(adapter => h('option', { key: adapter, value: adapter }, adapter)))
+    }
+
+    function ModuleWorkspaceFields({ bp, module, update }) {
+      const mounts = blueprintMounts(bp)
+      const execution = moduleExecution(module)
+      const mountIds = moduleMountIds(module)
+      const resolved = moduleMounts(bp, module)
+      const missing = resolved.missing
+      return h('div', { className: 'bp-workspace-fields' },
+        h('div', { className: 'bp-workspace-fields-title' }, t('workspaceExecution')),
+        h('div', { className: 'bp-field' },
+          h('span', null, t('workspaceChooseMounts')),
+          mounts.length === 0
+            ? h('div', { className: 'bp-muted bp-workspace-field-hint' }, t('workspaceNoMountsOption'))
+            : h('div', { className: 'bp-workspace-mount-list' },
+                mounts.map(mount => h('label', { className: 'bp-workspace-mount-option', key: mount.id },
+                  h('input', {
+                    type: 'checkbox', checked: mountIds.includes(mount.id),
+                    onChange: () => update(found => toggleModuleMount(found, mount.id)),
+                  }),
+                  h('span', { className: 'bp-workspace-mount-text' },
+                    `${mount.id} · ${mountKind(mount)}/${mountAccess(mount)}${mountReadOnly(mount) ? ` · ${t('workspaceReadOnly')}` : ''}${mount.root ? ` · ${mount.root}` : ''}`)))),
+          missing.length > 0
+            ? h('div', { className: 'bp-workspace-missing' }, t('workspaceMountMissing', { ids: missing.join('、') }))
+            : null),
+        h('label', { className: 'bp-field' }, h('span', null, t('workspaceAdapter')),
+          h(AdapterSelect, {
+            value: execution?.adapter ?? '',
+            onChange: value => update(found => setModuleExecutionField(found, 'adapter', value)),
+          })),
+        h('label', { className: 'bp-field' }, h('span', null, t('workspaceCwd')),
+          h('input', {
+            className: 'bp-input', value: execution?.cwd ?? '',
+            placeholder: mounts[0]?.root || t('workspaceCwdHint'),
+            onChange: event => update(found => setModuleExecutionField(found, 'cwd', event.target.value)),
+          })),
+        h('label', { className: 'bp-field' }, h('span', null, t('workspaceAgentProfile')),
+          h('input', {
+            className: 'bp-input', value: execution?.agentProfile ?? '',
+            placeholder: t('workspaceAgentProfileHint'),
+            onChange: event => update(found => setModuleExecutionField(found, 'agentProfile', event.target.value)),
+          })),
+        mountIds.length === 0 || resolved.mounts.length === 0
+          ? h('div', { className: 'bp-muted bp-workspace-field-hint' }, t('workspaceModuleUnboundHint'))
+          : null)
+    }
+
     function ModulePanel({ store }) {
       const bp = store.bp
       const [selectedModuleId, setSelectedModuleId] = useState(null)
+      const moduleNodes = useRef(new Map())
+      const focusModuleId = store.focusModuleId ?? null
+      useEffect(() => {
+        if (focusModuleId === null || focusModuleId === undefined) return
+        setSelectedModuleId(focusModuleId)
+        const timer = setTimeout(() => {
+          moduleNodes.current.get(focusModuleId)?.scrollIntoView?.({ block: 'nearest' })
+          if (state.focusModuleId === focusModuleId) set({ focusModuleId: null })
+        }, 0)
+        return () => clearTimeout(timer)
+      }, [focusModuleId])
       if (bp === null) return null
       const currentDiagram = currentDiagramFor(bp, store.tab, store.activeLayerId)
       const selectedModule = selectedModuleId === null ? undefined : bp.modules.find(item => item.id === selectedModuleId)
@@ -4016,6 +4306,10 @@ ${task}
           const acceptance = Array.isArray(module.acceptance) ? module.acceptance : []
           return h('div', {
             className: `bp-module${selected ? ' selected' : ''}`, key: module.id,
+            ref: node => {
+              if (node === null) moduleNodes.current.delete(module.id)
+              else moduleNodes.current.set(module.id, node)
+            },
             onClick: () => selectModule(module),
           },
             h('div', { className: 'bp-module-top' },
@@ -4073,6 +4367,10 @@ ${task}
                   value: acceptance, rows: 3, placeholder: t('moduleAcceptanceHint'),
                   onCommit: items => updateModule(module.id, found => { found.acceptance = items }),
                 })),
+              h(ModuleWorkspaceFields, {
+                bp, module,
+                update: fn => updateModule(module.id, fn),
+              }),
               h(VerificationEditor, { module, onRecord: recordVerification })) : null)
         }))
     }
@@ -5014,6 +5312,193 @@ ${task}
             h('button', { type: 'button', className: 'bp-btn bp-primary', disabled: text.trim() === '', onClick: run }, t('importAction')))))
     }
 
+    function WorkspacePanel({ store }) {
+      const bp = store.bp
+      const mounts = blueprintMounts(bp)
+      const modules = Array.isArray(bp?.modules) ? bp.modules : []
+      const unbound = workspaceUnboundModules(bp)
+      const [formOpen, setFormOpen] = useState(mounts.length === 0)
+      const [draft, setDraft] = useState(emptyMountDraft)
+      const [errorKey, setErrorKey] = useState(null)
+      useEffect(() => {
+        if (mounts.length === 0) setFormOpen(true)
+      }, [mounts.length])
+      if (bp === null) return null
+      const setDraftField = (key, value) => setDraft(current => ({ ...current, [key]: value }))
+      const submitMount = () => {
+        const invalid = validateMountDraft(draft, mounts)
+        if (invalid !== null) {
+          setErrorKey(invalid)
+          return
+        }
+        const mount = mountFromDraft(draft)
+        mutate(current => {
+          current.mounts = [...blueprintMounts(current), mount]
+        })
+        setDraft(emptyMountDraft())
+        setErrorKey(null)
+        setFormOpen(false)
+        toast(t('workspaceMountAdded'), 'success')
+      }
+      const removeMount = mount => {
+        const id = stringValue(mount.id).trim()
+        if (!window.confirm(t('workspaceDeleteMountConfirm', { id }))) return
+        mutate(current => {
+          current.mounts = blueprintMounts(current).filter(item => stringValue(item.id).trim() !== id)
+          for (const item of Array.isArray(current.modules) ? current.modules : []) {
+            const ids = moduleMountIds(item)
+            if (ids.includes(id)) item.mountIds = ids.filter(value => value !== id)
+          }
+          const snapshot = current.workspaceSnapshot
+          if (snapshot !== null && typeof snapshot === 'object' && !Array.isArray(snapshot)) delete snapshot[id]
+        })
+        toast(t('workspaceMountDeleted'), 'success')
+      }
+      const updateModule = (id, fn) => mutate(current => {
+        const found = (Array.isArray(current.modules) ? current.modules : []).find(item => item.id === id)
+        if (found !== undefined) fn(found)
+      })
+      const bindMounts = (module, ids) => updateModule(module.id, found => setModuleMountIds(found, ids))
+      const updateExecution = (module, key, value) => updateModule(module.id, found => setModuleExecutionField(found, key, value))
+      const locateUnbound = () => {
+        if (unbound.length === 0) return
+        set({ panel: 'inspector', focusModuleId: unbound[0].id })
+      }
+      const field = (key, labelKey, placeholderKey, wide = false) => h('label', {
+        className: `bp-workspace-field${wide ? ' bp-workspace-field-wide' : ''}`, key,
+      },
+        h('span', null, t(labelKey)),
+        h('input', {
+          className: 'bp-input', value: draft[key], placeholder: t(placeholderKey),
+          onChange: event => setDraftField(key, event.target.value),
+        }))
+      return h('div', { className: 'bp-workspace' },
+        h('div', { className: 'bp-kicker' }, t('workspace')),
+        h('div', { className: 'bp-muted bp-workspace-hint' }, t('workspaceHint')),
+        h('button', {
+          type: 'button',
+          className: `bp-workspace-banner${unbound.length === 0 ? ' ok' : ''}`,
+          disabled: unbound.length === 0,
+          onClick: locateUnbound,
+        },
+          h(Icon, { name: 'layout', size: 13 }),
+          unbound.length === 0 ? t('workspaceAllBound') : t('workspaceUnbound', { count: unbound.length })),
+        h('div', { className: 'bp-workspace-section-head' },
+          h('span', { className: 'bp-workspace-section-title' }, t('workspaceMounts')),
+          h('span', { className: 'bp-workspace-section-count' }, String(mounts.length)),
+          h('button', {
+            type: 'button', className: 'bp-btn bp-workspace-add',
+            onClick: () => { setFormOpen(value => !value); setErrorKey(null) },
+          }, h(Icon, { name: 'plus', size: 12 }), t('workspaceAddMount'))),
+        mounts.length === 0
+          ? h('div', { className: 'bp-workspace-empty' },
+              h('div', null, t('workspaceEmpty')),
+              h('button', {
+                type: 'button', className: 'bp-btn bp-primary',
+                onClick: () => { setFormOpen(true); setErrorKey(null) },
+              }, h(Icon, { name: 'plus', size: 13 }), t('workspaceAddFirstMount')))
+          : h('div', { className: 'bp-workspace-table-wrap' },
+              h('table', { className: 'bp-workspace-table' },
+                h('thead', null, h('tr', null,
+                  [t('workspaceMountId'), t('workspaceMountLabel'), t('workspaceMountRoot'), t('workspaceMountKind'),
+                    t('workspaceMountAccess'), t('workspaceMountRef'), t('workspaceMountChecksum'),
+                    t('workspaceMountBoundModules'), ''].map((title, index) => h('th', { key: index }, title)))),
+                h('tbody', null, mounts.map(mount => {
+                  const bound = modules.filter(module => moduleMountIds(module).includes(stringValue(mount.id).trim())).length
+                  return h('tr', { key: mount.id },
+                    h('td', null, h('strong', { className: 'bp-workspace-mount-id' }, stringValue(mount.id).trim())),
+                    h('td', null, stringValue(mount.label).trim() || '—'),
+                    h('td', null, h('code', { className: 'bp-workspace-root' }, stringValue(mount.root).trim() || '—')),
+                    h('td', null, mountKind(mount)),
+                    h('td', null, h('span', { className: `bp-chip ${mountReadOnly(mount) ? 'bp-chip-verify-pending' : ''}` }, mountAccess(mount))),
+                    h('td', null, stringValue(mount.ref).trim() || '—'),
+                    h('td', null, stringValue(mount.checksum).trim() || '—'),
+                    h('td', null, t('workspaceBoundCount', { count: bound })),
+                    h('td', null, h('button', {
+                      type: 'button', className: 'bp-item-del bp-workspace-delete',
+                      title: t('workspaceDeleteMount'),
+                      onClick: () => removeMount(mount),
+                    }, h(Icon, { name: 'trash', size: 12 }))))
+                })))),
+        formOpen
+          ? h('form', {
+              className: 'bp-workspace-form',
+              onSubmit: event => { event.preventDefault(); submitMount() },
+            },
+              field('id', 'workspaceMountId', 'workspaceMountIdHint'),
+              field('label', 'workspaceMountLabel', 'workspaceMountLabel'),
+              field('root', 'workspaceMountRoot', 'workspaceRootHint', true),
+              h('label', { className: 'bp-workspace-field' }, h('span', null, t('workspaceMountKind')),
+                h('select', {
+                  className: 'bp-input', value: draft.kind,
+                  onChange: event => setDraftField('kind', event.target.value),
+                }, MOUNT_KINDS.map(kind => h('option', { key: kind, value: kind }, kind)))),
+              h('label', { className: 'bp-workspace-field' }, h('span', null, t('workspaceMountAccess')),
+                h('select', {
+                  className: 'bp-input', value: draft.access,
+                  onChange: event => setDraftField('access', event.target.value),
+                }, MOUNT_ACCESS.map(access => h('option', { key: access, value: access }, access)))),
+              field('ref', 'workspaceMountRef', 'workspaceMountRefHint'),
+              field('checksum', 'workspaceMountChecksum', 'workspaceMountChecksumHint'),
+              errorKey !== null ? h('div', { className: 'bp-error bp-workspace-form-error' }, t(errorKey)) : null,
+              h('div', { className: 'bp-workspace-form-actions' },
+                h('button', {
+                  type: 'button', className: 'bp-btn',
+                  onClick: () => { setFormOpen(false); setDraft(emptyMountDraft()); setErrorKey(null) },
+                }, t('workspaceCancel')),
+                h('button', { type: 'submit', className: 'bp-btn bp-primary' }, t('workspaceSaveMount'))))
+          : null,
+        h('div', { className: 'bp-workspace-section-head' },
+          h('span', { className: 'bp-workspace-section-title' }, t('workspaceModules')),
+          h('span', { className: 'bp-workspace-section-count' }, String(modules.length))),
+        h('div', { className: 'bp-muted bp-workspace-hint' }, t('workspaceModuleHint')),
+        modules.length === 0
+          ? h('div', { className: 'bp-muted bp-workspace-empty-modules' }, t('workspaceNoModulesHint'))
+          : h('div', { className: 'bp-workspace-table-wrap' },
+              h('table', { className: 'bp-workspace-table bp-workspace-module-table' },
+                h('thead', null, h('tr', null,
+                  [t('module'), t('workspaceChooseMounts'), t('workspaceAdapter'), t('workspaceCwd'), t('workspaceAgentProfile')]
+                    .map((title, index) => h('th', { key: index }, title)))),
+                h('tbody', null, modules.map(module => {
+                  const execution = moduleExecution(module)
+                  const mountIds = moduleMountIds(module)
+                  const missing = moduleMounts(bp, module).missing
+                  return h('tr', { key: module.id },
+                    h('td', null,
+                      h('div', { className: 'bp-workspace-module-name' },
+                        h('strong', null, `${module.code ?? ''} ${module.name ?? ''}`.trim()),
+                        h('span', null, `${t('layer')} ${module.layerId ?? 'A'}`)),
+                      mountIds.length === 0 || moduleMounts(bp, module).mounts.length === 0
+                        ? h('span', { className: 'bp-chip bp-chip-needs-rework bp-workspace-unbound-chip' }, t('workspaceUnboundModule'))
+                        : null),
+                    h('td', null,
+                      mounts.length === 0
+                        ? h('span', { className: 'bp-muted' }, t('workspaceNoMountsOption'))
+                        : h('select', {
+                            className: 'bp-input bp-workspace-multiselect', multiple: true, value: mountIds,
+                            onChange: event => bindMounts(module, Array.from(event.target.selectedOptions ?? []).map(option => option.value)),
+                          }, mounts.map(mount => h('option', { key: mount.id, value: mount.id },
+                            `${stringValue(mount.id).trim()} · ${mountKind(mount)}/${mountAccess(mount)}${mountReadOnly(mount) ? ` · ${t('workspaceReadOnly')}` : ''}`))),
+                      missing.length > 0
+                        ? h('div', { className: 'bp-workspace-missing' }, t('workspaceMountMissing', { ids: missing.join('、') }))
+                        : null),
+                    h('td', null, h(AdapterSelect, {
+                      className: 'bp-input bp-workspace-mini', value: execution?.adapter ?? '',
+                      onChange: value => updateExecution(module, 'adapter', value),
+                    })),
+                    h('td', null, h('input', {
+                      className: 'bp-input bp-workspace-mini', value: execution?.cwd ?? '',
+                      placeholder: mounts[0]?.root || t('workspaceCwdHint'),
+                      onChange: event => updateExecution(module, 'cwd', event.target.value),
+                    })),
+                    h('td', null, h('input', {
+                      className: 'bp-input bp-workspace-mini', value: execution?.agentProfile ?? '',
+                      placeholder: t('workspaceAgentProfileHint'),
+                      onChange: event => updateExecution(module, 'agentProfile', event.target.value),
+                    })))
+                })))))
+    }
+
     function RightPanel({ store }) {
       const panel = store.panel ?? 'inspector'
       return h('aside', { className: 'bp-right' },
@@ -5021,17 +5506,20 @@ ${task}
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'inspector' ? ' active' : ''}`, onClick: () => set({ panel: 'inspector' }) }, t('inspector')),
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'board' ? ' active' : ''}`, onClick: () => { set({ panel: 'board' }); loadChildren() } }, t('board')),
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'versions' ? ' active' : ''}`, onClick: () => { set({ panel: 'versions' }); loadVersions() } }, t('versions')),
-          h('button', { type: 'button', className: `bp-panel-tab${panel === 'checks' ? ' active' : ''}`, onClick: () => { set({ panel: 'checks' }); loadChecks() } }, t('checks'))),
+          h('button', { type: 'button', className: `bp-panel-tab${panel === 'checks' ? ' active' : ''}`, onClick: () => { set({ panel: 'checks' }); loadChecks() } }, t('checks')),
+          h('button', { type: 'button', className: `bp-panel-tab${panel === 'workspace' ? ' active' : ''}`, onClick: () => set({ panel: 'workspace' }) }, t('workspace'))),
         panel === 'board'
           ? h(BoardPanel, { store })
           : panel === 'versions'
             ? h(VersionsPanel, { store })
             : panel === 'checks'
               ? h(ChecksPanel, { store })
-              : h(React.Fragment, null,
-                  h(Inspector, { store }),
-                  h('div', { className: 'bp-divider' }),
-                  h(ModulePanel, { store })))
+              : panel === 'workspace'
+                ? h(WorkspacePanel, { store })
+                : h(React.Fragment, null,
+                    h(Inspector, { store }),
+                    h('div', { className: 'bp-divider' }),
+                    h(ModulePanel, { store })))
     }
 
     function LayerBreadcrumbs({ store }) {
@@ -6710,6 +7198,55 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-pk input{width:11px;height:11px;margin:0}
 .bp-add-field{width:100%;justify-content:center;margin-top:4px;height:26px;font-size:11px}
 .bp-board,.bp-versions{display:flex;flex-direction:column;gap:8px}
+.bp-workspace{display:flex;flex-direction:column;gap:8px}
+.bp-workspace-hint{font-size:10.5px;line-height:1.45}
+.bp-workspace-banner{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;text-align:left;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary) 34%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 9%,transparent);color:var(--dsw-alias-state-warn-primary);font:inherit;font-size:10.5px;line-height:1.4;padding:6px 8px;cursor:pointer}
+.bp-workspace-banner:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 15%,transparent)}
+.bp-workspace-banner.ok{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 8%,transparent);color:var(--dsw-alias-state-success-primary);cursor:default}
+.bp-workspace-banner:disabled{opacity:1}
+.bp-workspace-section-head{display:flex;align-items:center;gap:6px;margin-top:2px}
+.bp-workspace-section-title{font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--dsw-alias-label-secondary);text-transform:uppercase}
+.bp-workspace-section-count{font-size:9.5px;line-height:15px;padding:0 5px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary)}
+.bp-workspace-add{margin-left:auto;height:24px;font-size:10.5px;padding:0 7px}
+.bp-workspace-empty{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding:10px;border:1px dashed var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);font-size:10.5px;line-height:1.5;color:var(--dsw-alias-label-secondary)}
+.bp-workspace-empty .bp-btn{height:26px;font-size:10.5px}
+.bp-workspace-table-wrap{overflow-x:auto;scrollbar-width:thin;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base)}
+.bp-workspace-table{width:100%;min-width:650px;border-collapse:collapse;font-size:10px}
+.bp-workspace-table th{position:sticky;top:0;text-align:left;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);padding:5px 6px;border-bottom:1px solid var(--dsw-alias-border-l1);white-space:nowrap}
+.bp-workspace-table td{padding:5px 6px;vertical-align:top;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);line-height:1.4;word-break:break-word}
+.bp-workspace-table tbody tr:last-child td{border-bottom:0}
+.bp-workspace-table tbody tr:hover td{background:var(--dsw-alias-bg-layer-1)}
+.bp-workspace-mount-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:10px;color:var(--dsw-alias-label-primary)}
+.bp-workspace-root{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9.5px;color:var(--dsw-alias-label-primary);white-space:nowrap}
+.bp-workspace-table .bp-workspace-delete{opacity:1}
+.bp-workspace-form{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-base)}
+.bp-workspace-field{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:10px;color:var(--dsw-alias-label-secondary)}
+.bp-workspace-field-wide{grid-column:1 / -1}
+.bp-workspace-field .bp-input{height:26px;padding:0 6px;font-size:10.5px}
+.bp-workspace-form-error{grid-column:1 / -1;margin:0;font-size:10px;line-height:1.4}
+.bp-workspace-form-actions{grid-column:1 / -1;display:flex;justify-content:flex-end;gap:5px}
+.bp-workspace-form-actions .bp-btn{height:26px;font-size:10.5px}
+.bp-workspace-module-table{min-width:690px}
+.bp-workspace-module-name{display:flex;flex-direction:column;gap:2px;min-width:92px}
+.bp-workspace-module-name strong{font-size:10.5px;color:var(--dsw-alias-label-primary)}
+.bp-workspace-module-name span{font-size:9.5px;color:var(--dsw-alias-label-secondary)}
+.bp-workspace-unbound-chip{margin-top:2px;align-self:flex-start}
+.bp-workspace-multiselect{min-width:140px;min-height:54px;padding:2px;font-size:10px;overflow:auto}
+.bp-workspace-mini{min-width:96px;height:26px!important;padding:0 5px!important;font-size:10px!important}
+.bp-workspace-missing{margin-top:3px;font-size:9.5px;line-height:1.35;color:var(--dsw-alias-state-error-primary)}
+.bp-workspace-empty-modules{padding:8px 0}
+.bp-workspace-fields{margin-top:8px;padding-top:8px;border-top:1px dashed var(--dsw-alias-border-l2)}
+.bp-workspace-fields-title{font-size:10.5px;font-weight:650;color:var(--dsw-alias-label-secondary);margin-bottom:6px}
+.bp-workspace-mount-list{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:4px;background:var(--dsw-alias-bg-layer-1)}
+.bp-workspace-mount-option{display:flex;align-items:flex-start;gap:5px;padding:2px 3px;border-radius:4px;cursor:pointer;font-size:10px;line-height:1.4}
+.bp-workspace-mount-option:hover{background:var(--dsw-alias-bg-layer-2)}
+.bp-workspace-mount-option input{width:11px;height:11px;margin:1px 0 0;flex:0 0 auto}
+.bp-workspace-mount-text{display:inline;margin:0;font-size:10px;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word}
+.bp-workspace-field-hint{font-size:9.5px;line-height:1.4;margin-top:2px;opacity:.8}
+.bp-workspace-fields .bp-field{display:block;margin-bottom:7px}
+.bp-workspace-fields .bp-field>span{display:block;font-size:10px;color:var(--dsw-alias-label-secondary);margin-bottom:3px}
+.bp-workspace-fields .bp-input{height:27px;padding:0 6px;font-size:10.5px}
+.bp-workspace-fields .bp-field select.bp-input{height:27px}
 .bp-board-empty{margin:8px 0}
 .bp-child{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:8px 9px}
 .bp-child-top{display:flex;align-items:center;gap:6px;font-size:11.5px}
@@ -6886,8 +7423,10 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
         ImportFailure,
         MAX_IMPORT_BYTES,
         MAX_IMPORT_NODES,
+        ModuleWorkspaceFields,
         NodeShape,
         TEMPLATES,
+        WorkspacePanel,
         defaultEdgeKind,
         detectImportSource,
         edgeKindsFor,
@@ -6898,8 +7437,16 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
         layoutDiagram,
         layoutFlowchart,
         layoutFlowchartGroups,
+        mountAccess,
+        mountFromDraft,
+        mountKind,
+        moduleMounts,
         parseMermaid,
         typesFor,
+        validateMountDraft,
+        workspaceDispatchFor,
+        workspaceDispatchLines,
+        workspaceUnboundModules,
       },
     }
   },
