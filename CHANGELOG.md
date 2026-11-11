@@ -2,6 +2,20 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.7.0] — 2026-11-11
+
+### Added
+
+- **Workspace Map.** Blueprints now support `mounts` for working directories, snapshots and archives (`id`, `label`, `root`, `kind`, `access`, `vcs`, `ref`, `checksum`), plus `workspaceSnapshot` refs. Modules bind via `mountIds` and optional `execution` (`adapter`, `cwd`, `allow`, `commands`, `agentProfile`, `storage`).
+- **Workspace panel.** A fifth right-panel tab lists mounts, supports adding/removing them, shows bound-module counts, and provides a module-to-mount mapping table with adapter/cwd/agent profile.
+- **Dispatch packets.** `buildDispatchPacket` and `/blueprint packet <moduleId>` return a module's resolved mounts, cwd, allow/commands, requirements, acceptance, dependencies and snapshot refs; dispatch prompts now include this context.
+- **Workspace checks.** `mount-duplicate`, `mount-path-missing`, `mount-ref-missing`, `mount-readonly-write`, `mount-path-unsafe`, `mount-overlap`, `mount-snapshot-ref-missing` and `module-mount-missing`; checks stay silent for legacy blueprints without mounts.
+
+### Changed
+
+- The generation prompt now requires mounts and module bindings for cross-folder/repository/archive tasks.
+- The system prompt explains working vs snapshot/archive mounts and the no-secrets execution descriptor rule.
+
 ## [0.6.1] — 2026-11-11
 
 ### Fixed

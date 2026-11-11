@@ -6,6 +6,7 @@ import {
   blueprintDigest,
   blueprintRelativePath,
   blueprintVersionsIndexRelativePath,
+  buildDispatchPacket,
   createConfirmTokenStore,
   deleteBlueprintFile,
   mergeBlueprintForUpdate,
@@ -173,6 +174,11 @@ function summaryText(blueprint, path) {
     '',
     '图解：',
     ...digest.diagrams.map(diagram => `- ${diagram.title}：${diagram.nodes} 节点 / ${diagram.edges} 连线`),
+    '',
+    '工作区挂载：',
+    ...(digest.mounts.length === 0
+      ? ['- 未绑定工作区']
+      : digest.mounts.map(mount => `- ${mount.id} ${mount.label}：${mount.root}（${mount.kind}/${mount.access}）`)),
     '',
     '模块：',
     ...(digest.modules.length === 0
@@ -626,6 +632,16 @@ export function apply(ctx, rawConfig) {
               return { kind: 'error', text: `${label} 导出失败：${errorMessage(error)}` }
             }
           }
+          if (sub === 'packet') {
+            const moduleId = String(rest[0] ?? '').trim()
+            if (moduleId === '') return { kind: 'error', text: '用法：/blueprint packet <moduleId>。' }
+            const { file, raw } = await readCurrent(invocation.agent)
+            if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图。' }
+            const blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            const packet = buildDispatchPacket(blueprint, moduleId)
+            if (packet === undefined) return { kind: 'error', text: `模块 ${moduleId} 不存在。` }
+            return { kind: 'success', text: JSON.stringify(packet) }
+          }
           if (sub === 'check') {
             if (rest.length > 0) return { kind: 'error', text: '用法：/blueprint check（不需要参数）。' }
             let blueprint
@@ -734,7 +750,16 @@ ${PLAN_MODE_PROMPT}
 - 根层 A 只保留总览模块图和必要的用例概览；具体接口、数据流、时序、类/状态放到对应子层。
 - 每个子层必须显式提供 diagrams，至少 letter:module；涉及接口时补 letter:dfd 或 letter:sequence。只写 layers/modules 而不写子层图，视为未完成。
 - 子层模块 code 使用 B1/C1；父模块只负责汇总，叶子模块才分派。
-- 简单任务确实不需要子层时，在 summary/risks 中写明原因，不要静默只做 A 层。`,
+- 简单任务确实不需要子层时，在 summary/risks 中写明原因，不要静默只做 A 层。
+## 工作区挂载（Workspace Map）
+
+当任务跨多个文件夹、仓库、快照或归档目录时，不要只在 summary 里写路径：
+
+- 在 blueprint 顶层创建 mounts：每个挂载有稳定 id、label、root、kind（working/snapshot/archive）、access（rw/ro）；可写工作目录用 working/rw，归档/快照用 snapshot 或 archive 且默认只读。
+- 每个模块用 mountIds 绑定它实际读写的挂载；一个模块可绑定多个，一个挂载可被多个模块共享，但同一 rw mount 不能让两个并行子代理同时改同一文件。
+- 模块可选 execution：adapter（dsh-subagent/cli/http/manual）、cwd、allow、commands、agentProfile、storage。密钥只写 env/配置引用，不写进蓝图。
+- 跨文件夹任务必须给出 mounts 和模块绑定，再分派；缺少挂载时明确说明“未绑定工作区”，不要默认所有模块都在根目录执行。
+- 归档目录只读；不要把 snapshot/archive 标成 rw。确认蓝图时尽量用 workspaceSnapshot 记录每个 mount 的 ref/checksum。`,
         }),
       )
     }
