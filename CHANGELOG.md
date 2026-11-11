@@ -2,6 +2,18 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.13.2] — 2026-11-11
+
+### Changed
+
+- **Less background work.** Child-session listing now runs only on the Board tab; version index reads only run on Versions/Lineage. Both moved to 6s cadence; file polling moved to 3.5s and pauses while the page is hidden.
+- **No-op polls no longer rerender the studio.** Blueprint, versions and children reads skip `set()` when content is unchanged and guard against overlapping reads.
+- **Lineage DAG memoized.** The graph is recomputed only when the blueprint or version list changes.
+
+### Fixed
+
+- Removed a stale test version directory left in the workspace.
+
 ## [0.13.1] — 2026-11-11
 
 ### Changed

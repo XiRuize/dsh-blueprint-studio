@@ -498,6 +498,8 @@ window.__ModuleLoader__.load({
       checkAt: 0,
       versions: [],
       versionsLoaded: false,
+      versionsFingerprint: null,
+      childrenFingerprint: null,
       versionsLoading: false,
       diff: null,
       children: [],
@@ -637,38 +639,68 @@ window.__ModuleLoader__.load({
       return `.dsh/blueprints/${safeSession(sessionId)}.versions/index.json`
     }
 
+    let blueprintLoadInFlight = false
+    let versionsLoadInFlight = false
+    let childrenLoadInFlight = false
+
     async function loadVersions() {
       const sessionId = state.sessionId
-      if (!sessionId) return
-      set({ versionsLoading: true })
+      if (!sessionId || versionsLoadInFlight) return
+      versionsLoadInFlight = true
+      if (!state.versionsLoaded) set({ versionsLoading: true })
       try {
         const text = await readTextAt(sessionId, versionsIndexPath(sessionId))
         const versions = text === null ? [] : (JSON.parse(text).versions ?? [])
-        set({ versions, versionsLoaded: true, versionsLoading: false })
+        const fingerprint = JSON.stringify(versions)
+        if (fingerprint === state.versionsFingerprint) {
+          if (state.versionsLoading || !state.versionsLoaded) set({ versionsLoading: false, versionsLoaded: true })
+          return
+        }
+        set({ versions, versionsLoaded: true, versionsLoading: false, versionsFingerprint: fingerprint })
       } catch (error) {
-        set({ versions: [], versionsLoaded: true, versionsLoading: false })
+        set({ versions: [], versionsLoaded: true, versionsLoading: false, versionsFingerprint: null })
         try { console.warn('blueprint versions', error) } catch {}
+      } finally {
+        versionsLoadInFlight = false
       }
     }
 
     async function loadChildren() {
       const sessionId = state.sessionId
       const api = remote()
-      if (!sessionId || api === undefined) return
-      set({ childrenLoading: true })
+      if (!sessionId || api === undefined || childrenLoadInFlight) return
+      childrenLoadInFlight = true
+      if (!state.childrenLoaded) set({ childrenLoading: true })
       try {
         const result = await api.session.list({})
         if (!result.ok) throw new Error(result.error?.message ?? 'list failed')
         const items = result.value?.items ?? []
         const children = items.filter(item => item.parentSessionId === sessionId && item.origin === 'subagent')
-        set({ children, childrenLoaded: true, childrenLoading: false })
+        const fingerprint = JSON.stringify(children.map(item => [item.id, item.status, item.updatedAt]))
+        if (fingerprint === state.childrenFingerprint) {
+          if (state.childrenLoading || !state.childrenLoaded) set({ childrenLoaded: true, childrenLoading: false })
+          return
+        }
+        set({ children, childrenLoaded: true, childrenLoading: false, childrenFingerprint: fingerprint })
       } catch (error) {
-        set({ childrenLoaded: true, childrenLoading: false })
+        set({ childrenLoaded: true, childrenLoading: false, childrenFingerprint: null })
         try { console.warn('blueprint children', error) } catch {}
+      } finally {
+        childrenLoadInFlight = false
       }
     }
 
-    async function loadBlueprint({ initial = false } = {}) {
+    async function loadBlueprint(options = {}) {
+      if (blueprintLoadInFlight) return
+      blueprintLoadInFlight = true
+      try {
+        return await loadBlueprintInternal(options)
+      } finally {
+        blueprintLoadInFlight = false
+      }
+    }
+
+    async function loadBlueprintInternal({ initial = false } = {}) {
       const sessionId = state.sessionId
       if (!sessionId) return
       try {
@@ -687,7 +719,7 @@ window.__ModuleLoader__.load({
           return
         }
         if (text === state.lastText) {
-          set({ loading: false })
+          if (state.loading) set({ loading: false })
           return
         }
         const parsed = JSON.parse(text)
@@ -3172,8 +3204,8 @@ ${task}
       useEffect(() => {
         if (!store.versionsLoaded && !store.versionsLoading) loadVersions().catch(() => {})
       }, [store.versionsLoaded, store.versionsLoading])
+      const graph = useMemo(() => bp === null ? { nodes: [], edges: [] } : lineageGraph(bp, store.versions), [bp, store.versions])
       if (bp === null) return null
-      const graph = lineageGraph(bp, store.versions)
       const versions = graph.nodes.filter(node => node.kind === 'version').length
       const runs = graph.nodes.filter(node => node.kind === 'run').length
       const counts = { all: versions + runs, version: versions, run: runs }
@@ -3369,7 +3401,8 @@ ${task}
       set({
         open: true, sessionId, path: pathFor(sessionId), bp: null, loading: true, missing: false,
         dirty: false, saving: false, selected: null, mode: 'select', connectFrom: null, error: null, lastText: '', tab: 'usecase',
-        panel: 'inspector', versions: [], versionsLoaded: false, diff: null, children: [], childrenLoaded: false,
+        panel: 'inspector', versions: [], versionsLoaded: false, versionsFingerprint: null, diff: null,
+        children: [], childrenLoaded: false, childrenFingerprint: null,
         exporting: null, check: null, checkLoading: false, checkLoaded: false, checkError: null, checkAt: 0,
         landing: false, canUndo: false, canRedo: false, historyVersion: state.historyVersion + 1,
         lastSaveMode: null, draftSavedAt: 0, generationFailed: false, aiBusy: null, toast: null,
@@ -7768,10 +7801,11 @@ ${task}
       useEffect(() => {
         if (!store.open) return
         const timer = setInterval(() => {
+          if (document.visibilityState === 'hidden') return
           // Do not stop polling while the agent is busy: the file change is what
           // clears aiBusy. Autosave still wins locally while the panel is dirty.
           if (!state.dirty) loadBlueprint()
-        }, 2600)
+        }, 3500)
         return () => clearInterval(timer)
       }, [store.open, store.sessionId])
 
@@ -7783,12 +7817,13 @@ ${task}
 
       useEffect(() => {
         if (!store.open) return
-        loadChildren()
-        if (state.panel === 'versions') loadVersions()
+        if (state.panel === 'board') loadChildren()
+        if (state.panel === 'versions' || state.panel === 'lineage') loadVersions()
         const timer = setInterval(() => {
-          loadChildren()
-          if (state.panel === 'versions') loadVersions()
-        }, 5000)
+          if (document.visibilityState === 'hidden') return
+          if (state.panel === 'board') loadChildren()
+          if (state.panel === 'versions' || state.panel === 'lineage') loadVersions()
+        }, 6000)
         return () => clearInterval(timer)
       }, [store.open, store.sessionId, store.panel])
 
