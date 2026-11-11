@@ -2,6 +2,14 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.11.0] — 2026-11-11
+
+### Added
+
+- **Reference handoff runner.** `examples/handoff-runner/runner.mjs` validates a handoff, is dry-run by default, and only executes `cli` commands with explicit `--execute`; it writes `result.json` with command/stdout/stderr evidence, exit status and optional changed paths.
+- **Adapter behavior.** `manual`, `http` and `dsh-subagent` handoffs produce a `blocked` result with a next action instead of executing.
+- **Safety checks.** Rejects invalid run IDs, unknown adapters, result paths escaping the workspace, missing handoffs and malformed JSON.
+
 ## [0.10.0] — 2026-11-11
 
 ### Added
