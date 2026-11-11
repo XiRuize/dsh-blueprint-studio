@@ -2,6 +2,21 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.8.0] — 2026-11-11
+
+### Added
+
+- **Execution Ledger.** A durable `runs` ledger records module execution: mounts, adapter, status, claimedBy, leaseUntil, base snapshots, evidence, decisions, next action, error and an advisory rollback plan. Host commands: `/blueprint run list|start|evidence|complete|fail|cancel|rollback`.
+- **Mount claims and leases.** `start` claims the module's working mounts for a TTL (default 30 minutes) and rejects overlap with another active run; expired leases are reported so the work can safely resume.
+- **Transactional context.** Each run captures `baseSnapshot` from `workspaceSnapshot`, mount `ref` or checksum; failed runs carry an explicit advisory rollback plan and never auto-modify files.
+- **Run checks.** `run-module-missing`, `run-mount-conflict`, `run-lease-expired`, `run-evidence-missing`, `run-rollback-missing`; legacy blueprints without runs stay clean.
+- **Runs panel.** The right panel shows running/completed/failed runs, evidence, lease state and actions to add evidence, complete, fail, cancel, or view the rollback plan.
+
+### Changed
+
+- `runs` are Host-owned: agent `update` cannot fabricate a run or claim. A completed run does not bypass tests/reviewer/human verification.
+- Dispatch prompts include active run context and recommend creating a run before dispatch.
+
 ## [0.7.0] — 2026-11-11
 
 ### Added

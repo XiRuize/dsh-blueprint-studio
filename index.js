@@ -918,7 +918,13 @@ ${PLAN_MODE_PROMPT}
 - 每个模块用 mountIds 绑定它实际读写的挂载；一个模块可绑定多个，一个挂载可被多个模块共享，但同一 rw mount 不能让两个并行子代理同时改同一文件。
 - 模块可选 execution：adapter（dsh-subagent/cli/http/manual）、cwd、allow、commands、agentProfile、storage。密钥只写 env/配置引用，不写进蓝图。
 - 跨文件夹任务必须给出 mounts 和模块绑定，再分派；缺少挂载时明确说明“未绑定工作区”，不要默认所有模块都在根目录执行。
-- 归档目录只读；不要把 snapshot/archive 标成 rw。确认蓝图时尽量用 workspaceSnapshot 记录每个 mount 的 ref/checksum。`,
+- 归档目录只读；不要把 snapshot/archive 标成 rw。确认蓝图时尽量用 workspaceSnapshot 记录每个 mount 的 ref/checksum。
+## 执行账本（Run Ledger）
+
+- 分派一个模块前，用 /blueprint run start <moduleId> 建立持久 run：记录 mount claim、adapter、baseSnapshot 与 lease。
+- 执行中的证据用 /blueprint run evidence <runId> <text> 追加；不要只在聊天里说“测过了”。
+- 结束用 /blueprint run complete|fail|cancel；失败时用 /blueprint run rollback 取回滚计划，不自动破坏文件。
+- runs 由 Host 命令维护；工具 update 不能伪造 run 或 claim。模块是否 done 仍由 tests/reviewer/human 验证决定，run complete 不等于验收通过。`,
         }),
       )
     }
