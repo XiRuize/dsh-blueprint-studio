@@ -483,17 +483,30 @@ test('parses the optional --draft flag for /blueprint save', () => {
   assert.deepEqual(parseBlueprintSaveInput('eyJ0aXRsZSI6IkEifQ=='), {
     encoded: 'eyJ0aXRsZSI6IkEifQ==',
     draft: false,
+    force: false,
+    base: undefined,
     mode: 'archived',
   })
   assert.deepEqual(parseBlueprintSaveInput('eyJ0aXRsZSI6IkEifQ== --draft'), {
     encoded: 'eyJ0aXRsZSI6IkEifQ==',
     draft: true,
+    force: false,
+    base: undefined,
     mode: 'draft',
   })
   assert.deepEqual(parseBlueprintSaveInput('--draft eyJ0aXRsZSI6IkEifQ=='), {
     encoded: 'eyJ0aXRsZSI6IkEifQ==',
     draft: true,
+    force: false,
+    base: undefined,
     mode: 'draft',
+  })
+  assert.deepEqual(parseBlueprintSaveInput('eyJ0aXRsZSI6IkEifQ== --base 123 --force'), {
+    encoded: 'eyJ0aXRsZSI6IkEifQ==',
+    draft: false,
+    force: true,
+    base: 123,
+    mode: 'archived',
   })
   assert.equal(parseBlueprintSaveInput('').encoded, '')
 })
@@ -872,4 +885,67 @@ test('explicit layered input can keep only the root module diagram', () => {
   }, undefined, { sessionId: 's' })
   const reduced = mergeBlueprintForUpdate(previous, { removedDiagramKeys: ['usecase'] }, { sessionId: 's' })
   assert.equal(reduced.diagrams.length, 0)
+})
+
+test('save rejects a stale base and force archives the competing version', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-conflict-'))
+  try {
+    const plugin = setupPlugin(cwd)
+    const handler = plugin.commands[0].handler
+    const { file, blueprint } = await seedBlueprint(cwd, plugin.agent.id, { title: 'Initial' })
+    const onDisk = await readBlueprintFile(file)
+    const staleBase = (onDisk.updatedAt ?? Date.now()) - 1
+    const mine = Buffer.from(JSON.stringify({ ...blueprint, title: 'Mine' }), 'utf8').toString('base64')
+
+    const conflict = await handler({
+      rawInput: `save ${mine} --base ${staleBase}`,
+      agent: plugin.agent,
+    })
+    assert.equal(conflict.kind, 'success')
+    assert.equal(JSON.parse(conflict.text).code, 'conflict')
+    assert.equal((await readBlueprintFile(file)).title, 'Initial')
+
+    const forced = await handler({
+      rawInput: `save ${mine} --force`,
+      agent: plugin.agent,
+    })
+    assert.equal(forced.kind, 'success')
+    assert.equal((await readBlueprintFile(file)).title, 'Mine')
+    const versions = await readVersionsIndex(cwd, plugin.agent.id)
+    assert.ok(versions.versions.some(entry => entry.title === 'Initial'))
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('snapshot tolerates malformed percent-encoded labels', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-blueprint-snapshot-'))
+  try {
+    const plugin = setupPlugin(cwd)
+    const handler = plugin.commands[0].handler
+    await seedBlueprint(cwd, plugin.agent.id, { title: 'Snapshot' })
+    const result = await handler({ rawInput: 'snapshot %E0%A4%A', agent: plugin.agent })
+    assert.equal(result.kind, 'success')
+    const versions = await readVersionsIndex(cwd, plugin.agent.id)
+    assert.equal(versions.versions[0].label, '%E0%A4%A')
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('concurrent archive writes keep every version in the index', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'bp-concurrent-'))
+  try {
+    const base = { title: 'Base', sections: [], diagrams: [], modules: [], layers: [] }
+    const results = await Promise.all(Array.from({ length: 8 }, (_, index) =>
+      archiveBlueprintVersion(cwd, 's', { ...base, title: `Version ${index}` })))
+    assert.equal(results.filter(result => result?.entry !== undefined).length, 8)
+    const index = await readVersionsIndex(cwd, 's')
+    assert.equal(index.versions.length, 8)
+    for (const entry of index.versions) {
+      assert.ok(await readBlueprintVersion(cwd, 's', entry.id))
+    }
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
 })

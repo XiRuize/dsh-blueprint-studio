@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   CHECK_ISSUE_LIMIT,
+  decodeSnapshotLabel,
   parseExportScope,
   truncateCheckIssues,
 } from '../index.js'
@@ -55,4 +56,10 @@ test('truncateCheckIssues tolerates bad input and honors a custom limit', () => 
   const limited = truncateCheckIssues([1, 2, 3], 2)
   assert.deepEqual(limited, { issues: [1, 2], truncated: true })
   assert.equal(truncateCheckIssues([1, 2, 3], -1).issues.length, 3)
+})
+
+ test('snapshot labels survive malformed percent encoding', () => {
+  assert.equal(decodeSnapshotLabel('%E0%A4%A'), '%E0%A4%A')
+  assert.equal(decodeSnapshotLabel('release%20one'), 'release one')
+  assert.equal(decodeSnapshotLabel(''), '')
 })

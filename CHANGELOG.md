@@ -2,6 +2,15 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.6.1] — 2026-11-11
+
+### Fixed
+
+- **Concurrent writes no longer collide or lose version-index entries.** Blueprint and version-index temp files now include a UUID, and writes to the same blueprint file or versions directory are serialized through an in-process promise chain (issue #4).
+- **`/blueprint snapshot` tolerates malformed percent encoding.** A label such as `%E0%A4%A` falls back to the raw text instead of throwing `URIError` (issue #4).
+- **Autosave no longer silently overwrites an agent write.** Saves carry the last-read `updatedAt` as `--base`; the Host rejects a stale write with a conflict, and the panel offers “Reload” or “Keep mine” (which archives the other version first). Autosave stops while a conflict is open (issue #1).
+- **AI expansion/dispatch keeps polling.** The 2.6 s refresh no longer stops while `aiBusy` is set; a changed file clears the busy state. Generation now shows a “still generating” hint at 60 s and only fails at 10 minutes (issue #3).
+
 ## [0.6.0] — 2026-11-09
 
 ### Added

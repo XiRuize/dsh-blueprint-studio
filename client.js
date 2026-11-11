@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
       statusDraft: 'Draft', statusConfirmed: 'Confirmed', statusDispatched: 'Dispatched',
       generating: 'The agent is drafting the blueprint…', expanding: 'The agent is expanding the blueprint…',
       waiting: 'Waiting for the agent…', sent: 'Instruction sent to the agent', savedToast: 'Blueprint saved',
-      loadFailed: 'Could not load the blueprint', saveFailed: 'Could not save the blueprint',
+      loadFailed: 'Could not load the blueprint', saveFailed: 'Could not save the blueprint', saveConflict: 'Another write updated this blueprint. Reload to review it, or keep your version (the other version is archived first).', keepMine: 'Keep mine',
       promptSent: 'The agent will update the blueprint; this view refreshes automatically.',
       manualStart: 'Start manually', taskPrompt: 'Task description', summary: 'Summary', prompt: 'Original request',
       lastSaved: 'Updated', nodeCount: '{count} nodes', emptyDiagram: 'This diagram is empty. Add a node or ask the agent to expand it.',
@@ -59,7 +59,7 @@ window.__ModuleLoader__.load({
       versions: 'Versions', board: 'Board', snapshot: 'Snapshot', compare: 'Compare', restore: 'Restore', current: 'Current',
       diffTitle: 'Version diff', noVersions: 'No archived versions yet. Save once to create the first snapshot.',
       added: 'added', removed: 'removed', changed: 'changed', selectTwo: 'Pick two versions to compare.',
-      closeDiff: 'Back', versionRestored: 'Version restored', snapshotSaved: 'Snapshot saved', versionLoadFailed: 'Could not load versions',
+      closeDiff: 'Back', versionRestored: 'Version restored', snapshotSaved: 'Snapshot saved', versionLoadFailed: 'Could not load versions', saveConflict: 'Another write updated this blueprint. Reload to review it, or keep your version (the other version is archived first).', keepMine: 'Keep mine',
       checks: 'Checks', checksHint: 'Validate diagram structure, module dependencies and requirement coverage.',
       checkLoading: 'Running self-check…', checkEmpty: 'No issues found. The blueprint is consistent.',
       checkFailed: 'Self-check failed', checkInvalid: 'The self-check result is not valid JSON.',
@@ -124,7 +124,7 @@ window.__ModuleLoader__.load({
       stateNode: 'State', initial: 'Initial', final: 'Final', choice: 'Choice', members: 'Members',
       field: 'Field', method: 'Method', addMethod: 'Add method', transition: 'Transition',
       extends: 'Extends', implements: 'Implements', association: 'Association', dependency: 'Dependency',
-      draftSaved: 'Draft saved', generationTimeout: 'The AI did not return a blueprint within 60 seconds. Retry, or check the connection and keep waiting.', retry: 'Retry', cancelWaiting: 'Cancel waiting',
+      draftSaved: 'Draft saved', generationSlow: 'Still generating — large blueprints can take a few minutes.', generationTimeout: 'The AI did not return a blueprint within 10 minutes. Retry, or check the connection and keep waiting.', retry: 'Retry', cancelWaiting: 'Cancel waiting',
       templatesTitle: 'Start from a template', templatesHint: 'One click creates a full draft — no AI call needed.',
       tplWeb: 'Web application', tplWebDesc: 'Frontend, backend, database and auth',
       tplPlan: 'Implementation plan', tplPlanDesc: 'Plan flowchart with decisions, groups, verification and rollback',
@@ -168,7 +168,7 @@ window.__ModuleLoader__.load({
       statusDraft: '草稿', statusConfirmed: '已确认', statusDispatched: '已分派',
       generating: 'AI 正在起草蓝图…', expanding: 'AI 正在扩充蓝图…',
       waiting: '等待 AI 更新…', sent: '指令已发送给 AI', savedToast: '蓝图已保存',
-      loadFailed: '蓝图加载失败', saveFailed: '蓝图保存失败',
+      loadFailed: '蓝图加载失败', saveFailed: '蓝图保存失败', saveConflict: '蓝图已被其他写入更新。可重新加载查看，或保留我的版本（会先归档对方版本）。', keepMine: '保留我的',
       promptSent: 'AI 将更新蓝图，此视图会自动刷新。',
       manualStart: '手动开始', taskPrompt: '任务描述', summary: '摘要', prompt: '原始需求',
       lastSaved: '更新于', nodeCount: '{count} 个节点', emptyDiagram: '这张图还是空的。可以新增节点，或让 AI 扩充。',
@@ -264,7 +264,7 @@ window.__ModuleLoader__.load({
       stateNode: '状态', initial: '初始', final: '结束', choice: '选择', members: '成员',
       field: '字段', method: '方法', addMethod: '新增方法', transition: '转移',
       extends: '继承', implements: '实现', association: '关联', dependency: '依赖',
-      draftSaved: '草稿已保存', generationTimeout: 'AI 未在 60 秒内返回蓝图。可以重试，或检查网络后继续等待。', retry: '重试', cancelWaiting: '取消等待',
+      draftSaved: '草稿已保存', generationSlow: '仍在生成——复杂分层蓝图可能需要几分钟。', generationTimeout: 'AI 未在 10 分钟内返回蓝图。可以重试，或检查网络后继续等待。', retry: '重试', cancelWaiting: '取消等待',
       templatesTitle: '从模板开始', templatesHint: '一键生成完整草稿，不调用 AI。',
       tplWeb: 'Web 应用', tplWebDesc: '前端、后端、数据库与鉴权',
       tplPlan: '实施计划', tplPlanDesc: '含判断、分组、验证与回滚的计划流程图',
@@ -357,6 +357,8 @@ window.__ModuleLoader__.load({
       connectFrom: null,
       lastText: '',
       lastLoaded: 0,
+      baseUpdatedAt: null,
+      conflict: false,
       remoteUpdated: false,
       panel: 'inspector',
       exporting: null,
@@ -396,7 +398,8 @@ window.__ModuleLoader__.load({
     }
     let toastTimer = null
     const AUTOSAVE_DELAY_MS = 1800
-    const GENERATION_TIMEOUT_MS = 60000
+    const GENERATION_TIMEOUT_MS = 600000
+    const GENERATION_SLOW_MS = 60000
     const GENERATION_POLL_MS = 2000
     let autosaveTimer = null
     let generationWatch = null
@@ -414,7 +417,7 @@ window.__ModuleLoader__.load({
       }
     }
     function scheduleAutosave() {
-      if (!state.open || state.bp === null || state.sessionId === null) return
+      if (!state.open || state.bp === null || state.sessionId === null || state.conflict) return
       clearAutosaveTimer()
       const sessionId = state.sessionId
       autosaveTimer = setTimeout(() => {
@@ -429,6 +432,7 @@ window.__ModuleLoader__.load({
       generationWatch = null
       watch.stopped = true
       if (watch.interval !== null) clearInterval(watch.interval)
+      if (watch.slow !== null) clearTimeout(watch.slow)
       if (watch.timeout !== null) clearTimeout(watch.timeout)
     }
     function cancelGenerationWait() {
@@ -583,6 +587,8 @@ window.__ModuleLoader__.load({
           loading: false,
           missing: false,
           dirty: false,
+          baseUpdatedAt: Number.isFinite(parsed.updatedAt) ? parsed.updatedAt : null,
+          conflict: false,
           lastText: text,
           lastLoaded: Date.now(),
           remoteUpdated: false,
@@ -601,6 +607,15 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function saveOutcome(text) {
+      try {
+        const value = JSON.parse(String(text ?? ''))
+        return value !== null && typeof value === 'object' ? value : null
+      } catch {
+        return null
+      }
+    }
+
     function saveBlueprint({ silent = true } = {}) {
       if (state.bp === null || state.sessionId === null) return Promise.resolve(false)
       clearAutosaveTimer()
@@ -611,14 +626,28 @@ window.__ModuleLoader__.load({
         set({ saving: true })
         try {
           const api = remote()
-          const line = `/blueprint save ${base64(payload)}`
+          const base = state.baseUpdatedAt
+          const line = `/blueprint save ${base64(payload)}${base === null ? '' : ` --base ${base}`}`
           const result = await api.commands.execute(sessionId, line, [])
           if (!result.ok) throw new Error(result.error?.message ?? 'command failed')
           const outcome = result.value?.result
           if (outcome?.kind === 'error') throw new Error(outcome.text)
+          const parsedOutcome = saveOutcome(outcome?.text)
+          if (parsedOutcome?.code === 'conflict') {
+            set({ saving: false, dirty: true, conflict: true, remoteUpdated: true, error: t('saveConflict') })
+            return false
+          }
           if (state.sessionId !== sessionId) return true
           const upToDate = state.bp !== null && JSON.stringify(state.bp) === payload
-          set({ saving: false, dirty: !upToDate, lastSaveMode: 'archive', error: null, lastLoaded: Date.now() })
+          set({
+            saving: false,
+            dirty: !upToDate,
+            conflict: false,
+            baseUpdatedAt: Number.isFinite(parsedOutcome?.updatedAt) ? parsedOutcome.updatedAt : state.baseUpdatedAt,
+            lastSaveMode: parsedOutcome?.mode ?? 'archive',
+            error: null,
+            lastLoaded: Date.now(),
+          })
           if (!silent) toast(t('savedToast'), 'success')
           loadVersions()
           if (!upToDate) scheduleAutosave()
@@ -642,16 +671,24 @@ window.__ModuleLoader__.load({
         set({ saving: true })
         try {
           const api = remote()
-          const line = `/blueprint save ${base64(payload)} --draft`
+          const base = state.baseUpdatedAt
+          const line = `/blueprint save ${base64(payload)} --draft${base === null ? '' : ` --base ${base}`}`
           const result = await api.commands.execute(targetSession, line, [])
           if (!result.ok) throw new Error(result.error?.message ?? 'command failed')
           const outcome = result.value?.result
           if (outcome?.kind === 'error') throw new Error(outcome.text)
+          const parsedOutcome = saveOutcome(outcome?.text)
+          if (parsedOutcome?.code === 'conflict') {
+            set({ saving: false, dirty: true, conflict: true, remoteUpdated: true, error: t('saveConflict') })
+            return false
+          }
           if (state.sessionId !== targetSession) return true
           const upToDate = state.bp !== null && JSON.stringify(state.bp) === payload
           set({
             saving: false,
             dirty: !upToDate,
+            conflict: false,
+            baseUpdatedAt: Number.isFinite(parsedOutcome?.updatedAt) ? parsedOutcome.updatedAt : state.baseUpdatedAt,
             lastSaveMode: 'draft',
             draftSavedAt: Date.now(),
             error: null,
@@ -663,6 +700,46 @@ window.__ModuleLoader__.load({
           if (state.sessionId !== targetSession) return false
           const message = String(error?.message ?? error)
           set({ saving: false, dirty: true, error: `${t('saveFailed')}: ${message}` })
+          return false
+        }
+      })
+    }
+
+    async function forceSave() {
+      if (state.bp === null || state.sessionId === null) return false
+      clearAutosaveTimer()
+      const sessionId = state.sessionId
+      return enqueueSave(async () => {
+        if (state.bp === null || state.sessionId !== sessionId) return false
+        const payload = JSON.stringify(state.bp)
+        set({ saving: true })
+        try {
+          const api = remote()
+          const result = await api.commands.execute(sessionId, `/blueprint save ${base64(payload)} --force`, [])
+          if (!result.ok) throw new Error(result.error?.message ?? 'command failed')
+          const outcome = result.value?.result
+          if (outcome?.kind === 'error') throw new Error(outcome.text)
+          const parsedOutcome = saveOutcome(outcome?.text)
+          if (state.sessionId !== sessionId) return true
+          const upToDate = state.bp !== null && JSON.stringify(state.bp) === payload
+          set({
+            saving: false,
+            dirty: !upToDate,
+            conflict: false,
+            remoteUpdated: false,
+            baseUpdatedAt: Number.isFinite(parsedOutcome?.updatedAt) ? parsedOutcome.updatedAt : state.baseUpdatedAt,
+            error: null,
+            lastSaveMode: parsedOutcome?.mode ?? 'archive',
+            lastLoaded: Date.now(),
+          })
+          toast(t('savedToast'), 'success')
+          loadVersions()
+          if (!upToDate) scheduleAutosave()
+          return true
+        } catch (error) {
+          if (state.sessionId !== sessionId) return false
+          const message = String(error?.message ?? error)
+          set({ saving: false, dirty: true, conflict: true, error: `${t('saveFailed')}: ${message}` })
           return false
         }
       })
@@ -2561,12 +2638,13 @@ ${task}
           set({ loading: false, landing: false })
           // The agent will create the file. Poll until it appears, but never wait forever.
           clearGenerationWatch()
-          const watch = { sessionId, interval: null, timeout: null, stopped: false }
+          const watch = { sessionId, interval: null, slow: null, timeout: null, stopped: false }
           generationWatch = watch
           const stop = () => {
             if (watch.stopped) return
             watch.stopped = true
             if (watch.interval !== null) clearInterval(watch.interval)
+            if (watch.slow !== null) clearTimeout(watch.slow)
             if (watch.timeout !== null) clearTimeout(watch.timeout)
             if (generationWatch === watch) generationWatch = null
           }
@@ -2580,6 +2658,11 @@ ${task}
               await loadBlueprint()
             }
           }, GENERATION_POLL_MS)
+          watch.slow = setTimeout(() => {
+            if (watch.stopped) return
+            if (!state.open || state.sessionId !== sessionId) return
+            toast(t('generationSlow'), 'success')
+          }, GENERATION_SLOW_MS)
           watch.timeout = setTimeout(() => {
             if (watch.stopped) return
             stop()
@@ -6258,7 +6341,9 @@ ${task}
       useEffect(() => {
         if (!store.open) return
         const timer = setInterval(() => {
-          if (!state.dirty && state.aiBusy === null) loadBlueprint()
+          // Do not stop polling while the agent is busy: the file change is what
+          // clears aiBusy. Autosave still wins locally while the panel is dirty.
+          if (!state.dirty) loadBlueprint()
         }, 2600)
         return () => clearInterval(timer)
       }, [store.open, store.sessionId])
@@ -6356,7 +6441,8 @@ ${task}
             store.aiBusy === 'generating' ? t('generating') : store.aiBusy === 'dispatching' ? t('dispatching') : t('expanding'),
             h('button', { type: 'button', className: 'bp-link', onClick: cancelGenerationWait }, t('cancelWaiting'))) : null,
           store.remoteUpdated && store.dirty ? h('div', { className: 'bp-conflict' },
-            h('span', null, t('aiUpdated')),
+            h('span', null, store.conflict ? t('saveConflict') : t('aiUpdated')),
+            store.conflict ? h('button', { type: 'button', className: 'bp-btn', onClick: forceSave }, t('keepMine')) : null,
             h('button', { type: 'button', className: 'bp-btn', onClick: () => loadBlueprint({ initial: true }) }, t('reload'))) : null,
           store.error ? h('div', { className: 'bp-error-bar' }, store.error) : null,
           store.importOpen ? h(ImportDialog, { store }) : null,

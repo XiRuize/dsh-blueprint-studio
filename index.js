@@ -145,6 +145,15 @@ export function truncateCheckIssues(issues, limit = CHECK_ISSUE_LIMIT) {
   }
 }
 
+export function decodeSnapshotLabel(raw) {
+  const value = String(raw ?? '')
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
 function objectArgs(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
@@ -367,7 +376,7 @@ export function apply(ctx, rawConfig) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
           if (sub === 'save') {
-            const { encoded, draft } = parseBlueprintSaveInput(rest.join(' '))
+            const { encoded, draft, base, force } = parseBlueprintSaveInput(rest.join(' '))
             if (encoded === '') return { kind: 'error', text: '缺少蓝图数据。' }
             let parsed
             try {
@@ -377,6 +386,22 @@ export function apply(ctx, rawConfig) {
             }
             const { file, raw } = await readCurrent(invocation.agent)
             const previous = raw === undefined ? undefined : normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            const diskUpdatedAt = previous?.updatedAt
+            if (!force && base !== undefined && previous !== undefined && Number(base) !== Number(diskUpdatedAt)) {
+              return {
+                kind: 'success',
+                text: JSON.stringify({
+                  ok: false,
+                  code: 'conflict',
+                  updatedAt: diskUpdatedAt,
+                  path: file.relative,
+                  message: '蓝图已被其他写入更新，请重新加载或选择保留我的修改。',
+                }),
+              }
+            }
+            if (force && previous !== undefined) {
+              await archive(file, previous, 'ui', 'conflict: keep mine')
+            }
             const saved = await saveBlueprintFromCommand({
               cwd: file.cwd,
               sessionId: file.sessionId,
@@ -385,16 +410,18 @@ export function apply(ctx, rawConfig) {
               draft,
               source: 'ui',
             })
-            if (saved.mode === 'draft') {
-              return { kind: 'success', text: `蓝图草稿已保存（draft，未归档）：${file.relative}` }
+            return {
+              kind: 'success',
+              text: JSON.stringify({
+                ok: true,
+                mode: saved.mode,
+                archived: saved.archived,
+                skipped: saved.skipped,
+                archiveErrors: saved.archiveErrors,
+                updatedAt: saved.blueprint.updatedAt,
+                path: file.relative,
+              }),
             }
-            if (saved.archiveErrors.length > 0) {
-              return {
-                kind: 'success',
-                text: `蓝图已保存（archived 失败，文件已写入）：${file.relative}\n版本归档失败：${saved.archiveErrors.join('；')}`,
-              }
-            }
-            return { kind: 'success', text: `蓝图已保存并归档（archived）：${file.relative}` }
           }
           if (sub === 'verify') {
             const moduleId = String(rest[0] ?? '').trim()
@@ -493,7 +520,7 @@ export function apply(ctx, rawConfig) {
             const { file, raw } = await readCurrent(invocation.agent)
             if (raw === undefined) return { kind: 'error', text: '还没有工程蓝图。' }
             const current = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
-            const label = decodeURIComponent(rest.join(' '))
+            const label = decodeSnapshotLabel(rest.join(' '))
             await archive(file, current, 'manual', label)
             return { kind: 'success', text: '当前蓝图已归档。' }
           }
