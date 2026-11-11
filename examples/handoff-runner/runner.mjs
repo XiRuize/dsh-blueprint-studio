@@ -53,16 +53,103 @@ export function validateHandoff(value) {
     throw new HandoffError('invalid-result-path', 'handoff.resultPath 必须是工作区相对路径。')
   }
   const commands = Array.isArray(handoff.commands) ? handoff.commands.map(text).filter(Boolean) : []
+  const mounts = Array.isArray(handoff.mounts)
+    ? handoff.mounts.filter(item => item !== null && typeof item === 'object').map(item => ({
+        id: text(item.id),
+        root: text(item.root),
+        access: text(item.access) || 'rw',
+        readOnly: item.readOnly === true || text(item.access) === 'ro',
+      }))
+    : []
   return {
     runId,
     adapter,
     resultPath,
     cwd: text(handoff.cwd),
     commands,
+    mounts,
     prompt: text(handoff.prompt),
     moduleId: text(handoff.moduleId),
     moduleCode: text(handoff.moduleCode),
   }
+}
+
+export const DEFAULT_POLICY = Object.freeze({
+  allowedCommands: [],
+  deniedCommands: [],
+  maxTimeoutMs: 120000,
+  maxOutputBytes: 200000,
+  maxCommands: 20,
+  allowReadOnlyMounts: false,
+  auditLog: '.dsh/blueprints/handoff-audit.jsonl',
+})
+
+function regexList(values, label) {
+  if (!Array.isArray(values)) return []
+  return values.map(value => {
+    const pattern = text(value)
+    if (pattern === '') return null
+    try {
+      return new RegExp(pattern)
+    } catch {
+      throw new HandoffError('invalid-policy', `${label} 包含非法正则：${pattern}`)
+    }
+  }).filter(Boolean)
+}
+
+export function parsePolicy(raw) {
+  const value = object(raw) ?? {}
+  const number = (candidate, fallback) => {
+    const parsed = Number(candidate)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+  }
+  return {
+    allowedCommands: regexList(value.allowedCommands, 'allowedCommands'),
+    deniedCommands: regexList(value.deniedCommands, 'deniedCommands'),
+    maxTimeoutMs: number(value.maxTimeoutMs, DEFAULT_POLICY.maxTimeoutMs),
+    maxOutputBytes: number(value.maxOutputBytes, DEFAULT_POLICY.maxOutputBytes),
+    maxCommands: Math.floor(number(value.maxCommands, DEFAULT_POLICY.maxCommands)),
+    allowReadOnlyMounts: value.allowReadOnlyMounts === true,
+    auditLog: text(value.auditLog) || DEFAULT_POLICY.auditLog,
+  }
+}
+
+export async function loadPolicy(root, policyPath) {
+  const file = policyPath === undefined
+    ? path.join(root, '.dsh', 'blueprints', 'handoff-policy.json')
+    : path.resolve(root, policyPath)
+  try {
+    return parsePolicy(JSON.parse(await fs.readFile(file, 'utf8')))
+  } catch (error) {
+    if (error?.code === 'ENOENT') return parsePolicy({})
+    if (error instanceof HandoffError) throw error
+    throw new HandoffError('invalid-policy', `无法读取策略：${String(error?.message ?? error)}`)
+  }
+}
+
+export function policyViolations(handoff, policy) {
+  const violations = []
+  if (handoff.commands.length > policy.maxCommands) {
+    violations.push(`命令数 ${handoff.commands.length} 超过上限 ${policy.maxCommands}`)
+  }
+  for (const command of handoff.commands) {
+    if (policy.deniedCommands.some(pattern => pattern.test(command))) {
+      violations.push(`命令被策略拒绝：${command}`)
+    }
+    if (policy.allowedCommands.length > 0 && !policy.allowedCommands.some(pattern => pattern.test(command))) {
+      violations.push(`命令不在 allowlist：${command}`)
+    }
+  }
+  if (!policy.allowReadOnlyMounts && handoff.commands.length > 0 && handoff.mounts.some(mount => mount.readOnly)) {
+    violations.push('handoff 挂载了只读 mount，但声明了写入命令；设置 allowReadOnlyMounts 或移除只读挂载')
+  }
+  return violations
+}
+
+async function appendAudit(root, policy, record) {
+  const file = resolveInside(root, policy.auditLog)
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8')
 }
 
 function resolveInside(root, relative) {
@@ -110,11 +197,26 @@ export async function runHandoff(handoffPath, options = {}) {
   const absoluteHandoff = path.resolve(handoffPath)
   const handoff = validateHandoff(JSON.parse(await fs.readFile(absoluteHandoff, 'utf8')))
   const root = workspaceRootForHandoff(absoluteHandoff)
+  const policy = await loadPolicy(root, options.policyPath)
+  const violations = policyViolations(handoff, policy)
+  if (violations.length > 0) {
+    await appendAudit(root, policy, {
+      at: Date.now(), runId: handoff.runId, adapter: handoff.adapter,
+      status: 'policy-denied', violations,
+    }).catch(() => {})
+    throw new HandoffError('policy', violations.join('；'))
+  }
   const cwd = handoff.cwd === '' ? root : resolveInside(root, handoff.cwd)
   const resultPath = resolveInside(root, handoff.resultPath)
   const execute = options.execute === true
-  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 120000
+  const requestedTimeout = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : policy.maxTimeoutMs
+  const timeoutMs = Math.min(requestedTimeout, policy.maxTimeoutMs)
   const evidence = []
+  const capOutput = value => value.length > policy.maxOutputBytes ? `${value.slice(0, policy.maxOutputBytes)}\n…[truncated]` : value
+  const audit = async (status, extra = {}) => appendAudit(root, policy, {
+    at: Date.now(), runId: handoff.runId, adapter: handoff.adapter,
+    status, commandCount: handoff.commands.length, resultPath: handoff.resultPath, ...extra,
+  }).catch(() => {})
   const changedPaths = Array.isArray(options.changedPaths) ? options.changedPaths.map(text).filter(Boolean) : []
 
   if (handoff.adapter !== 'cli') {
@@ -126,6 +228,7 @@ export async function runHandoff(handoffPath, options = {}) {
       nextAction: `Provide a ${handoff.adapter} runner or switch this module execution adapter to cli.`,
     }
     await writeJsonAtomic(resultPath, result)
+    await audit(result.status)
     return { ok: true, mode: 'blocked', status: 'blocked', handoff, result, resultPath }
   }
   if (handoff.commands.length === 0) {
@@ -137,6 +240,7 @@ export async function runHandoff(handoffPath, options = {}) {
       nextAction: 'Add execution.commands to the module or run manually.',
     }
     await writeJsonAtomic(resultPath, result)
+    await audit(result.status)
     return { ok: true, mode: 'blocked', status: 'blocked', handoff, result, resultPath }
   }
 
@@ -157,8 +261,8 @@ export async function runHandoff(handoffPath, options = {}) {
   for (const command of handoff.commands) {
     const outcome = await runCommand(command, cwd, timeoutMs)
     evidence.push({ kind: 'command', text: `$ ${command}\nexit=${outcome.code}` })
-    if (outcome.stdout.trim() !== '') evidence.push({ kind: 'stdout', text: outcome.stdout.trim().slice(-4000) })
-    if (outcome.stderr.trim() !== '') evidence.push({ kind: 'stderr', text: outcome.stderr.trim().slice(-4000) })
+    if (outcome.stdout.trim() !== '') evidence.push({ kind: 'stdout', text: capOutput(outcome.stdout.trim()) })
+    if (outcome.stderr.trim() !== '') evidence.push({ kind: 'stderr', text: capOutput(outcome.stderr.trim()) })
     if (outcome.code !== 0) {
       const result = {
         runId: handoff.runId,
@@ -170,6 +274,7 @@ export async function runHandoff(handoffPath, options = {}) {
         nextAction: 'Inspect the captured stderr and rollback plan before retrying.',
       }
       await writeJsonAtomic(resultPath, result)
+      await audit(result.status)
       return { ok: true, mode: 'executed', status: 'failed', handoff, result, resultPath, cwd }
     }
   }
@@ -182,6 +287,7 @@ export async function runHandoff(handoffPath, options = {}) {
     changedPaths,
   }
   await writeJsonAtomic(resultPath, result)
+  await audit('done')
   return { ok: true, mode: 'executed', status: 'done', handoff, result, resultPath, cwd }
 }
 
@@ -190,11 +296,13 @@ export async function main(argv = process.argv.slice(2)) {
   let handoffPath = ''
   let execute = false
   let timeoutMs = 120000
+  let policyPath
   const changedPaths = []
   while (args.length > 0) {
     const arg = args.shift()
     if (arg === '--execute') execute = true
     else if (arg === '--timeout') timeoutMs = Number(args.shift()) || 120000
+    else if (arg === '--policy') policyPath = args.shift()
     else if (arg === '--changed-path') changedPaths.push(args.shift() ?? '')
     else if (arg === '--help' || arg === '-h') {
       console.log('Usage: node runner.mjs <handoff.json> [--execute] [--timeout ms] [--changed-path path]')
@@ -206,7 +314,7 @@ export async function main(argv = process.argv.slice(2)) {
     console.error('Usage: node runner.mjs <handoff.json> [--execute] [--timeout ms] [--changed-path path]')
     return 2
   }
-  const outcome = await runHandoff(handoffPath, { execute, timeoutMs, changedPaths })
+  const outcome = await runHandoff(handoffPath, { execute, timeoutMs, changedPaths, policyPath })
   console.log(JSON.stringify(outcome, null, 2))
   return 0
 }

@@ -90,6 +90,7 @@ finish a run clear the lease.
 
 ## Safety
 
+- Optional `.dsh/blueprints/handoff-policy.json` enforces command allow/deny regexes, max commands, timeout/output caps, read-only mount refusal and a JSONL audit log.
 - Handoff and result are advisory files; no command execution, HTTP request or
   subagent spawn happens automatically.
 - Secrets must be supplied by the runner's environment/profile, never inside

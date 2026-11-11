@@ -2,6 +2,17 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.12.0] — 2026-11-11
+
+### Added
+
+- **Runner policy and audit.** Optional `.dsh/blueprints/handoff-policy.json` supports command allowlist/denylist regexes, max commands, timeout/output caps, and read-only mount refusal. Every execution attempt appends a JSONL audit record.
+- **Lineage timeline.** A read-only right-panel projection merges versions and runs in reverse chronological order with source, status, counts and evidence; the blueprint and run ledger stay authoritative.
+
+### Changed
+
+- Reference runner applies `maxTimeoutMs` and `maxOutputBytes`, and refuses policy violations before writing any result.
+
 ## [0.11.0] — 2026-11-11
 
 ### Added

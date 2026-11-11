@@ -92,3 +92,37 @@ test('non-cli adapters are blocked and do not execute', async () => {
     await fs.rm(root, { recursive: true, force: true })
   }
 })
+
+test('policy allowlist and read-only mounts block execution before writing', async () => {
+  const { root, handoffPath, handoff } = await fixture(['echo ok'])
+  try {
+    await fs.mkdir(path.join(root, '.dsh', 'blueprints'), { recursive: true })
+    await fs.writeFile(path.join(root, '.dsh', 'blueprints', 'handoff-policy.json'), JSON.stringify({
+      allowedCommands: ['^pnpm test$'],
+    }), 'utf8')
+    await assert.rejects(runHandoff(handoffPath, { execute: true }), error => error?.code === 'policy')
+    await assert.rejects(fs.stat(path.join(root, '.dsh/blueprints/session.runs/run-1/result.json')))
+
+    await fs.rm(path.join(root, '.dsh', 'blueprints', 'handoff-policy.json'), { force: true })
+    await fs.writeFile(handoffPath, JSON.stringify({
+      ...handoff,
+      mounts: [{ id: 'archive', root: './archive', access: 'ro' }],
+    }), 'utf8')
+    await assert.rejects(runHandoff(handoffPath, { execute: true }), error => error?.code === 'policy')
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+test('execution appends an audit record', async () => {
+  const { root, handoffPath } = await fixture(['echo audit'])
+  try {
+    await runHandoff(handoffPath, { execute: true })
+    const lines = (await fs.readFile(path.join(root, '.dsh/blueprints/handoff-audit.jsonl'), 'utf8')).trim().split('\n')
+    const record = JSON.parse(lines.at(-1))
+    assert.equal(record.runId, 'run-1')
+    assert.equal(record.status, 'done')
+  } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})

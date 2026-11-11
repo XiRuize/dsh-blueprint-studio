@@ -197,6 +197,9 @@ window.__ModuleLoader__.load({
       runPrepare: 'Handoff', runCollect: 'Collect result', runHeartbeat: 'Heartbeat',
       runHandoffReady: 'Handoff written: {path}', runCollected: 'Result collected',
       runPrepareFailed: 'Could not write handoff', runCollectFailed: 'Could not collect result',
+      lineage: 'Lineage', lineageHint: 'A read-only timeline of versions and runs. The blueprint and run ledger remain authoritative.',
+      lineageAll: 'All', lineageVersions: 'Versions', lineageRuns: 'Runs',
+      lineageVersion: 'Version', lineageRun: 'Run', lineageNoEvents: 'No versions or runs yet.',
       runRollbackFailed: 'Could not build the rollback plan', runPlan: 'Rollback plan for {id}',
       runActionDone: 'Run updated', runActionFailed: 'Could not update the run',
       runRefresh: 'Refresh', runStatusRunning: 'Running', runStatusDone: 'Completed', runStatusFailed: 'Failed',
@@ -395,6 +398,9 @@ window.__ModuleLoader__.load({
       runPrepare: '生成交接包', runCollect: '回收结果', runHeartbeat: '续租',
       runHandoffReady: '交接包已写入：{path}', runCollected: '结果已回收',
       runPrepareFailed: '生成交接包失败', runCollectFailed: '回收结果失败',
+      lineage: '脉络', lineageHint: '版本与运行的只读时间线；事实来源仍是蓝图与 run ledger。',
+      lineageAll: '全部', lineageVersions: '版本', lineageRuns: '运行',
+      lineageVersion: '版本', lineageRun: '运行', lineageNoEvents: '还没有版本或运行。',
       runRollbackFailed: '生成回滚计划失败', runPlan: '回滚计划：{id}',
       runActionDone: 'Run 已更新', runActionFailed: '更新 Run 失败',
       runRefresh: '刷新', runStatusRunning: '运行中', runStatusDone: '已完成', runStatusFailed: '失败',
@@ -2893,6 +2899,88 @@ ${task}
       const normalized = typeof status === 'string' && status.trim() !== '' ? status.trim().toLowerCase() : 'running'
       const key = RUN_STATUS_KEYS[normalized]
       return key === undefined ? normalized : t(key)
+    }
+
+    function lineageEvents(bp, versions) {
+      const events = []
+      const list = Array.isArray(versions) ? versions : []
+      for (const version of list) {
+        if (version === null || typeof version !== 'object') continue
+        const at = Number(version.at)
+        if (!Number.isFinite(at)) continue
+        events.push({
+          kind: 'version', id: String(version.id ?? ''), at,
+          title: String(version.title ?? ''),
+          status: String(version.status ?? 'draft'),
+          source: String(version.source ?? 'agent'),
+          label: String(version.label ?? ''),
+          counts: version.counts ?? null,
+        })
+      }
+      const runs = Array.isArray(bp?.runs) ? bp.runs : []
+      const modules = new Map((Array.isArray(bp?.modules) ? bp.modules : []).map(module => [module.id, module]))
+      for (const run of runs) {
+        if (run === null || typeof run !== 'object') continue
+        const at = Number(run.endedAt ?? run.startedAt)
+        if (!Number.isFinite(at)) continue
+        const module = modules.get(run.moduleId)
+        events.push({
+          kind: 'run', id: String(run.id ?? ''), at,
+          title: `${module?.code ?? ''} ${module?.name ?? run.moduleId ?? ''}`.trim(),
+          status: String(run.status ?? 'running'),
+          source: String(run.adapter ?? ''),
+          label: String(run.nextAction ?? run.error ?? ''),
+          evidence: Array.isArray(run.evidence) ? run.evidence.length : 0,
+        })
+      }
+      return events.sort((left, right) => right.at - left.at || left.kind.localeCompare(right.kind) || right.id.localeCompare(left.id))
+    }
+
+    function LineagePanel({ store }) {
+      const bp = store.bp
+      const [filter, setFilter] = useState('all')
+      useEffect(() => {
+        if (!store.versionsLoaded && !store.versionsLoading) loadVersions().catch(() => {})
+      }, [store.versionsLoaded, store.versionsLoading])
+      if (bp === null) return null
+      const events = lineageEvents(bp, store.versions)
+      const visible = events.filter(event => filter === 'all' || event.kind === filter)
+      const counts = {
+        all: events.length,
+        version: events.filter(event => event.kind === 'version').length,
+        run: events.filter(event => event.kind === 'run').length,
+      }
+      const chip = event => event.kind === 'version' ? t('lineageVersion') : t('lineageRun')
+      return h('div', { className: 'bp-lineage' },
+        h('div', { className: 'bp-panel-head' },
+          h('div', { className: 'bp-kicker' }, t('lineage')),
+          h('button', {
+            type: 'button', className: 'bp-ghost bp-btn',
+            onClick: () => loadVersions().catch(() => {}),
+          }, t('runRefresh'))),
+        h('div', { className: 'bp-muted bp-lineage-hint' }, t('lineageHint')),
+        h('div', { className: 'bp-lineage-filters' },
+          ['all', 'version', 'run'].map(kind => h('button', {
+            type: 'button', key: kind,
+            className: `bp-lineage-filter${filter === kind ? ' active' : ''}`,
+            onClick: () => setFilter(kind),
+          }, `${kind === 'all' ? t('lineageAll') : kind === 'version' ? t('lineageVersions') : t('lineageRuns')} ${counts[kind]}`))),
+        visible.length === 0
+          ? h('div', { className: 'bp-muted bp-lineage-empty' }, t('lineageNoEvents'))
+          : h('div', { className: 'bp-lineage-list' },
+              visible.map(event => h('div', { className: `bp-lineage-item bp-lineage-${event.kind}`, key: `${event.kind}:${event.id}` },
+                h('span', { className: 'bp-lineage-dot' }),
+                h('div', { className: 'bp-lineage-card' },
+                  h('div', { className: 'bp-lineage-top' },
+                    h('span', { className: `bp-chip bp-chip-${event.kind === 'run' ? event.status : (event.status === 'confirmed' ? 'done' : 'draft')}` }, chip(event)),
+                    h('strong', null, event.title || event.id),
+                    h('time', null, new Date(event.at).toLocaleString())),
+                  h('div', { className: 'bp-lineage-meta' },
+                    event.source ? h('span', null, event.source) : null,
+                    event.label ? h('span', null, event.label) : null,
+                    event.counts ? h('span', null, `${event.counts.modules ?? 0} modules · ${event.counts.diagrams ?? 0} diagrams`) : null,
+                    event.kind === 'run' ? h('span', null, `${event.evidence} evidence`) : null),
+                  h('code', { className: 'bp-lineage-id' }, event.id))))))
     }
 
     const VERIFICATION_ROLES = ['tests', 'reviewer', 'human']
@@ -6000,7 +6088,8 @@ ${task}
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'versions' ? ' active' : ''}`, onClick: () => { set({ panel: 'versions' }); loadVersions() } }, t('versions')),
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'checks' ? ' active' : ''}`, onClick: () => { set({ panel: 'checks' }); loadChecks() } }, t('checks')),
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'workspace' ? ' active' : ''}`, onClick: () => set({ panel: 'workspace' }) }, t('workspace')),
-          h('button', { type: 'button', className: `bp-panel-tab${panel === 'runs' ? ' active' : ''}`, onClick: () => set({ panel: 'runs' }) }, t('runs'))),
+          h('button', { type: 'button', className: `bp-panel-tab${panel === 'runs' ? ' active' : ''}`, onClick: () => set({ panel: 'runs' }) }, t('runs')),
+          h('button', { type: 'button', className: `bp-panel-tab${panel === 'lineage' ? ' active' : ''}`, onClick: () => { set({ panel: 'lineage' }); loadVersions() } }, t('lineage'))),
         panel === 'board'
           ? h(BoardPanel, { store })
           : panel === 'versions'
@@ -6011,7 +6100,9 @@ ${task}
                 ? h(WorkspacePanel, { store })
                 : panel === 'runs'
                   ? h(RunsPanel, { store })
-                  : h(React.Fragment, null,
+                  : panel === 'lineage'
+                    ? h(LineagePanel, { store })
+                    : h(React.Fragment, null,
                       h(Inspector, { store }),
                       h('div', { className: 'bp-divider' }),
                       h(ModulePanel, { store })))
@@ -7647,6 +7738,21 @@ ${task}
 .bp-ai-strip{display:flex;align-items:center;gap:8px;padding:7px 14px;border-top:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent);font-size:12px;color:var(--dsw-alias-label-secondary)}
 .bp-link{border:0;background:transparent;color:var(--dsw-alias-brand-primary);font:inherit;font-size:12px;cursor:pointer;margin-left:auto}
 .bp-conflict{display:flex;align-items:center;gap:8px;padding:7px 14px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 10%,transparent);font-size:12px;color:var(--dsw-alias-label-secondary)}
+.bp-lineage{padding:0 2px}
+.bp-lineage-hint{margin:0 0 10px}
+.bp-lineage-filters{display:flex;gap:4px;margin-bottom:10px}
+.bp-lineage-filter{border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:3px 8px;border-radius:7px;cursor:pointer}
+.bp-lineage-filter.active{color:var(--dsw-alias-brand-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}
+.bp-lineage-list{position:relative;margin-left:8px;padding-left:14px;border-left:1px solid var(--dsw-alias-border-l2)}
+.bp-lineage-item{position:relative;margin-bottom:10px}
+.bp-lineage-dot{position:absolute;left:-19px;top:8px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-brand-primary);box-shadow:0 0 0 3px var(--dsw-alias-bg-base)}
+.bp-lineage-run .bp-lineage-dot{background:var(--dsw-alias-state-warn-primary)}
+.bp-lineage-card{border:1px solid var(--dsw-alias-border-l1);border-radius:9px;padding:8px 9px;background:var(--dsw-alias-bg-layer-1)}
+.bp-lineage-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px}
+.bp-lineage-top time{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:10px}
+.bp-lineage-meta{display:flex;gap:8px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:10px;margin-top:4px}
+.bp-lineage-id{display:block;margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:10px;opacity:.75;word-break:break-all}
+.bp-lineage-empty{padding:18px 0}
 .bp-toast{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:9px;padding:8px 14px;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
 .bp-toast.error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .bp-toast.success{border-color:var(--dsw-alias-state-success-primary)}
@@ -8014,6 +8120,8 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
         formatRunLease,
         importErrorMessage,
         latestRunForModule,
+        lineageEvents,
+        LineagePanel,
         layoutDiagram,
         layoutFlowchart,
         layoutFlowchartGroups,

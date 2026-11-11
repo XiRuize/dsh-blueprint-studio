@@ -32,7 +32,7 @@ const {
   mountAccess, mountFromDraft, mountKind, moduleMounts, validateMountDraft,
   workspaceDispatchFor, workspaceDispatchLines, workspaceUnboundModules,
   ModuleRunInfo, RunsPanel, blueprintRuns, dispatchPrompt, formatRunLease,
-  latestRunForModule, runCommandLine, runStartCommand, runningRunForModule, runsForFilter,
+  latestRunForModule, lineageEvents, runCommandLine, runStartCommand, runningRunForModule, runsForFilter,
 } = client.__test
 const parse = input => JSON.parse(JSON.stringify(parseMermaid(input)))
 const plain = value => JSON.parse(JSON.stringify(value))
@@ -582,6 +582,22 @@ function runsFixture() {
     ],
   }
 }
+
+test('lineage merges versions and runs into one reverse-chronological projection', () => {
+  const bp = {
+    modules: [{ id: 'm1', code: 'A1', name: 'API' }],
+    runs: [{ id: 'run-1', moduleId: 'm1', status: 'done', adapter: 'cli', startedAt: 200, endedAt: 300, evidence: [{ text: 'ok' }] }],
+  }
+  const events = lineageEvents(bp, [
+    { id: 'v-1', at: 100, title: 'First', status: 'draft', source: 'ui' },
+    { id: 'v-2', at: 250, title: 'Second', status: 'confirmed', source: 'agent' },
+  ])
+  assert.deepEqual(plain(events.map(event => [event.kind, event.id])), [
+    ['run', 'run-1'], ['version', 'v-2'], ['version', 'v-1'],
+  ])
+  assert.equal(events[0].title, 'A1 API')
+  assert.equal(events[0].evidence, 1)
+})
 
 test('run helpers filter the ledger and build host commands', () => {
   const bp = runsFixture()

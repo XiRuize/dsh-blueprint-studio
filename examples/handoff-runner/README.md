@@ -57,6 +57,29 @@ unknown adapters and invalid schemas.
 A failing command writes `failed` with stderr and stops; later commands are not
 run. The result is validated again by `/blueprint run collect`.
 
+## Policy
+
+Optional `.dsh/blueprints/handoff-policy.json`:
+
+```json
+{
+  "allowedCommands": ["^pnpm (test|build)$"],
+  "deniedCommands": ["rm -rf", "git push --force"],
+  "maxTimeoutMs": 120000,
+  "maxOutputBytes": 200000,
+  "maxCommands": 20,
+  "allowReadOnlyMounts": false,
+  "auditLog": ".dsh/blueprints/handoff-audit.jsonl"
+}
+```
+
+- `allowedCommands` is a list of regexes; when non-empty, every command must match at least one.
+- `deniedCommands` is checked first; a match blocks the whole run.
+- Read-only mounts block runs with write commands unless `allowReadOnlyMounts` is true.
+- Output is truncated to `maxOutputBytes`; timeout is capped by `maxTimeoutMs`.
+- Every execution attempt appends one JSONL audit record to `auditLog`.
+- Use `--policy <path>` to point at another policy file.
+
 ## Security
 
 - Commands come from the handoff produced by the Blueprint module; `--execute`
