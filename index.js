@@ -37,6 +37,7 @@ import { CHECK_RULES, analyzeBlueprint, coverageMatrix } from './lib/checks.js'
 import { PLAN_CHECK_RULES, analyzePlan } from './lib/plan.js'
 import { exportHtml, exportMarkdown } from './lib/export.js'
 import { buildHandoff, buildReviewPacket, exportReviewHtml } from './lib/review.js'
+import { buildProjectReview, exportProjectReviewHtml, readProjectBlueprints } from './lib/project-review.js'
 import { PLAN_MODE_PROMPT } from './lib/plan.js'
 
 export const name = 'blueprint-studio'
@@ -484,7 +485,7 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比、恢复、导出、评审交接、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | check | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -750,9 +751,10 @@ export function apply(ctx, rawConfig) {
             return { kind: 'success', text: JSON.stringify(packet) }
           }
           if (sub === 'review') {
-            const reviewUsage = '用法：/blueprint review | review html | review handoff <runId>'
+            const reviewUsage = '用法：/blueprint review | review html | review handoff <runId> | review project [html]'
+            const projectUsage = '用法：/blueprint review project [html]'
             const format = String(rest[0] ?? '').trim().toLowerCase()
-            if (rest.length > 0 && format !== 'html' && format !== 'handoff') {
+            if (rest.length > 0 && format !== 'html' && format !== 'handoff' && format !== 'project') {
               return { kind: 'error', text: reviewUsage }
             }
             if (format === 'html' && rest.length > 1) {
@@ -760,6 +762,29 @@ export function apply(ctx, rawConfig) {
             }
             if (format === 'handoff' && rest.length !== 2) {
               return { kind: 'error', text: '用法：/blueprint review handoff <runId>。' }
+            }
+            if (format === 'project') {
+              const projectFormat = String(rest[1] ?? '').trim().toLowerCase()
+              if (rest.length > 2 || (rest.length === 2 && projectFormat !== 'html')) {
+                return { kind: 'error', text: projectUsage }
+              }
+              let cwd
+              try {
+                const current = await readCurrent(invocation.agent)
+                cwd = current.file.cwd
+              } catch (error) {
+                return { kind: 'error', text: `读取工作区失败：${errorMessage(error)}` }
+              }
+              const project = await readProjectBlueprints(cwd)
+              if (projectFormat === 'html') {
+                try {
+                  return { kind: 'success', text: exportProjectReviewHtml(project) }
+                } catch (error) {
+                  if (error?.code === 'review-too-large') return { kind: 'error', text: error.message }
+                  return { kind: 'error', text: `项目评审页面生成失败：${errorMessage(error)}` }
+                }
+              }
+              return { kind: 'success', text: JSON.stringify(buildProjectReview(project)) }
             }
             let file
             let raw
@@ -1035,7 +1060,7 @@ export function apply(ctx, rawConfig) {
               return { kind: 'error', text: `取消子代理失败：${String(error?.message ?? error)}` }
             }
           }
-          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | check | run list|start|evidence|complete|fail|cancel|rollback|prepare|collect|heartbeat | cancel' }
+          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check | run list|start|evidence|complete|fail|cancel|rollback|prepare|collect|heartbeat | cancel' }
         },
       }),
     )
