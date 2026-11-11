@@ -48,8 +48,8 @@
     "docs/*.md"
   ],
   "scripts": {
-    "check": "node --check index.js && node --check client.js && node --check lib/blueprint.js && node --check lib/plan.js && node --check lib/review.js",
-    "test": "node --test test/blueprint.test.mjs test/mermaid.test.mjs test/flowchart-mermaid.test.mjs test/layers.test.mjs test/checks.test.mjs test/workspace.test.mjs test/runs.test.mjs test/handoff.test.mjs test/reqdiff.test.mjs test/export.test.mjs test/review.test.mjs test/host-commands.test.mjs test/acceptance.test.mjs test/flowchart.test.mjs test/plan.test.mjs test/runner.test.mjs",
+    "check": "node --check index.js && node --check client.js && node --check lib/blueprint.js && node --check lib/plan.js && node --check lib/review.js && node --check lib/project-review.js",
+    "test": "node --test test/blueprint.test.mjs test/mermaid.test.mjs test/flowchart-mermaid.test.mjs test/layers.test.mjs test/checks.test.mjs test/workspace.test.mjs test/runs.test.mjs test/handoff.test.mjs test/reqdiff.test.mjs test/export.test.mjs test/review.test.mjs test/project-review.test.mjs test/host-commands.test.mjs test/acceptance.test.mjs test/flowchart.test.mjs test/plan.test.mjs test/runner.test.mjs",
     "prepublishOnly": "npm run check && npm test"
   },
   "engines": {
