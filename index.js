@@ -32,6 +32,7 @@ import {
 import { CHECK_RULES, analyzeBlueprint, coverageMatrix } from './lib/checks.js'
 import { PLAN_CHECK_RULES, analyzePlan } from './lib/plan.js'
 import { exportHtml, exportMarkdown } from './lib/export.js'
+import { buildHandoff, buildReviewPacket, exportReviewHtml } from './lib/review.js'
 import { PLAN_MODE_PROMPT } from './lib/plan.js'
 
 export const name = 'blueprint-studio'
@@ -436,9 +437,9 @@ export function apply(ctx, rawConfig) {
     ctx.effect(() =>
       commands.register({
         name: 'blueprint',
-        description: '蓝图工坊：保存、归档、对比、恢复、导出、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
+        description: '蓝图工坊：保存、归档、对比、恢复、导出、评审交接、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | check | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | check | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -703,6 +704,52 @@ export function apply(ctx, rawConfig) {
             if (packet === undefined) return { kind: 'error', text: `模块 ${moduleId} 不存在。` }
             return { kind: 'success', text: JSON.stringify(packet) }
           }
+          if (sub === 'review') {
+            const reviewUsage = '用法：/blueprint review | review html | review handoff <runId>'
+            const format = String(rest[0] ?? '').trim().toLowerCase()
+            if (rest.length > 0 && format !== 'html' && format !== 'handoff') {
+              return { kind: 'error', text: reviewUsage }
+            }
+            if (format === 'html' && rest.length > 1) {
+              return { kind: 'error', text: reviewUsage }
+            }
+            if (format === 'handoff' && rest.length !== 2) {
+              return { kind: 'error', text: '用法：/blueprint review handoff <runId>。' }
+            }
+            let file
+            let raw
+            try {
+              const current = await readCurrent(invocation.agent)
+              file = current.file
+              raw = current.raw
+            } catch (error) {
+              return { kind: 'error', text: `读取蓝图失败：${errorMessage(error)}` }
+            }
+            if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图，无法评审。' }
+            let blueprint
+            try {
+              blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            } catch (error) {
+              return { kind: 'error', text: `蓝图数据无法规范化，评审失败：${errorMessage(error)}` }
+            }
+            if (format === 'html') {
+              try {
+                return { kind: 'success', text: exportReviewHtml(blueprint) }
+              } catch (error) {
+                if (error?.code === 'review-too-large') return { kind: 'error', text: error.message }
+                return { kind: 'error', text: `评审页面生成失败：${errorMessage(error)}` }
+              }
+            }
+            if (format === 'handoff') {
+              const runId = String(rest[1] ?? '').trim()
+              const handoff = buildHandoff(blueprint, runId)
+              if (handoff === undefined) {
+                return { kind: 'error', text: `运行 ${runId} 不存在，或它指向的模块已不存在，无法交接。` }
+              }
+              return { kind: 'success', text: JSON.stringify(handoff) }
+            }
+            return { kind: 'success', text: JSON.stringify(buildReviewPacket(blueprint)) }
+          }
           if (sub === 'run') {
             const runUsage = '用法：/blueprint run list | start <moduleId> [--adapter dsh-subagent|cli|http|manual] [--ttl minutes] [--by name] | evidence <runId> <text...> | complete|fail|cancel <runId> [text...] | rollback <runId>'
             const action = String(rest[0] ?? '').trim().toLowerCase()
@@ -870,7 +917,7 @@ export function apply(ctx, rawConfig) {
               return { kind: 'error', text: `取消子代理失败：${String(error?.message ?? error)}` }
             }
           }
-          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | check | run list|start|evidence|complete|fail|cancel|rollback | cancel' }
+          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | check | run list|start|evidence|complete|fail|cancel|rollback | cancel' }
         },
       }),
     )
