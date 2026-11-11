@@ -51,6 +51,7 @@ function baseBlueprint(extra = {}) {
           allow: ['read'],
           commands: ['npm test'],
           agentProfile: 'fast',
+          endpointRef: 'env:API_ENDPOINT',
           storage: { kind: 'fs', ref: 'evidence' },
         },
         acceptance: ['tests pass'],
@@ -174,6 +175,7 @@ test('buildHandoffJob projects a complete, secret-free job for running and block
   assert.equal(handoff.runId, 'run-cli')
   assert.equal(handoff.moduleId, 'api')
   assert.equal(handoff.moduleCode, 'A1')
+  assert.equal(handoff.endpointRef, 'env:API_ENDPOINT')
   assert.equal(handoff.adapter, 'cli')
   assert.equal(handoff.cwd, 'src')
   assert.equal(handoff.auto, false)

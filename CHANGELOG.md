@@ -2,6 +2,19 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.13.0] — 2026-11-11
+
+### Added
+
+- **Inline SVG review diagrams.** Review HTML now renders all nine diagram types as self-contained SVG (nodes, edges, shapes, labels, escaping) instead of presenting Mermaid source as the primary view; Mermaid remains an optional closed detail.
+- **Project-level review.** `/blueprint review project [html]` aggregates every top-level blueprint under `.dsh/blueprints`, reports cross-blueprint mount-root/code conflicts, active/failed runs and gaps, and renders a single offline project review page.
+- **HTTP and dsh-subagent reference runners.** `examples/http-runner` POSTs a handoff to a configured endpoint and validates the response; `examples/dsh-subagent-runner` builds the prompt and optionally bridges through `DSH_SUBAGENT_CMD`. Both are dry-run by default, redact credentials and never fake done.
+- **Lineage DAG.** The Lineage panel now renders a layered SVG DAG: version save chain, run start branches, collect edges and a virtual current node; click/keyboard detail and filters remain.
+
+### Fixed
+
+- Handoff jobs now carry `execution.endpointRef`, so HTTP runners can resolve it without a separate flag.
+
 ## [0.12.0] — 2026-11-11
 
 ### Added

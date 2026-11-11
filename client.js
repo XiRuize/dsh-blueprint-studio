@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
       noModules: 'No modules yet. Ask the agent to split the work into modules.', moduleStatus: 'Status', dependsOn: 'Depends on',
       export: 'Export', exportJSON: 'Blueprint JSON', exportMermaid: 'Mermaid', exportSVG: 'SVG image', close: 'Close',
       exportMarkdownLayer: 'Markdown (current layer)', exportMarkdownAll: 'Markdown (all layers)',
-      exportReview: 'Review page (single HTML)',
+      exportReview: 'Review page (single HTML)', exportProjectReview: 'Project review (single HTML)',
       exportHtmlLayer: 'HTML (current layer)', exportHtmlAll: 'HTML (all layers)',
       exporting: 'Exporting…', exportSaved: 'Saved {name}', exportFailed: 'Export failed',
       exportEmpty: 'The export returned no content.',
@@ -225,7 +225,7 @@ window.__ModuleLoader__.load({
       noModules: '还没有模块。可以让 AI 把工作拆成可独立分派的模块。', moduleStatus: '状态', dependsOn: '依赖',
       export: '导出', exportJSON: '蓝图 JSON', exportMermaid: 'Mermaid', exportSVG: 'SVG 图片', close: '关闭',
       exportMarkdownLayer: 'Markdown（当前层）', exportMarkdownAll: 'Markdown（全部层）',
-      exportReview: '评审页（单文件 HTML）',
+      exportReview: '评审页（单文件 HTML）', exportProjectReview: '项目评审（单文件 HTML）',
       exportHtmlLayer: 'HTML（当前层）', exportHtmlAll: 'HTML（全部层）',
       exporting: '导出中…', exportSaved: '已保存 {name}', exportFailed: '导出失败',
       exportEmpty: '导出结果为空。',
@@ -6608,6 +6608,31 @@ ${task}
       }
     }
 
+    async function exportProjectReview() {
+      const bp = state.bp
+      const sessionId = state.sessionId
+      if (bp === null || sessionId === null || state.exporting !== null) return
+      set({ exporting: 'project-review', error: null })
+      try {
+        const text = await runBlueprintCommand('review project html')
+        if (state.sessionId !== sessionId) return
+        if (typeof text !== 'string' || text.trim() === '') throw new Error(t('exportEmpty'))
+        const size = new TextEncoder().encode(text).byteLength
+        if (size > EXPORT_MAX_BYTES) throw new Error(t('exportTooLarge', { size: formatBytes(size) }))
+        const name = exportFileName(state.bp ?? bp, 'html', 'project-review')
+        download(name, text, 'text/html;charset=utf-8')
+        set({ error: null })
+        toast(t('exportSaved', { name }), 'success')
+      } catch (error) {
+        if (state.sessionId !== sessionId) return
+        const message = `${t('exportFailed')}: ${String(error?.message ?? error)}`
+        set({ error: message })
+        toast(message, 'error')
+      } finally {
+        if (state.exporting === 'project-review') set({ exporting: null })
+      }
+    }
+
     function exportJSON() {
       const bp = state.bp
       if (bp === null) return
@@ -7683,7 +7708,11 @@ ${task}
               h('button', {
                 type: 'button', disabled: store.exporting !== null,
                 onClick: exportReviewPage,
-              }, store.exporting === 'review' ? t('exporting') : t('exportReview')))) : null,
+              }, store.exporting === 'review' ? t('exporting') : t('exportReview')),
+              h('button', {
+                type: 'button', disabled: store.exporting !== null,
+                onClick: exportProjectReview,
+              }, store.exporting === 'project-review' ? t('exporting') : t('exportProjectReview')))) : null,
           bp !== null && !store.landing ? h('button', {
             type: 'button',
             className: 'bp-btn bp-primary',
