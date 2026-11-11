@@ -614,6 +614,9 @@ test('run helpers filter the ledger and build host commands', () => {
   assert.equal(runCommandLine('fail', 'run-1', 'boom'), 'fail run-1 boom')
   assert.equal(runCommandLine('cancel', 'run-1'), 'cancel run-1')
   assert.equal(runCommandLine('rollback', 'run-1'), 'rollback run-1')
+  assert.equal(runCommandLine('prepare', 'run-1'), 'prepare run-1')
+  assert.equal(runCommandLine('collect', 'run-1'), 'collect run-1')
+  assert.equal(runCommandLine('heartbeat', 'run-1'), 'heartbeat run-1')
   assert.equal(runCommandLine('rollback', ''), '')
 })
 

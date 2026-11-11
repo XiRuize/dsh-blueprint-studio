@@ -2,6 +2,15 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.10.0] — 2026-11-11
+
+### Added
+
+- **Handoff Job Protocol.** `/blueprint run prepare <runId>` writes `handoff.json` under `.dsh/blueprints/<session>.runs/<runId>/` with mounts, cwd, allow, commands, adapter, prompt, requirements, acceptance and result-path contract; `/blueprint run collect <runId>` reads `result.json`, validates it and writes summary/evidence/status back to the ledger.
+- **Heartbeat.** `/blueprint run heartbeat <runId> [--ttl minutes]` renews an active run's lease.
+- **Safe result schema.** `done|failed|blocked`, bounded evidence, changed paths, next action and error; malformed or mismatched results never write.
+- **Runs UI actions.** Prepare handoff, collect result and heartbeat are available in the Runs panel; prepare reports the written path.
+
 ## [0.9.0] — 2026-11-11
 
 ### Added

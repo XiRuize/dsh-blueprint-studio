@@ -194,6 +194,9 @@ window.__ModuleLoader__.load({
       runEvidenceAdded: 'Evidence added', runEvidenceFailed: 'Could not add evidence',
       runComplete: 'Complete', runFail: 'Fail', runCancel: 'Cancel run',
       runRollback: 'Rollback plan', runRollbackHint: 'Advisory only. Nothing is executed automatically.',
+      runPrepare: 'Handoff', runCollect: 'Collect result', runHeartbeat: 'Heartbeat',
+      runHandoffReady: 'Handoff written: {path}', runCollected: 'Result collected',
+      runPrepareFailed: 'Could not write handoff', runCollectFailed: 'Could not collect result',
       runRollbackFailed: 'Could not build the rollback plan', runPlan: 'Rollback plan for {id}',
       runActionDone: 'Run updated', runActionFailed: 'Could not update the run',
       runRefresh: 'Refresh', runStatusRunning: 'Running', runStatusDone: 'Completed', runStatusFailed: 'Failed',
@@ -389,6 +392,9 @@ window.__ModuleLoader__.load({
       runEvidenceAdded: '证据已添加', runEvidenceFailed: '添加证据失败',
       runComplete: '完成', runFail: '失败', runCancel: '取消',
       runRollback: '回滚计划', runRollbackHint: '仅供参考，不会自动执行。',
+      runPrepare: '生成交接包', runCollect: '回收结果', runHeartbeat: '续租',
+      runHandoffReady: '交接包已写入：{path}', runCollected: '结果已回收',
+      runPrepareFailed: '生成交接包失败', runCollectFailed: '回收结果失败',
       runRollbackFailed: '生成回滚计划失败', runPlan: '回滚计划：{id}',
       runActionDone: 'Run 已更新', runActionFailed: '更新 Run 失败',
       runRefresh: '刷新', runStatusRunning: '运行中', runStatusDone: '已完成', runStatusFailed: '失败',
@@ -2880,6 +2886,7 @@ ${task}
         return body === '' ? `${kind} ${id}` : `${kind} ${id} ${body}`
       }
       if (kind === 'rollback') return `rollback ${id}`
+      if (kind === 'prepare' || kind === 'collect' || kind === 'heartbeat') return `${kind} ${id}`
       return ''
     }
     function runStatusLabel(status) {
@@ -4779,6 +4786,31 @@ ${task}
         setNow(Date.now())
         loadBlueprint().catch(failure => setError(String(failure?.message ?? failure)))
       }
+      const doHandoff = async (action, run) => {
+        const line = runCommandLine(action, run.id)
+        if (line === '') return
+        const key = `${action}:${run.id}`
+        setBusy(key)
+        setError(null)
+        try {
+          if (!(await savePending())) return
+          const text = await runBlueprintCommand(line)
+          if (action === 'prepare') {
+            let path = ''
+            try { path = JSON.parse(text)?.path ?? '' } catch {}
+            toast(t('runHandoffReady', { path: path || 'handoff.json' }), 'success')
+          } else {
+            await loadBlueprint()
+            toast(action === 'collect' ? t('runCollected') : t('runActionDone'), 'success')
+          }
+        } catch (failure) {
+          const message = String(failure?.message ?? failure)
+          setError(message)
+          toast(`${action === 'prepare' ? t('runPrepareFailed') : action === 'collect' ? t('runCollectFailed') : t('runActionFailed')}: ${message}`, 'error')
+        } finally {
+          setBusy(null)
+        }
+      }
       const counts = { all: runs.length, running: 0, done: 0, failed: 0 }
       for (const run of runs) {
         const status = runStatusOf(run)
@@ -4847,6 +4879,18 @@ ${task}
           h('div', { className: 'bp-runs-actions' },
             running
               ? h(React.Fragment, null,
+                  h('button', {
+                    type: 'button', className: 'bp-btn',
+                    disabled: busy !== null, onClick: () => doHandoff('prepare', run),
+                  }, busyKey('prepare') ? t('saving') : t('runPrepare')),
+                  h('button', {
+                    type: 'button', className: 'bp-btn',
+                    disabled: busy !== null, onClick: () => doHandoff('collect', run),
+                  }, busyKey('collect') ? t('saving') : t('runCollect')),
+                  h('button', {
+                    type: 'button', className: 'bp-btn',
+                    disabled: busy !== null, onClick: () => doHandoff('heartbeat', run),
+                  }, busyKey('heartbeat') ? t('saving') : t('runHeartbeat')),
                   h('button', {
                     type: 'button', className: 'bp-btn bp-primary',
                     disabled: busy !== null, onClick: () => doAction('complete', run),
