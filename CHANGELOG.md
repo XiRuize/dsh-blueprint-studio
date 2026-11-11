@@ -2,6 +2,13 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.13.1] — 2026-11-11
+
+### Changed
+
+- **Adaptive right panel.** Data-heavy tabs (Workspace, Runs, Lineage, Versions) expand to 460px while Inspector and Board stay compact. Width steps down to 400px/350px on narrower windows.
+- **Sticky, scrollable panel tabs.** The seven-tab strip no longer compresses labels; it scrolls horizontally and stays visible while the panel scrolls.
+
 ## [0.13.0] — 2026-11-11
 
 ### Added
