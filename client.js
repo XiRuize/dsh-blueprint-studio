@@ -176,6 +176,29 @@ window.__ModuleLoader__.load({
       workspaceMountRefHint: 'Branch, tag or commit', workspaceMountChecksumHint: 'Optional content hash',
       workspaceMountIdHint: 'e.g. app, docs, archive-2024', workspaceRootHint: 'Relative or absolute path as written',
       workspaceDeletingMount: 'Delete', workspaceBoundCount: '{count} bound',
+      runs: 'Runs',
+      runsHint: 'Execution ledger for module runs. A run claims the module’s writable working mounts until its lease ends; a successful run is not a verification result.',
+      runsEmpty: 'No runs yet. Start one for a module to begin the execution ledger.',
+      runFilterAll: 'All', runFilterRunning: 'Running', runFilterDone: 'Completed', runFilterFailed: 'Failed',
+      runFilterEmpty: 'No runs match this filter.',
+      runStart: 'Start run', runStartFormHint: 'A run claims the module’s writable working mounts until the lease expires.',
+      runNoStartable: 'Every module already has a running run.',
+      runModule: 'Module', runAdapter: 'Adapter', runTtl: 'TTL (minutes)',
+      runStartAction: 'Start', runStarting: 'Starting…', runStarted: 'Run started: {id}',
+      runStartFailed: 'Could not start the run', runTtlInvalid: 'TTL must be a positive number of minutes.',
+      runClaimedBy: 'Claimed by', runLease: 'Lease', runLeaseRemaining: '{time} left', runLeaseExpired: 'Lease expired',
+      runLeaseNone: 'No lease', runStartedAt: 'Started', runEvidenceCount: 'Evidence: {count}',
+      runNextAction: 'Next action', runError: 'Error',
+      runAddEvidence: 'Add evidence', runEvidencePlaceholder: 'What was done, what was verified, and what is next…',
+      runEvidenceAdded: 'Evidence added', runEvidenceFailed: 'Could not add evidence',
+      runComplete: 'Complete', runFail: 'Fail', runCancel: 'Cancel run',
+      runRollback: 'Rollback plan', runRollbackHint: 'Advisory only. Nothing is executed automatically.',
+      runRollbackFailed: 'Could not build the rollback plan', runPlan: 'Rollback plan for {id}',
+      runActionDone: 'Run updated', runActionFailed: 'Could not update the run',
+      runRefresh: 'Refresh', runStatusRunning: 'Running', runStatusDone: 'Completed', runStatusFailed: 'Failed',
+      runStatusCancelled: 'Cancelled', runStatusBlocked: 'Blocked',
+      runInfo: 'Run', runInfoNone: 'No run yet for this module.', runOpenPanel: 'Open Runs',
+      runDispatchNone: 'Before dispatch, create an execution record with /blueprint run start {module}; never start it automatically.',
     }
     const ZH = {
       open: '蓝图', title: '工程蓝图', subtitle: '先把系统画清楚，再开始写代码',
@@ -347,6 +370,29 @@ window.__ModuleLoader__.load({
       workspaceMountRefHint: '分支、标签或提交号', workspaceMountChecksumHint: '可选的内容校验和',
       workspaceMountIdHint: '例如 app、docs、archive-2024', workspaceRootHint: '按实际写法填写相对或绝对路径',
       workspaceDeletingMount: '删除', workspaceBoundCount: '{count} 个',
+      runs: '执行',
+      runsHint: '模块执行账本：Run 会占用模块的可写工作挂载，直到租约结束；Run 成功不等于三层验证通过。',
+      runsEmpty: '还没有执行记录。为模块启动一个 Run，开始记录执行过程。',
+      runFilterAll: '全部', runFilterRunning: '运行中', runFilterDone: '已完成', runFilterFailed: '失败',
+      runFilterEmpty: '没有符合该筛选的执行记录。',
+      runStart: '启动 Run', runStartFormHint: 'Run 会占用模块的可写工作挂载，直到租约到期。',
+      runNoStartable: '所有模块都已有运行中的 Run。',
+      runModule: '模块', runAdapter: '适配器', runTtl: 'TTL（分钟）',
+      runStartAction: '启动', runStarting: '启动中…', runStarted: '已启动 Run：{id}',
+      runStartFailed: '启动 Run 失败', runTtlInvalid: 'TTL 必须是正数分钟。',
+      runClaimedBy: '执行者', runLease: '租约', runLeaseRemaining: '剩余 {time}', runLeaseExpired: '租约已过期',
+      runLeaseNone: '无租约', runStartedAt: '开始于', runEvidenceCount: '证据：{count} 条',
+      runNextAction: '下一步', runError: '错误',
+      runAddEvidence: '添加证据', runEvidencePlaceholder: '记录做了什么、验证了什么、下一步是什么……',
+      runEvidenceAdded: '证据已添加', runEvidenceFailed: '添加证据失败',
+      runComplete: '完成', runFail: '失败', runCancel: '取消',
+      runRollback: '回滚计划', runRollbackHint: '仅供参考，不会自动执行。',
+      runRollbackFailed: '生成回滚计划失败', runPlan: '回滚计划：{id}',
+      runActionDone: 'Run 已更新', runActionFailed: '更新 Run 失败',
+      runRefresh: '刷新', runStatusRunning: '运行中', runStatusDone: '已完成', runStatusFailed: '失败',
+      runStatusCancelled: '已取消', runStatusBlocked: '受阻',
+      runInfo: '执行记录', runInfoNone: '该模块还没有执行记录。', runOpenPanel: '打开执行面板',
+      runDispatchNone: '分派前用 /blueprint run start {module} 建立执行记录，不要自动启动。',
     }
 
     let dict = ZH
@@ -1063,9 +1109,9 @@ ${task}
       return `当前会话已有工程蓝图。请先调用 blueprint(action="get") 读取用户可能手工修改过的最新版本，然后只扩充「${kind}」（key=${diagram.key}）：补齐缺失的节点、连线、字段或消息，保留现有内容和用户修改。最后调用 blueprint(action="update") 保存完整蓝图，不要删除其他栏目、图解或模块。完成后用一句话说明新增了什么。`
     }
 
-    function dispatchPrompt() {
-      const base = `用户已在蓝图面板确认工程蓝图，Host 已校验一次性确认令牌并完成分派。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")：确认与分派只能由用户在面板完成，工具调用会被 Host 拒绝；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；模块绑定了 mounts 时，把 mounts（id/root/kind/access）、cwd、adapter/agentProfile、allow/commands 一并带入；未绑定工作区时先确认路径；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态。`
-      const bp = state.bp
+    function dispatchPrompt(source) {
+      const bp = source ?? state.bp
+      const base = `用户已在蓝图面板确认工程蓝图，Host 已校验一次性确认令牌并完成分派。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")：确认与分派只能由用户在面板完成，工具调用会被 Host 拒绝；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；模块绑定了 mounts 时，把 mounts（id/root/kind/access）、cwd、adapter/agentProfile、allow/commands 一并带入；未绑定工作区时先确认路径；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态；\n6. 执行记录由用户显式启动：没有 running run 时提示用户执行 /blueprint run start <moduleId>，不要自动创建或伪造 run。`
       if (bp === null) return base
       const blocks = []
       for (const module of bp.modules ?? []) {
@@ -1073,11 +1119,21 @@ ${task}
         const files = Array.isArray(module.files) ? module.files : []
         const acceptance = Array.isArray(module.acceptance) ? module.acceptance : []
         const hasWorkspace = moduleMountIds(module).length > 0 || moduleExecution(module) !== null
-        if (nodeIds.length === 0 && files.length === 0 && acceptance.length === 0 && !hasWorkspace) continue
+        const activeRun = runningRunForModule(bp, module.id)
+        const latestRun = latestRunForModule(bp, module.id)
+        if (nodeIds.length === 0 && files.length === 0 && acceptance.length === 0 && !hasWorkspace && latestRun === undefined) continue
         const deps = (module.dependsOn ?? []).map(id => bp.modules.find(item => item.id === id)?.name ?? id)
         const lines = [`模块「${module.name}」（id=${module.id}${deps.length > 0 ? `，依赖 ${deps.join('、')}` : ''}）`]
         if (module.summary) lines.push(`  范围摘要：${module.summary}`)
         lines.push(...workspaceDispatchLines(bp, module))
+        if (activeRun !== undefined) {
+          const lease = Number(activeRun.leaseUntil)
+          const leaseText = Number.isFinite(lease) && lease > 0 ? new Date(lease).toLocaleString() : '（未记录）'
+          const expired = Number.isFinite(lease) && lease > 0 && lease <= Date.now() ? '（已过期）' : ''
+          lines.push(`  执行记录：run ${activeRun.id} · running · claimedBy=${activeRun.claimedBy ?? '（未记录）'} · leaseUntil=${leaseText}${expired}；不要自动启动新的 run。`)
+        } else {
+          lines.push(`  执行记录：暂无运行中的 run；${t('runDispatchNone', { module: module.id })}`)
+        }
         if (nodeIds.length > 0) {
           lines.push('  关联节点：')
           for (const ref of nodeIds) {
@@ -2726,6 +2782,110 @@ ${task}
       return t('statusPending')
     }
 
+    // Execution ledger helpers (v0.8). Runs are Host-owned records on the
+    // blueprint; the client only reads them and drives the `/blueprint run …`
+    // commands. Nothing here mutates a run locally.
+    const RUN_FILTERS = ['all', 'running', 'done', 'failed']
+    const RUN_FILTER_KEYS = { all: 'runFilterAll', running: 'runFilterRunning', done: 'runFilterDone', failed: 'runFilterFailed' }
+    const RUN_STATUS_KEYS = {
+      running: 'runStatusRunning', done: 'runStatusDone', failed: 'runStatusFailed',
+      cancelled: 'runStatusCancelled', blocked: 'runStatusBlocked',
+    }
+
+    function blueprintRuns(bp) {
+      return (Array.isArray(bp?.runs) ? bp.runs : []).filter(run =>
+        run !== null && typeof run === 'object' && !Array.isArray(run))
+    }
+    function runStatusOf(run) {
+      const status = typeof run?.status === 'string' ? run.status.trim().toLowerCase() : ''
+      return status === '' ? 'running' : status
+    }
+    function latestRunForModule(bp, moduleId) {
+      const wanted = String(moduleId ?? '').trim()
+      if (wanted === '') return undefined
+      let latest
+      for (const run of blueprintRuns(bp)) {
+        if (String(run.moduleId ?? '').trim() !== wanted) continue
+        if (latest === undefined || Number(run.startedAt ?? 0) >= Number(latest.startedAt ?? 0)) latest = run
+      }
+      return latest
+    }
+    function runningRunForModule(bp, moduleId) {
+      const wanted = String(moduleId ?? '').trim()
+      if (wanted === '') return undefined
+      return blueprintRuns(bp).find(run =>
+        String(run.moduleId ?? '').trim() === wanted && runStatusOf(run) === 'running')
+    }
+    function runsForFilter(runs, filter) {
+      const list = (Array.isArray(runs) ? runs : []).filter(run =>
+        run !== null && typeof run === 'object' && !Array.isArray(run))
+      if (filter === 'running' || filter === 'done' || filter === 'failed') {
+        return list.filter(run => runStatusOf(run) === filter)
+      }
+      return list
+    }
+    // Returns the compact remaining-lease text and whether the lease already
+    // expired. Runs without a finite leaseUntil are treated as "no lease".
+    function formatRunLease(leaseUntil, now = Date.now()) {
+      const until = Number(leaseUntil)
+      if (!Number.isFinite(until) || until <= 0) return { expired: false, text: '' }
+      const remaining = until - Number(now)
+      if (remaining <= 0) return { expired: true, text: '' }
+      const total = Math.ceil(remaining / 1000)
+      const hours = Math.floor(total / 3600)
+      const minutes = Math.floor((total % 3600) / 60)
+      const seconds = total % 60
+      const text = hours > 0
+        ? `${hours}h ${String(minutes).padStart(2, '0')}m`
+        : minutes > 0
+          ? `${minutes}m ${String(seconds).padStart(2, '0')}s`
+          : `${seconds}s`
+      return { expired: false, text }
+    }
+    function runTimeText(value) {
+      const stamp = Number(value)
+      if (!Number.isFinite(stamp) || stamp <= 0) return '—'
+      try { return new Date(stamp).toLocaleString() } catch { return '—' }
+    }
+    function runModuleText(bp, moduleId) {
+      const wanted = String(moduleId ?? '').trim()
+      const module = (Array.isArray(bp?.modules) ? bp.modules : []).find(item => String(item?.id ?? '').trim() === wanted)
+      if (module === undefined) return wanted || '—'
+      return `${module.code ?? ''} ${module.name ?? ''}`.trim() || wanted
+    }
+    // Pure command builders keep the UI testable without a live Host.
+    function runStartCommand(input) {
+      const moduleId = String(input?.moduleId ?? '').trim()
+      if (moduleId === '') return { ok: false, error: 'module' }
+      const parts = ['start', moduleId]
+      const adapter = String(input?.adapter ?? '').trim().toLowerCase()
+      if (adapter !== '') parts.push('--adapter', adapter)
+      const rawTtl = input?.ttlMinutes
+      if (rawTtl !== undefined && String(rawTtl).trim() !== '') {
+        const minutes = Number(rawTtl)
+        if (!Number.isFinite(minutes) || minutes <= 0) return { ok: false, error: 'ttl' }
+        parts.push('--ttl', String(minutes))
+      }
+      return { ok: true, command: parts.join(' ') }
+    }
+    function runCommandLine(action, runId, text) {
+      const id = String(runId ?? '').trim()
+      if (id === '') return ''
+      const kind = String(action ?? '').trim().toLowerCase()
+      const body = String(text ?? '').trim()
+      if (kind === 'evidence') return body === '' ? '' : `evidence ${id} ${body}`
+      if (kind === 'complete' || kind === 'fail' || kind === 'cancel') {
+        return body === '' ? `${kind} ${id}` : `${kind} ${id} ${body}`
+      }
+      if (kind === 'rollback') return `rollback ${id}`
+      return ''
+    }
+    function runStatusLabel(status) {
+      const normalized = typeof status === 'string' && status.trim() !== '' ? status.trim().toLowerCase() : 'running'
+      const key = RUN_STATUS_KEYS[normalized]
+      return key === undefined ? normalized : t(key)
+    }
+
     const VERIFICATION_ROLES = ['tests', 'reviewer', 'human']
     const VERIFICATION_STATUSES = ['pending', 'passed', 'failed']
     const VERIFICATION_ROLE_KEYS = { tests: 'verificationTests', reviewer: 'verificationReviewer', human: 'verificationHuman' }
@@ -4228,6 +4388,26 @@ ${task}
           : null)
     }
 
+    function ModuleRunInfo({ bp, module }) {
+      const latest = latestRunForModule(bp, module.id)
+      const status = latest === undefined ? null : runStatusOf(latest)
+      return h('div', { className: 'bp-module-run' },
+        h('div', { className: 'bp-workspace-fields-title' }, t('runInfo')),
+        latest === undefined
+          ? h('div', { className: 'bp-muted bp-module-run-none' }, t('runInfoNone'))
+          : h('div', { className: 'bp-module-run-top' },
+              h('span', { className: `bp-chip bp-chip-${status}` }, runStatusLabel(status)),
+              h('code', { className: 'bp-module-run-id', title: latest.id }, latest.id),
+              latest.claimedBy ? h('span', null, `${t('runClaimedBy')}: ${latest.claimedBy}`) : null),
+        h('button', {
+          type: 'button', className: 'bp-btn',
+          onClick: event => {
+            event.stopPropagation()
+            set({ panel: 'runs', focusRunModuleId: module.id })
+          },
+        }, h(Icon, { name: 'expand', size: 12 }), t('runOpenPanel')))
+    }
+
     function ModulePanel({ store }) {
       const bp = store.bp
       const [selectedModuleId, setSelectedModuleId] = useState(null)
@@ -4371,6 +4551,7 @@ ${task}
                 bp, module,
                 update: fn => updateModule(module.id, fn),
               }),
+              h(ModuleRunInfo, { bp, module }),
               h(VerificationEditor, { module, onRecord: recordVerification })) : null)
         }))
     }
@@ -4472,6 +4653,271 @@ ${task}
                     h('button', { type: 'button', className: 'bp-btn bp-danger', onClick: () => cancelModule(module) }, t('cancelChild')))
                 : h('button', { type: 'button', className: 'bp-btn', onClick: () => runModule(module) }, t('runModule'))))
         }))
+    }
+
+    function RunsPanel({ store }) {
+      const bp = store.bp
+      const runs = blueprintRuns(bp)
+      const modules = (Array.isArray(bp?.modules) ? bp.modules : [])
+        .filter(module => module !== null && typeof module === 'object' && !Array.isArray(module))
+      const runningModuleIds = new Set(runs
+        .filter(run => runStatusOf(run) === 'running')
+        .map(run => String(run.moduleId ?? '').trim()))
+      const startable = modules.filter(module => !runningModuleIds.has(String(module.id ?? '').trim()))
+      const focusId = typeof store.focusRunModuleId === 'string' ? store.focusRunModuleId : ''
+      const initialModule = startable.find(module => module.id === focusId) ?? startable[0]
+      const [filter, setFilter] = useState('all')
+      const [startModuleId, setStartModuleId] = useState(() => initialModule?.id ?? '')
+      const [adapter, setAdapter] = useState(() => moduleExecution(initialModule)?.adapter ?? '')
+      const [ttl, setTtl] = useState('30')
+      const [drafts, setDrafts] = useState({})
+      const [busy, setBusy] = useState(null)
+      const [plan, setPlan] = useState(null)
+      const [error, setError] = useState(null)
+      const [now, setNow] = useState(() => Date.now())
+
+      useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 15000)
+        return () => clearInterval(timer)
+      }, [])
+      useEffect(() => {
+        const focus = typeof store.focusRunModuleId === 'string' ? store.focusRunModuleId : ''
+        if (focus === '') return
+        const target = startable.find(module => module.id === focus)
+        if (target !== undefined) {
+          setStartModuleId(target.id)
+          setAdapter(moduleExecution(target)?.adapter ?? '')
+        }
+        set({ focusRunModuleId: null })
+      }, [store.focusRunModuleId])
+      useEffect(() => {
+        if (startable.length === 0) return
+        if (startable.some(module => module.id === startModuleId)) return
+        const next = startable[0]
+        setStartModuleId(next.id)
+        setAdapter(moduleExecution(next)?.adapter ?? '')
+      }, [bp, startModuleId])
+
+      if (bp === null) return null
+
+      const selectedModule = startable.find(module => module.id === startModuleId) ?? startable[0]
+      const savePending = async () => {
+        if (!state.dirty) return true
+        return (await saveBlueprint({ silent: true })) === true
+      }
+      const startRun = async () => {
+        const built = runStartCommand({ moduleId: selectedModule?.id ?? '', adapter, ttlMinutes: ttl })
+        if (!built.ok) {
+          const message = built.error === 'ttl' ? t('runTtlInvalid') : t('runStartFailed')
+          setError(message)
+          toast(message, 'error')
+          return
+        }
+        setBusy('start')
+        setError(null)
+        try {
+          if (!(await savePending())) return
+          const text = await runBlueprintCommand(built.command)
+          let runId = ''
+          try { runId = JSON.parse(text)?.run?.id ?? '' } catch {}
+          await loadBlueprint()
+          toast(t('runStarted', { id: runId || '—' }), 'success')
+        } catch (failure) {
+          const message = String(failure?.message ?? failure)
+          setError(message)
+          toast(`${t('runStartFailed')}: ${message}`, 'error')
+        } finally {
+          setBusy(null)
+        }
+      }
+      const doAction = async (action, run, text = '') => {
+        const line = runCommandLine(action, run.id, text)
+        if (line === '') return
+        const key = `${action}:${run.id}`
+        setBusy(key)
+        setError(null)
+        try {
+          if (!(await savePending())) return
+          await runBlueprintCommand(line)
+          await loadBlueprint()
+          if (action === 'evidence') {
+            setDrafts(current => ({ ...current, [run.id]: '' }))
+            toast(t('runEvidenceAdded'), 'success')
+          } else {
+            toast(t('runActionDone'), 'success')
+          }
+        } catch (failure) {
+          const message = String(failure?.message ?? failure)
+          setError(message)
+          const label = action === 'evidence' ? t('runEvidenceFailed') : t('runActionFailed')
+          toast(`${label}: ${message}`, 'error')
+        } finally {
+          setBusy(null)
+        }
+      }
+      const showRollback = async run => {
+        const line = runCommandLine('rollback', run.id)
+        if (line === '') return
+        setBusy(`rollback:${run.id}`)
+        setError(null)
+        try {
+          const text = await runBlueprintCommand(line)
+          let parsed = null
+          try { parsed = JSON.parse(text) } catch {}
+          setPlan({ runId: run.id, raw: text, plan: parsed?.plan ?? null })
+        } catch (failure) {
+          const message = String(failure?.message ?? failure)
+          setError(message)
+          toast(`${t('runRollbackFailed')}: ${message}`, 'error')
+        } finally {
+          setBusy(null)
+        }
+      }
+      const refresh = () => {
+        setNow(Date.now())
+        loadBlueprint().catch(failure => setError(String(failure?.message ?? failure)))
+      }
+      const counts = { all: runs.length, running: 0, done: 0, failed: 0 }
+      for (const run of runs) {
+        const status = runStatusOf(run)
+        if (counts[status] !== undefined) counts[status] += 1
+      }
+      const visible = runsForFilter(runs, filter)
+        .slice()
+        .sort((left, right) => Number(right.startedAt ?? 0) - Number(left.startedAt ?? 0))
+      const planBlock = run => {
+        if (plan?.runId !== run.id) return null
+        const instructions = Array.isArray(plan.plan?.instructions) ? plan.plan.instructions : []
+        return h('div', { className: 'bp-runs-plan' },
+          h('div', { className: 'bp-runs-plan-head' },
+            h('strong', null, t('runPlan', { id: run.id })),
+            h('button', {
+              type: 'button', className: 'bp-ghost bp-btn',
+              onClick: () => setPlan(null),
+            }, t('close'))),
+          h('div', { className: 'bp-muted bp-runs-hint' }, t('runRollbackHint')),
+          instructions.length === 0
+            ? null
+            : h('ol', { className: 'bp-runs-plan-list' },
+                instructions.map((item, index) => h('li', { key: index }, item))),
+          h('pre', { className: 'bp-runs-plan-json' }, plan.raw))
+      }
+      const renderCard = run => {
+        const status = runStatusOf(run)
+        const running = status === 'running'
+        const lease = formatRunLease(run.leaseUntil, now)
+        const hasLease = Number.isFinite(Number(run.leaseUntil)) && Number(run.leaseUntil) > 0
+        const evidenceCount = Array.isArray(run.evidence) ? run.evidence.length : 0
+        const busyKey = action => busy === `${action}:${run.id}`
+        const draft = drafts[run.id] ?? ''
+        return h('div', { className: `bp-runs-card bp-runs-${status}`, key: run.id },
+          h('div', { className: 'bp-runs-card-top' },
+            h('code', { className: 'bp-runs-id', title: run.id }, run.id),
+            h('span', { className: `bp-chip bp-chip-${status}` }, runStatusLabel(status))),
+          h('div', { className: 'bp-runs-card-title' }, runModuleText(bp, run.moduleId)),
+          h('div', { className: 'bp-runs-meta' },
+            h('span', null, `${t('runAdapter')}: ${run.adapter ?? '—'}`),
+            h('span', null, `${t('runClaimedBy')}: ${run.claimedBy ?? '—'}`),
+            h('span', null, `${t('runStartedAt')}: ${runTimeText(run.startedAt)}`),
+            h('span', null, t('runEvidenceCount', { count: evidenceCount }))),
+          running
+            ? h('div', { className: 'bp-runs-meta' },
+                h('span', { className: lease.expired ? 'bp-runs-lease-expired' : undefined },
+                  `${t('runLease')}: ${hasLease
+                    ? (lease.expired ? t('runLeaseExpired') : t('runLeaseRemaining', { time: lease.text }))
+                    : t('runLeaseNone')}`))
+            : null,
+          run.nextAction ? h('div', { className: 'bp-runs-note' }, `${t('runNextAction')}: ${run.nextAction}`) : null,
+          run.error ? h('div', { className: 'bp-runs-error-line' }, `${t('runError')}: ${run.error}`) : null,
+          running
+            ? h('div', { className: 'bp-runs-evidence' },
+                h('textarea', {
+                  className: 'bp-input bp-runs-evidence-input', rows: 3, value: draft,
+                  placeholder: t('runEvidencePlaceholder'),
+                  onChange: event => setDrafts(current => ({ ...current, [run.id]: event.target.value })),
+                }),
+                h('button', {
+                  type: 'button', className: 'bp-btn bp-runs-evidence-add',
+                  disabled: busy !== null || draft.trim() === '',
+                  onClick: () => doAction('evidence', run, draft),
+                }, busyKey('evidence') ? t('saving') : t('runAddEvidence')))
+            : null,
+          h('div', { className: 'bp-runs-actions' },
+            running
+              ? h(React.Fragment, null,
+                  h('button', {
+                    type: 'button', className: 'bp-btn bp-primary',
+                    disabled: busy !== null, onClick: () => doAction('complete', run),
+                  }, busyKey('complete') ? t('saving') : t('runComplete')),
+                  h('button', {
+                    type: 'button', className: 'bp-btn bp-danger',
+                    disabled: busy !== null, onClick: () => doAction('fail', run),
+                  }, busyKey('fail') ? t('saving') : t('runFail')),
+                  h('button', {
+                    type: 'button', className: 'bp-btn',
+                    disabled: busy !== null, onClick: () => doAction('cancel', run),
+                  }, busyKey('cancel') ? t('saving') : t('runCancel')))
+              : null,
+            running || status === 'failed'
+              ? h('button', {
+                  type: 'button', className: 'bp-btn',
+                  disabled: busy !== null, onClick: () => showRollback(run),
+                }, busyKey('rollback') ? t('saving') : t('runRollback'))
+              : null),
+          planBlock(run))
+      }
+
+      return h('div', { className: 'bp-runs' },
+        h('div', { className: 'bp-panel-head' },
+          h('div', { className: 'bp-kicker' }, t('runs')),
+          h('button', { type: 'button', className: 'bp-ghost bp-btn', onClick: refresh }, t('runRefresh'))),
+        h('div', { className: 'bp-muted bp-runs-hint' }, t('runsHint')),
+        error === null ? null : h('div', { className: 'bp-runs-error' }, error),
+        h('div', { className: 'bp-runs-start' },
+          h('div', { className: 'bp-runs-section-title' }, t('runStart')),
+          startable.length === 0
+            ? h('div', { className: 'bp-muted bp-runs-empty-line' }, t('runNoStartable'))
+            : h(React.Fragment, null,
+                h('div', { className: 'bp-runs-form' },
+                  h('label', { className: 'bp-runs-field bp-runs-field-wide' },
+                    h('span', null, t('runModule')),
+                    h('select', {
+                      className: 'bp-input', value: selectedModule?.id ?? '',
+                      onChange: event => {
+                        const id = event.target.value
+                        setStartModuleId(id)
+                        const target = startable.find(module => module.id === id)
+                        setAdapter(moduleExecution(target)?.adapter ?? '')
+                      },
+                    }, startable.map(module => h('option', { key: module.id, value: module.id },
+                      `${module.code ?? ''} ${module.name ?? module.id}`.trim())))),
+                  h('label', { className: 'bp-runs-field' },
+                    h('span', null, t('runAdapter')),
+                    h(AdapterSelect, { value: adapter, onChange: setAdapter })),
+                  h('label', { className: 'bp-runs-field' },
+                    h('span', null, t('runTtl')),
+                    h('input', {
+                      className: 'bp-input', type: 'number', min: 1, step: 1, value: ttl,
+                      onChange: event => setTtl(event.target.value),
+                    }))),
+                h('div', { className: 'bp-runs-form-actions' },
+                  h('button', {
+                    type: 'button', className: 'bp-btn bp-primary',
+                    disabled: busy !== null || selectedModule === undefined,
+                    onClick: startRun,
+                  }, busy === 'start' ? t('runStarting') : t('runStartAction'))),
+                h('div', { className: 'bp-muted bp-runs-hint' }, t('runStartFormHint')))),
+        h('div', { className: 'bp-runs-filters' },
+          RUN_FILTERS.map(key => h('button', {
+            type: 'button', key,
+            className: `bp-runs-filter${filter === key ? ' active' : ''}`,
+            onClick: () => setFilter(key),
+          }, `${t(RUN_FILTER_KEYS[key])} (${counts[key]})`))),
+        runs.length === 0
+          ? h('div', { className: 'bp-runs-empty' }, t('runsEmpty'))
+          : visible.length === 0
+            ? h('div', { className: 'bp-runs-empty' }, t('runFilterEmpty'))
+            : h('div', { className: 'bp-runs-list' }, visible.map(renderCard)))
     }
 
     function VersionsPanel({ store }) {
@@ -5507,7 +5953,8 @@ ${task}
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'board' ? ' active' : ''}`, onClick: () => { set({ panel: 'board' }); loadChildren() } }, t('board')),
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'versions' ? ' active' : ''}`, onClick: () => { set({ panel: 'versions' }); loadVersions() } }, t('versions')),
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'checks' ? ' active' : ''}`, onClick: () => { set({ panel: 'checks' }); loadChecks() } }, t('checks')),
-          h('button', { type: 'button', className: `bp-panel-tab${panel === 'workspace' ? ' active' : ''}`, onClick: () => set({ panel: 'workspace' }) }, t('workspace'))),
+          h('button', { type: 'button', className: `bp-panel-tab${panel === 'workspace' ? ' active' : ''}`, onClick: () => set({ panel: 'workspace' }) }, t('workspace')),
+          h('button', { type: 'button', className: `bp-panel-tab${panel === 'runs' ? ' active' : ''}`, onClick: () => set({ panel: 'runs' }) }, t('runs'))),
         panel === 'board'
           ? h(BoardPanel, { store })
           : panel === 'versions'
@@ -5516,10 +5963,12 @@ ${task}
               ? h(ChecksPanel, { store })
               : panel === 'workspace'
                 ? h(WorkspacePanel, { store })
-                : h(React.Fragment, null,
-                    h(Inspector, { store }),
-                    h('div', { className: 'bp-divider' }),
-                    h(ModulePanel, { store })))
+                : panel === 'runs'
+                  ? h(RunsPanel, { store })
+                  : h(React.Fragment, null,
+                      h(Inspector, { store }),
+                      h('div', { className: 'bp-divider' }),
+                      h(ModulePanel, { store })))
     }
 
     function LayerBreadcrumbs({ store }) {
@@ -7091,6 +7540,8 @@ ${task}
 .bp-chip{font-size:10px;padding:1px 6px;border-radius:9px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .bp-chip-running{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}
 .bp-chip-blocked{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent)}
+.bp-chip-failed{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent)}
+.bp-chip-cancelled{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 35%,transparent)}
 .bp-chip-confirmed{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 35%,transparent)}
 .bp-chip-dispatched,.bp-chip-done{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}
 .bp-main-foot{display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11px;color:var(--dsw-alias-label-secondary)}
@@ -7135,8 +7586,8 @@ ${task}
 .bp-open:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
 .bp-open.bp-has{color:var(--dsw-alias-brand-primary)}
 .bp-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-brand-primary);display:inline-block}
-.bp-panel-tabs{display:flex;gap:3px;margin-bottom:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:2px;background:var(--dsw-alias-bg-base)}
-.bp-panel-tab{flex:1;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;padding:5px 4px;border-radius:6px;cursor:pointer}
+.bp-panel-tabs{display:flex;gap:3px;margin-bottom:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:2px;background:var(--dsw-alias-bg-base);overflow-x:auto;scrollbar-width:thin}
+.bp-panel-tab{flex:1 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;padding:5px 6px;border-radius:6px;cursor:pointer;white-space:nowrap}
 .bp-panel-tab:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
 .bp-panel-tab.active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:650}
 .bp-panel-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
@@ -7247,6 +7698,53 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-workspace-fields .bp-field>span{display:block;font-size:10px;color:var(--dsw-alias-label-secondary);margin-bottom:3px}
 .bp-workspace-fields .bp-input{height:27px;padding:0 6px;font-size:10.5px}
 .bp-workspace-fields .bp-field select.bp-input{height:27px}
+.bp-runs{display:flex;flex-direction:column;gap:8px;min-width:0}
+.bp-runs-hint{font-size:10.5px;line-height:1.45}
+.bp-runs-start{display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-base);min-width:0}
+.bp-runs-section-title{font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--dsw-alias-label-secondary);text-transform:uppercase}
+.bp-runs-form{display:grid;grid-template-columns:1fr 1fr;gap:6px;min-width:0}
+.bp-runs-field{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:10px;color:var(--dsw-alias-label-secondary)}
+.bp-runs-field-wide{grid-column:1 / -1}
+.bp-runs-field .bp-input{height:26px;padding:0 6px;font-size:10.5px;min-width:0;box-sizing:border-box;width:100%}
+.bp-runs-form-actions{display:flex;justify-content:flex-end;gap:5px}
+.bp-runs-form-actions .bp-btn{height:26px;font-size:10.5px}
+.bp-runs-empty-line{font-size:10.5px;line-height:1.4}
+.bp-runs-filters{display:flex;gap:3px;overflow-x:auto;scrollbar-width:thin;padding-bottom:2px}
+.bp-runs-filter{flex:0 0 auto;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;padding:2px 7px;cursor:pointer;white-space:nowrap}
+.bp-runs-filter:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.bp-runs-filter.active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2);font-weight:650}
+.bp-runs-list{display:flex;flex-direction:column;gap:7px;min-width:0}
+.bp-runs-card{display:flex;flex-direction:column;gap:5px;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-left-width:3px;border-radius:9px;background:var(--dsw-alias-bg-base);min-width:0}
+.bp-runs-card.bp-runs-running{border-left-color:var(--dsw-alias-state-success-primary)}
+.bp-runs-card.bp-runs-done{border-left-color:var(--dsw-alias-brand-primary)}
+.bp-runs-card.bp-runs-failed{border-left-color:var(--dsw-alias-state-error-primary)}
+.bp-runs-card.bp-runs-cancelled,.bp-runs-card.bp-runs-blocked{border-left-color:var(--dsw-alias-state-warn-primary)}
+.bp-runs-card-top{display:flex;align-items:center;gap:6px;min-width:0}
+.bp-runs-id{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9.5px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bp-runs-card-title{font-size:11.5px;font-weight:650;color:var(--dsw-alias-label-primary);word-break:break-word}
+.bp-runs-meta{display:flex;flex-wrap:wrap;gap:2px 8px;font-size:9.5px;color:var(--dsw-alias-label-secondary);min-width:0}
+.bp-runs-meta span{max-width:100%;overflow-wrap:anywhere}
+.bp-runs-lease-expired{color:var(--dsw-alias-state-error-primary);font-weight:650}
+.bp-runs-note{font-size:10px;line-height:1.4;color:var(--dsw-alias-label-secondary);word-break:break-word}
+.bp-runs-error,.bp-runs-error-line{font-size:10px;line-height:1.4;color:var(--dsw-alias-state-error-primary);word-break:break-word}
+.bp-runs-error{padding:7px 8px;border-radius:8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 9%,transparent);white-space:pre-wrap}
+.bp-runs-evidence{display:flex;flex-direction:column;gap:4px;margin-top:2px;min-width:0}
+.bp-runs-evidence-input{width:100%;box-sizing:border-box;min-height:54px;resize:vertical;font-size:10.5px;line-height:1.4;padding:5px 6px}
+.bp-runs-evidence-add{align-self:flex-end;height:24px;font-size:10.5px;padding:0 7px}
+.bp-runs-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px}
+.bp-runs-actions .bp-btn{height:24px;font-size:10.5px;padding:0 7px}
+.bp-runs-plan{display:flex;flex-direction:column;gap:5px;margin-top:4px;padding:7px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);min-width:0}
+.bp-runs-plan-head{display:flex;align-items:center;gap:6px;font-size:10.5px}
+.bp-runs-plan-head strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bp-runs-plan-head .bp-btn{height:22px;font-size:10px;padding:0 6px}
+.bp-runs-plan-list{margin:0;padding-left:16px;display:flex;flex-direction:column;gap:3px;font-size:10px;line-height:1.45;color:var(--dsw-alias-label-secondary);word-break:break-word}
+.bp-runs-plan-json{margin:0;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9.5px;line-height:1.4;color:var(--dsw-alias-label-secondary);padding:6px;border-radius:6px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1)}
+.bp-runs-empty{padding:16px 6px;text-align:center;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-secondary);border:1px dashed var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base)}
+.bp-module-run{display:flex;flex-direction:column;gap:5px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--dsw-alias-border-l2)}
+.bp-module-run-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.bp-module-run-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9.5px;overflow-wrap:anywhere}
+.bp-module-run-none{font-size:10px;line-height:1.4}
+.bp-module-run .bp-btn{height:24px;font-size:10.5px;align-self:flex-start;padding:0 7px}
 .bp-board-empty{margin:8px 0}
 .bp-child{background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:8px 9px}
 .bp-child-top{display:flex;align-items:center;gap:6px;font-size:11.5px}
@@ -7424,16 +7922,22 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
         MAX_IMPORT_BYTES,
         MAX_IMPORT_NODES,
         ModuleWorkspaceFields,
+        ModuleRunInfo,
         NodeShape,
+        RunsPanel,
         TEMPLATES,
         WorkspacePanel,
+        blueprintRuns,
         defaultEdgeKind,
         detectImportSource,
+        dispatchPrompt,
         edgeKindsFor,
         ensureLayout,
         flowchartMermaidSource,
         flowchartHiddenIds,
+        formatRunLease,
         importErrorMessage,
+        latestRunForModule,
         layoutDiagram,
         layoutFlowchart,
         layoutFlowchartGroups,
@@ -7442,6 +7946,11 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
         mountKind,
         moduleMounts,
         parseMermaid,
+        runCommandLine,
+        runStartCommand,
+        runStatusLabel,
+        runningRunForModule,
+        runsForFilter,
         typesFor,
         validateMountDraft,
         workspaceDispatchFor,

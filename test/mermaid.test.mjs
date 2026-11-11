@@ -31,6 +31,8 @@ const {
   MAX_IMPORT_BYTES, MAX_IMPORT_NODES,
   mountAccess, mountFromDraft, mountKind, moduleMounts, validateMountDraft,
   workspaceDispatchFor, workspaceDispatchLines, workspaceUnboundModules,
+  ModuleRunInfo, RunsPanel, blueprintRuns, dispatchPrompt, formatRunLease,
+  latestRunForModule, runCommandLine, runStartCommand, runningRunForModule, runsForFilter,
 } = client.__test
 const parse = input => JSON.parse(JSON.stringify(parseMermaid(input)))
 const plain = value => JSON.parse(JSON.stringify(value))
@@ -553,4 +555,131 @@ test('workspace dispatch lines carry mounts, execution and unbound warnings', ()
   const unbound = workspaceDispatchLines(bp, bp.modules[1]).join('\n')
   assert.match(unbound, /未绑定工作区，先确认路径/)
   assert.match(unbound, /adapter：（未指定，Host 默认 dsh-subagent）/)
+})
+
+function runsFixture() {
+  return {
+    modules: [
+      { id: 'm1', name: 'API', code: 'A1', execution: { adapter: 'cli' } },
+      { id: 'm2', name: 'Web', code: 'A2' },
+      { id: 'm3', name: 'Docs', code: 'A3' },
+    ],
+    runs: [
+      {
+        id: 'run-1', moduleId: 'm1', adapter: 'cli', status: 'running',
+        startedAt: 1_700_000_000_000, leaseUntil: Date.now() + 600_000,
+        claimedBy: 'agent-a', evidence: [{ at: 1, text: 'tests passed' }],
+        nextAction: 'Review output',
+      },
+      {
+        id: 'run-2', moduleId: 'm2', adapter: 'manual', status: 'failed',
+        startedAt: 1_700_000_100_000, endedAt: 1_700_000_200_000, error: 'build exploded',
+      },
+      {
+        id: 'run-3', moduleId: 'm3', adapter: 'http', status: 'done',
+        startedAt: 1_700_000_050_000, endedAt: 1_700_000_060_000,
+      },
+    ],
+  }
+}
+
+test('run helpers filter the ledger and build host commands', () => {
+  const bp = runsFixture()
+  assert.deepEqual(plain(blueprintRuns(bp)).map(run => run.id), ['run-1', 'run-2', 'run-3'])
+  assert.equal(blueprintRuns({ runs: [null, 'x', { id: 'ok' }] }).length, 1)
+  assert.equal(latestRunForModule(bp, 'm1')?.id, 'run-1')
+  assert.equal(runningRunForModule(bp, 'm1')?.id, 'run-1')
+  assert.equal(runningRunForModule(bp, 'm2'), undefined)
+  assert.deepEqual(plain(runsForFilter(bp.runs, 'all')).map(run => run.id), ['run-1', 'run-2', 'run-3'])
+  assert.deepEqual(plain(runsForFilter(bp.runs, 'running')).map(run => run.id), ['run-1'])
+  assert.deepEqual(plain(runsForFilter(bp.runs, 'done')).map(run => run.id), ['run-3'])
+  assert.deepEqual(plain(runsForFilter(bp.runs, 'failed')).map(run => run.id), ['run-2'])
+
+  assert.deepEqual(plain(formatRunLease(1_000, 2_000)), { expired: true, text: '' })
+  assert.deepEqual(plain(formatRunLease(5_000, 0)), { expired: false, text: '5s' })
+  assert.deepEqual(plain(formatRunLease(61_000, 0)), { expired: false, text: '1m 01s' })
+  assert.deepEqual(plain(formatRunLease(3_600_000, 0)), { expired: false, text: '1h 00m' })
+  assert.deepEqual(plain(formatRunLease(undefined, 0)), { expired: false, text: '' })
+
+  assert.deepEqual(plain(runStartCommand({ moduleId: 'm1', adapter: 'CLI', ttlMinutes: 30 })), {
+    ok: true, command: 'start m1 --adapter cli --ttl 30',
+  })
+  assert.deepEqual(plain(runStartCommand({ moduleId: 'm1' })), { ok: true, command: 'start m1' })
+  assert.equal(runStartCommand({ moduleId: 'm1', ttlMinutes: 0 }).ok, false)
+  assert.equal(runStartCommand({ moduleId: '' }).ok, false)
+
+  assert.equal(runCommandLine('evidence', 'run-1', ' tests passed '), 'evidence run-1 tests passed')
+  assert.equal(runCommandLine('evidence', 'run-1', '  '), '')
+  assert.equal(runCommandLine('complete', 'run-1'), 'complete run-1')
+  assert.equal(runCommandLine('fail', 'run-1', 'boom'), 'fail run-1 boom')
+  assert.equal(runCommandLine('cancel', 'run-1'), 'cancel run-1')
+  assert.equal(runCommandLine('rollback', 'run-1'), 'rollback run-1')
+  assert.equal(runCommandLine('rollback', ''), '')
+})
+
+test('runs panel renders the ledger, actions, filters and empty state', () => {
+  const bp = runsFixture()
+  const panel = RunsPanel({ store: { bp, focusRunModuleId: null } })
+  const text = elementText(panel)
+  assert.match(text, /run-1/)
+  assert.match(text, /A1 API/)
+  assert.match(text, /agent-a/)
+  assert.match(text, /Review output/)
+  assert.match(text, /run-2/)
+  assert.match(text, /build exploded/)
+  assert.match(text, /证据：1 条|Evidence: 1/)
+  assert.match(text, /全部 \(3\)|All \(3\)/)
+  assert.match(text, /运行中 \(1\)|Running \(1\)/)
+  assert.match(text, /已完成 \(1\)|Completed \(1\)/)
+  assert.match(text, /失败 \(1\)|Failed \(1\)/)
+  assert.match(text, /添加证据|Add evidence/)
+  assert.match(text, /回滚计划|Rollback plan/)
+  assert.match(text, /完成|Complete/)
+  assert.match(text, /取消|Cancel run/)
+
+  const textareas = []
+  walkElements(panel, item => { if (item.type === 'textarea') textareas.push(item) })
+  assert.equal(textareas.length, 1, 'only the running run offers an evidence textarea')
+  assert.match(String(textareas[0].props.placeholder), /记录|What was done/i)
+
+  const rollbackButtons = []
+  walkElements(panel, item => {
+    if (item.type === 'button' && /回滚计划|Rollback plan/.test(elementText(item))) rollbackButtons.push(item)
+  })
+  assert.equal(rollbackButtons.length, 2, 'running and failed runs both expose the rollback plan')
+  assert.match(elementText(rollbackButtons[0]), /回滚计划|Rollback plan/)
+
+  const emptyPanel = RunsPanel({ store: { bp: { modules: [], runs: [] }, focusRunModuleId: null } })
+  const emptyText = elementText(emptyPanel)
+  assert.match(emptyText, /还没有执行记录|No runs yet/)
+  assert.match(emptyText, /所有模块都已有运行中的 Run|Every module already has a running run/)
+  assert.equal(findElement(emptyPanel, item => item.type === 'textarea'), null)
+})
+
+test('module run info and dispatch prompt include active run hints', () => {
+  const bp = runsFixture()
+  const info = ModuleRunInfo({ bp, module: bp.modules[0] })
+  const infoText = elementText(info)
+  assert.match(infoText, /执行记录|Run/)
+  assert.match(infoText, /run-1/)
+  assert.match(infoText, /agent-a/)
+  assert.match(infoText, /打开执行面板|Open Runs/)
+
+  const noRunInfo = ModuleRunInfo({ bp, module: { id: 'm4', name: 'Missing', code: 'A4' } })
+  assert.match(elementText(noRunInfo), /还没有执行记录|No run yet/)
+
+  const prompt = dispatchPrompt(bp)
+  assert.match(prompt, /run-1/)
+  assert.match(prompt, /claimedBy=agent-a/)
+  assert.match(prompt, /leaseUntil=/)
+  assert.match(prompt, /不要自动启动/)
+
+  const withoutActive = {
+    modules: [{ id: 'm9', name: 'Queued', code: 'A9', files: ['src/queued.js'] }],
+    runs: [{ id: 'run-old', moduleId: 'm9', status: 'failed', startedAt: 1, endedAt: 2 }],
+  }
+  const queuedPrompt = dispatchPrompt(withoutActive)
+  assert.match(queuedPrompt, /blueprint run start m9/)
+  assert.match(queuedPrompt, /不要自动启动|never start it automatically/)
+  assert.doesNotMatch(queuedPrompt, /run-old/)
 })
