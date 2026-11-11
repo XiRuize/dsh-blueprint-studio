@@ -2,6 +2,15 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.9.0] — 2026-11-11
+
+### Added
+
+- **Review Packet.** `buildReviewPacket` gathers requirements, modules, mounts, diagrams, runs/evidence, gaps and next actions into one stable, deterministic object.
+- **Single-file review page.** `exportReviewHtml` renders a printable offline HTML with stat cards, requirements/modules/mounts/runs tables, Mermaid sources, gaps and next actions; no scripts, external links or assets, 5 MB cap.
+- **Handoff descriptors.** `buildHandoff` produces advisory manual/cli/http/dsh-subagent handoffs with cwd, allow, commands, storage and warnings; `auto:false`, no secrets, no commands executed.
+- **Commands and UI.** `/blueprint review`, `/blueprint review html`, `/blueprint review handoff <runId>`, and an Export → Review page menu item.
+
 ## [0.8.0] — 2026-11-11
 
 ### Added
