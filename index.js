@@ -7,8 +7,10 @@ import {
   blueprintRelativePath,
   blueprintVersionsIndexRelativePath,
   buildDispatchPacket,
+  claimConflicts,
   createConfirmTokenStore,
   deleteBlueprintFile,
+  finishRun,
   mergeBlueprintForUpdate,
   normalizeBlueprint,
   parseBlueprintSaveInput,
@@ -16,11 +18,15 @@ import {
   readBlueprintVersion,
   readVersionsIndex,
   recordModuleVerification,
+  rollbackPlanForRun,
+  runEvidence,
   saveBlueprintFromCommand,
   semanticDiff,
+  startRun,
   verifyBlueprintToken,
   writeBlueprintFile,
   DIAGRAM_DEFS,
+  RUN_ADAPTERS,
   SECTION_DEFS,
 } from './lib/blueprint.js'
 import { CHECK_RULES, analyzeBlueprint, coverageMatrix } from './lib/checks.js'
@@ -43,6 +49,8 @@ action:
 - dispatch：已禁用。分派只能由用户在「蓝图」面板完成，Host 会校验一次性确认令牌。
 - snapshot：把当前蓝图归档为一个手工版本（可传 label）。
 - delete：删除当前会话的蓝图文件。
+
+runs（执行账本）由 Host 拥有：工具 update 永远保留磁盘上的 runs，忽略补丁里的 runs；create 仅用于迁移旧数据时 seed，正常运行请由用户执行 /blueprint run start|evidence|complete|fail|cancel 写入，不要用蓝图工具伪造运行状态。
 
 blueprint 结构：
 {
@@ -152,6 +160,59 @@ export function decodeSnapshotLabel(raw) {
     return decodeURIComponent(value)
   } catch {
     return value
+  }
+}
+
+// Parse `/blueprint run start <moduleId> [--adapter x] [--ttl minutes] [--by name]`.
+// The parser is exported so the command surface can be tested without a filesystem.
+// `--ttl` is deliberately expressed in whole minutes; the helper receives ms.
+export function parseRunStartArgs(rawArgs) {
+  const tokens = Array.isArray(rawArgs)
+    ? rawArgs.map(token => String(token))
+    : String(rawArgs ?? '').trim().split(/\s+/u).filter(token => token !== '')
+  const positional = []
+  const options = {}
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (token === '--adapter' || token === '--ttl' || token === '--by') {
+      const value = tokens[index + 1]
+      if (value === undefined || value.startsWith('--')) {
+        return { ok: false, message: `参数 ${token} 缺少取值。` }
+      }
+      options[token.slice(2)] = value
+      index += 1
+      continue
+    }
+    if (token.startsWith('--adapter=') || token.startsWith('--ttl=') || token.startsWith('--by=')) {
+      const [key, ...value] = token.slice(2).split('=')
+      options[key] = value.join('=')
+      continue
+    }
+    if (token.startsWith('--')) return { ok: false, message: `未知参数：${token}。` }
+    positional.push(token)
+  }
+  const moduleId = String(positional[0] ?? '').trim()
+  if (moduleId === '') {
+    return { ok: false, message: '用法：/blueprint run start <moduleId> [--adapter dsh-subagent|cli|http|manual] [--ttl minutes] [--by name]' }
+  }
+  const adapter = String(options.adapter ?? '').trim().toLowerCase()
+  if (adapter !== '' && !RUN_ADAPTERS.includes(adapter)) {
+    return { ok: false, message: `适配器无效：${adapter}（必须是 ${RUN_ADAPTERS.join('/')}）。` }
+  }
+  let ttlMs
+  if (options.ttl !== undefined) {
+    const minutes = Number(options.ttl)
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return { ok: false, message: `--ttl 必须是正数分钟，收到：${options.ttl}。` }
+    }
+    ttlMs = Math.round(minutes * 60_000)
+  }
+  return {
+    ok: true,
+    moduleId,
+    adapter: adapter === '' ? undefined : adapter,
+    ttlMs,
+    claimedBy: String(options.by ?? '').trim() || undefined,
   }
 }
 
@@ -377,7 +438,7 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比、恢复、导出、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | check | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | check | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -642,6 +703,104 @@ export function apply(ctx, rawConfig) {
             if (packet === undefined) return { kind: 'error', text: `模块 ${moduleId} 不存在。` }
             return { kind: 'success', text: JSON.stringify(packet) }
           }
+          if (sub === 'run') {
+            const runUsage = '用法：/blueprint run list | start <moduleId> [--adapter dsh-subagent|cli|http|manual] [--ttl minutes] [--by name] | evidence <runId> <text...> | complete|fail|cancel <runId> [text...] | rollback <runId>'
+            const action = String(rest[0] ?? '').trim().toLowerCase()
+            const args = rest.slice(1)
+            if (action === 'list') {
+              if (args.length > 0) return { kind: 'error', text: runUsage }
+              const { file, raw } = await readCurrent(invocation.agent)
+              if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图。' }
+              const blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+              return {
+                kind: 'success',
+                text: JSON.stringify({
+                  ok: true,
+                  runs: blueprint.runs,
+                  claims: claimConflicts(blueprint),
+                  path: file.relative,
+                }),
+              }
+            }
+            if (action === 'start') {
+              const parsed = parseRunStartArgs(args)
+              if (!parsed.ok) return { kind: 'error', text: parsed.message }
+              const { file, raw } = await readCurrent(invocation.agent)
+              if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图，无法启动运行。' }
+              const previous = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+              const started = startRun(previous, {
+                moduleId: parsed.moduleId,
+                adapter: parsed.adapter,
+                ttlMs: parsed.ttlMs,
+                claimedBy: parsed.claimedBy,
+              })
+              if (!started.ok) return { kind: 'error', text: started.error }
+              const blueprint = started.blueprint
+              blueprint.updatedAt = Date.now()
+              await archive(file, previous, 'ui', 'run start')
+              await writeBlueprintFile(file.absolute, blueprint)
+              return {
+                kind: 'success',
+                text: JSON.stringify({ ok: true, run: started.run, path: file.relative }),
+              }
+            }
+            if (action === 'evidence') {
+              const runId = String(args[0] ?? '').trim()
+              const evidenceText = args.slice(1).join(' ').trim()
+              if (runId === '' || evidenceText === '') return { kind: 'error', text: runUsage }
+              const { file, raw } = await readCurrent(invocation.agent)
+              if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图。' }
+              const previous = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+              const appended = runEvidence(previous, runId, evidenceText)
+              if (!appended.ok) return { kind: 'error', text: appended.error }
+              const blueprint = appended.blueprint
+              blueprint.updatedAt = Date.now()
+              await archive(file, previous, 'ui', 'run evidence')
+              await writeBlueprintFile(file.absolute, blueprint)
+              return {
+                kind: 'success',
+                text: JSON.stringify({ ok: true, run: appended.run, path: file.relative }),
+              }
+            }
+            if (action === 'complete' || action === 'fail' || action === 'cancel') {
+              const runId = String(args[0] ?? '').trim()
+              if (runId === '') return { kind: 'error', text: runUsage }
+              const status = action === 'complete' ? 'done' : action === 'fail' ? 'failed' : 'cancelled'
+              const summary = args.slice(1).join(' ').trim()
+              const { file, raw } = await readCurrent(invocation.agent)
+              if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图。' }
+              const previous = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+              const finished = finishRun(previous, runId, { status, summary })
+              if (!finished.ok) return { kind: 'error', text: finished.error }
+              const blueprint = finished.blueprint
+              blueprint.updatedAt = Date.now()
+              await archive(file, previous, 'ui', `run ${action}`)
+              await writeBlueprintFile(file.absolute, blueprint)
+              return {
+                kind: 'success',
+                text: JSON.stringify({
+                  ok: true,
+                  run: finished.run,
+                  warning: finished.warning,
+                  path: file.relative,
+                }),
+              }
+            }
+            if (action === 'rollback') {
+              const runId = String(args[0] ?? '').trim()
+              if (runId === '' || args.length > 1) return { kind: 'error', text: runUsage }
+              const { file, raw } = await readCurrent(invocation.agent)
+              if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图。' }
+              const blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+              const planned = rollbackPlanForRun(blueprint, runId)
+              if (!planned.ok) return { kind: 'error', text: planned.error }
+              return {
+                kind: 'success',
+                text: JSON.stringify({ ok: true, plan: planned.plan, path: file.relative }),
+              }
+            }
+            return { kind: 'error', text: runUsage }
+          }
           if (sub === 'check') {
             if (rest.length > 0) return { kind: 'error', text: '用法：/blueprint check（不需要参数）。' }
             let blueprint
@@ -711,7 +870,7 @@ export function apply(ctx, rawConfig) {
               return { kind: 'error', text: `取消子代理失败：${String(error?.message ?? error)}` }
             }
           }
-          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | check | cancel' }
+          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | check | run list|start|evidence|complete|fail|cancel|rollback | cancel' }
         },
       }),
     )
