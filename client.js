@@ -197,9 +197,12 @@ window.__ModuleLoader__.load({
       runPrepare: 'Handoff', runCollect: 'Collect result', runHeartbeat: 'Heartbeat',
       runHandoffReady: 'Handoff written: {path}', runCollected: 'Result collected',
       runPrepareFailed: 'Could not write handoff', runCollectFailed: 'Could not collect result',
-      lineage: 'Lineage', lineageHint: 'A read-only timeline of versions and runs. The blueprint and run ledger remain authoritative.',
+      lineage: 'Lineage', lineageHint: 'A read-only DAG of saves, runs and the current state. The blueprint and run ledger remain authoritative.',
       lineageAll: 'All', lineageVersions: 'Versions', lineageRuns: 'Runs',
       lineageVersion: 'Version', lineageRun: 'Run', lineageNoEvents: 'No versions or runs yet.',
+      lineageCurrent: 'Current', lineageKind: 'Kind', lineageStatus: 'Status', lineageSource: 'Source',
+      lineageTime: 'Time', lineageCounts: 'Counts', lineageEvidence: 'Evidence',
+      lineageSelectHint: 'Select a node to inspect its details.', lineageNoMatches: 'No nodes match this filter.',
       runRollbackFailed: 'Could not build the rollback plan', runPlan: 'Rollback plan for {id}',
       runActionDone: 'Run updated', runActionFailed: 'Could not update the run',
       runRefresh: 'Refresh', runStatusRunning: 'Running', runStatusDone: 'Completed', runStatusFailed: 'Failed',
@@ -398,9 +401,12 @@ window.__ModuleLoader__.load({
       runPrepare: '生成交接包', runCollect: '回收结果', runHeartbeat: '续租',
       runHandoffReady: '交接包已写入：{path}', runCollected: '结果已回收',
       runPrepareFailed: '生成交接包失败', runCollectFailed: '回收结果失败',
-      lineage: '脉络', lineageHint: '版本与运行的只读时间线；事实来源仍是蓝图与 run ledger。',
+      lineage: '脉络', lineageHint: '版本保存、运行与当前状态的只读 DAG；事实来源仍是蓝图与 run ledger。',
       lineageAll: '全部', lineageVersions: '版本', lineageRuns: '运行',
       lineageVersion: '版本', lineageRun: '运行', lineageNoEvents: '还没有版本或运行。',
+      lineageCurrent: '当前', lineageKind: '类型', lineageStatus: '状态', lineageSource: '来源',
+      lineageTime: '时间', lineageCounts: '统计', lineageEvidence: '证据',
+      lineageSelectHint: '点击节点查看详情。', lineageNoMatches: '当前筛选下没有节点。',
       runRollbackFailed: '生成回滚计划失败', runPlan: '回滚计划：{id}',
       runActionDone: 'Run 已更新', runActionFailed: '更新 Run 失败',
       runRefresh: '刷新', runStatusRunning: '运行中', runStatusDone: '已完成', runStatusFailed: '失败',
@@ -2936,21 +2942,249 @@ ${task}
       return events.sort((left, right) => right.at - left.at || left.kind.localeCompare(right.kind) || right.id.localeCompare(left.id))
     }
 
-    function LineagePanel({ store }) {
+    // Lineage is a deterministic DAG rather than a flat timeline:
+    //   versions form the "save" chain on lane 0;
+    //   every run starts from the closest earlier version and is collected by
+    //   the next version, or by the virtual current node when none exists.
+    // Runs are grouped by module into lanes 1..4; extra modules share lane 4.
+    const LINEAGE_LANE_MAX = 4
+    const LINEAGE_NODE_W = 168
+    const LINEAGE_NODE_H = 46
+    const LINEAGE_GAP_X = 72
+    const LINEAGE_LANE_GAP = 78
+    const LINEAGE_MARGIN = 24
+
+    function lineageGraph(bp, versions) {
+      const versionInput = Array.isArray(versions) ? versions : []
+      const versionNodes = []
+      const versionIds = new Set()
+      for (const version of versionInput) {
+        if (version === null || typeof version !== 'object') continue
+        const id = String(version.id ?? '').trim()
+        const at = Number(version.at)
+        if (id === '' || !Number.isFinite(at) || versionIds.has(id)) continue
+        versionIds.add(id)
+        versionNodes.push({
+          id, kind: 'version',
+          label: String(version.title ?? '').trim() || String(version.label ?? '').trim() || id,
+          at, lane: 0,
+          status: String(version.status ?? 'draft').trim().toLowerCase() || 'draft',
+          source: String(version.source ?? 'agent'),
+          counts: version.counts !== null && typeof version.counts === 'object' ? version.counts : null,
+          evidence: 0,
+          w: LINEAGE_NODE_W, h: LINEAGE_NODE_H,
+        })
+      }
+      versionNodes.sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))
+
+      const runInput = Array.isArray(bp?.runs) ? bp.runs : []
+      const moduleIds = new Set()
+      for (const run of runInput) {
+        if (run === null || typeof run !== 'object') continue
+        const startedAt = Number(run.startedAt)
+        const endedAt = Number(run.endedAt)
+        if (!Number.isFinite(startedAt) && !Number.isFinite(endedAt)) continue
+        moduleIds.add(String(run.moduleId ?? '').trim())
+      }
+      const sortedModules = [...moduleIds].sort((left, right) => left.localeCompare(right))
+      const laneByModule = new Map()
+      const laneGroups = []
+      sortedModules.forEach((moduleId, index) => {
+        const lane = Math.min(index + 1, LINEAGE_LANE_MAX)
+        laneByModule.set(moduleId, lane)
+        const group = laneGroups.find(item => item.lane === lane)
+        if (group === undefined) laneGroups.push({ lane, modules: [moduleId] })
+        else group.modules.push(moduleId)
+      })
+
+      const runNodes = []
+      const runIds = new Set()
+      for (const run of runInput) {
+        if (run === null || typeof run !== 'object') continue
+        const id = String(run.id ?? '').trim()
+        if (id === '' || runIds.has(id)) continue
+        const startedAt = Number(run.startedAt)
+        const endedAt = Number(run.endedAt)
+        const at = Number.isFinite(startedAt) ? startedAt : endedAt
+        if (!Number.isFinite(at)) continue
+        runIds.add(id)
+        const moduleId = String(run.moduleId ?? '').trim()
+        runNodes.push({
+          id, kind: 'run',
+          label: runModuleText(bp, moduleId) || id,
+          at, lane: laneByModule.get(moduleId) ?? LINEAGE_LANE_MAX,
+          status: String(run.status ?? 'running').trim().toLowerCase() || 'running',
+          source: String(run.adapter ?? ''),
+          evidence: Array.isArray(run.evidence) ? run.evidence.length : 0,
+          endedAt: Number.isFinite(endedAt) ? endedAt : null,
+          counts: null,
+          w: LINEAGE_NODE_W, h: LINEAGE_NODE_H,
+        })
+      }
+      runNodes.sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))
+
+      const edges = []
+      const edgeIds = new Set()
+      const pushEdge = (from, to, label) => {
+        if (from === to) return
+        const id = `${label}:${from}>${to}`
+        if (edgeIds.has(id)) return
+        edgeIds.add(id)
+        edges.push({ id, from, to, label })
+      }
+      for (let index = 0; index < versionNodes.length - 1; index += 1) {
+        pushEdge(versionNodes[index].id, versionNodes[index + 1].id, 'save')
+      }
+      let needsCurrent = false
+      for (const run of runNodes) {
+        const previous = [...versionNodes].reverse().find(version => version.at <= run.at)
+        if (previous !== undefined) pushEdge(previous.id, run.id, 'start')
+        if (run.endedAt === null) {
+          if (versionNodes.length === 0) {
+            pushEdge(run.id, 'current', 'start')
+            needsCurrent = true
+          }
+          continue
+        }
+        const next = versionNodes.find(version => version.at > run.endedAt)
+        if (next !== undefined) {
+          pushEdge(run.id, next.id, 'collect')
+        } else {
+          pushEdge(run.id, 'current', 'collect')
+          needsCurrent = true
+        }
+      }
+      const currentNode = needsCurrent
+        ? {
+            id: 'current', kind: 'current', label: t('lineageCurrent'), at: null, lane: 0,
+            status: 'current', source: '', evidence: 0, counts: null,
+            w: LINEAGE_NODE_W, h: LINEAGE_NODE_H,
+          }
+        : null
+
+      // Horizontal order follows time; equal timestamps keep versions first and
+      // then compare ids, so the same input always produces the same columns.
+      const timeline = [...versionNodes, ...runNodes].sort((left, right) =>
+        left.at - right.at
+        || (left.kind === right.kind ? left.id.localeCompare(right.id) : left.kind === 'version' ? -1 : 1))
+      timeline.forEach((node, index) => {
+        node.x = LINEAGE_MARGIN + index * (LINEAGE_NODE_W + LINEAGE_GAP_X)
+        node.y = LINEAGE_MARGIN + node.lane * LINEAGE_LANE_GAP
+      })
+      if (currentNode !== null) {
+        const last = timeline[timeline.length - 1]
+        currentNode.x = last === undefined
+          ? LINEAGE_MARGIN
+          : last.x + LINEAGE_NODE_W + LINEAGE_GAP_X
+        currentNode.y = LINEAGE_MARGIN
+      }
+      let width = LINEAGE_MARGIN * 2
+      let height = LINEAGE_MARGIN * 2
+      for (const node of [...timeline, ...(currentNode === null ? [] : [currentNode])]) {
+        width = Math.max(width, node.x + node.w + LINEAGE_MARGIN)
+        height = Math.max(height, node.y + node.h + LINEAGE_MARGIN)
+      }
+
+      const orderedRuns = [...runNodes].sort((left, right) =>
+        left.lane - right.lane || left.at - right.at || left.id.localeCompare(right.id))
+      const lanes = [{ lane: 0, kind: 'version', label: t('lineageVersions'), modules: [] }]
+      for (const group of [...laneGroups].sort((left, right) => left.lane - right.lane)) {
+        lanes.push({
+          lane: group.lane, kind: 'run', modules: group.modules,
+          label: group.modules.map(moduleId => runModuleText(bp, moduleId)).filter(text => text !== '').join(' · '),
+        })
+      }
+      return {
+        nodes: [...versionNodes, ...orderedRuns, ...(currentNode === null ? [] : [currentNode])],
+        edges,
+        lanes,
+        bounds: { width: Math.ceil(width), height: Math.ceil(height) },
+      }
+    }
+
+    function lineageKindLabel(node) {
+      if (node.kind === 'run') return t('lineageRun')
+      if (node.kind === 'version') return t('lineageVersion')
+      return t('lineageCurrent')
+    }
+
+    function lineageStatusText(node) {
+      if (node.kind === 'run') return runStatusLabel(node.status)
+      if (node.kind === 'version') return statusLabel(node.status)
+      return t('lineageCurrent')
+    }
+
+    function lineageCut(text, max) {
+      const value = String(text ?? '')
+      const chars = [...value]
+      return chars.length > max ? `${chars.slice(0, Math.max(1, max - 1)).join('')}…` : value
+    }
+
+    function lineageEdgePath(byId, edge) {
+      const from = byId.get(edge.from)
+      const to = byId.get(edge.to)
+      if (from === undefined || to === undefined) return ''
+      const x1 = from.x + from.w
+      const y1 = from.y + from.h / 2
+      const x2 = to.x
+      const y2 = to.y + to.h / 2
+      const bend = Math.max(28, Math.abs(x2 - x1) * 0.45)
+      return `M${x1} ${y1}C${x1 + bend} ${y1} ${x2 - bend} ${y2} ${x2} ${y2}`
+    }
+
+    function lineageCountsText(counts) {
+      if (counts === null || typeof counts !== 'object') return ''
+      return ['modules', 'diagrams', 'nodes', 'edges', 'sections', 'items']
+        .filter(key => Number.isFinite(Number(counts[key])))
+        .map(key => `${key} ${Number(counts[key])}`)
+        .join(' · ')
+    }
+
+    function LineageDetail({ node }) {
+      if (node === null || node === undefined) {
+        return h('div', { className: 'bp-muted bp-lineage-detail-empty' }, t('lineageSelectHint'))
+      }
+      const rows = [
+        [t('lineageKind'), lineageKindLabel(node)],
+        [t('lineageStatus'), lineageStatusText(node)],
+        [t('lineageSource'), node.source || '—'],
+        [t('lineageTime'), node.at === null || node.at === undefined ? '—' : new Date(node.at).toLocaleString()],
+      ]
+      const countsText = lineageCountsText(node.counts)
+      return h('div', { className: 'bp-lineage-detail', 'data-lineage-detail': node.id },
+        h('div', { className: 'bp-lineage-detail-head' },
+          h('span', { className: `bp-chip bp-chip-${node.kind === 'run' ? node.status : 'draft'}` }, lineageKindLabel(node)),
+          h('strong', null, node.label || node.id)),
+        h('div', { className: 'bp-lineage-detail-rows' },
+          rows.map(([label, value]) => h('div', { className: 'bp-lineage-detail-row', key: label },
+            h('span', null, label), h('span', null, value)))),
+        countsText === '' ? null : h('div', { className: 'bp-lineage-detail-extra' }, `${t('lineageCounts')}: ${countsText}`),
+        node.kind === 'run'
+          ? h('div', { className: 'bp-lineage-detail-extra' }, `${t('lineageEvidence')}: ${node.evidence ?? 0}`)
+          : null,
+        h('code', { className: 'bp-lineage-id' }, node.id))
+    }
+
+    function LineagePanel({ store, initialFilter, initialSelection }) {
       const bp = store.bp
-      const [filter, setFilter] = useState('all')
+      const [filter, setFilter] = useState(initialFilter ?? 'all')
+      const [selectedId, setSelectedId] = useState(initialSelection ?? null)
       useEffect(() => {
         if (!store.versionsLoaded && !store.versionsLoading) loadVersions().catch(() => {})
       }, [store.versionsLoaded, store.versionsLoading])
       if (bp === null) return null
-      const events = lineageEvents(bp, store.versions)
-      const visible = events.filter(event => filter === 'all' || event.kind === filter)
-      const counts = {
-        all: events.length,
-        version: events.filter(event => event.kind === 'version').length,
-        run: events.filter(event => event.kind === 'run').length,
-      }
-      const chip = event => event.kind === 'version' ? t('lineageVersion') : t('lineageRun')
+      const graph = lineageGraph(bp, store.versions)
+      const versions = graph.nodes.filter(node => node.kind === 'version').length
+      const runs = graph.nodes.filter(node => node.kind === 'run').length
+      const counts = { all: versions + runs, version: versions, run: runs }
+      const visibleNodes = graph.nodes.filter(node =>
+        filter === 'all' || node.kind === filter || (filter === 'run' && node.kind === 'current'))
+      const visibleIds = new Set(visibleNodes.map(node => node.id))
+      const visibleEdges = graph.edges.filter(edge => visibleIds.has(edge.from) && visibleIds.has(edge.to))
+      const selected = visibleNodes.find(node => node.id === selectedId) ?? null
+      const byId = new Map(visibleNodes.map(node => [node.id, node]))
+      const laneRows = [...new Set(visibleNodes.map(node => node.lane))].sort((left, right) => left - right)
+      const selectNode = node => setSelectedId(node.id)
       return h('div', { className: 'bp-lineage' },
         h('div', { className: 'bp-panel-head' },
           h('div', { className: 'bp-kicker' }, t('lineage')),
@@ -2965,22 +3199,81 @@ ${task}
             className: `bp-lineage-filter${filter === kind ? ' active' : ''}`,
             onClick: () => setFilter(kind),
           }, `${kind === 'all' ? t('lineageAll') : kind === 'version' ? t('lineageVersions') : t('lineageRuns')} ${counts[kind]}`))),
-        visible.length === 0
+        graph.nodes.length === 0
           ? h('div', { className: 'bp-muted bp-lineage-empty' }, t('lineageNoEvents'))
-          : h('div', { className: 'bp-lineage-list' },
-              visible.map(event => h('div', { className: `bp-lineage-item bp-lineage-${event.kind}`, key: `${event.kind}:${event.id}` },
-                h('span', { className: 'bp-lineage-dot' }),
-                h('div', { className: 'bp-lineage-card' },
-                  h('div', { className: 'bp-lineage-top' },
-                    h('span', { className: `bp-chip bp-chip-${event.kind === 'run' ? event.status : (event.status === 'confirmed' ? 'done' : 'draft')}` }, chip(event)),
-                    h('strong', null, event.title || event.id),
-                    h('time', null, new Date(event.at).toLocaleString())),
-                  h('div', { className: 'bp-lineage-meta' },
-                    event.source ? h('span', null, event.source) : null,
-                    event.label ? h('span', null, event.label) : null,
-                    event.counts ? h('span', null, `${event.counts.modules ?? 0} modules · ${event.counts.diagrams ?? 0} diagrams`) : null,
-                    event.kind === 'run' ? h('span', null, `${event.evidence} evidence`) : null),
-                  h('code', { className: 'bp-lineage-id' }, event.id))))))
+          : visibleNodes.length === 0
+            ? h('div', { className: 'bp-muted bp-lineage-empty' }, t('lineageNoMatches'))
+            : h(React.Fragment, null,
+                h('div', { className: 'bp-lineage-canvas' },
+                  h('svg', {
+                    className: 'bp-lineage-svg',
+                    viewBox: `0 0 ${graph.bounds.width} ${graph.bounds.height}`,
+                    width: graph.bounds.width,
+                    height: graph.bounds.height,
+                    role: 'group',
+                    'aria-label': t('lineage'),
+                    'data-lineage-graph': `${versions}:${runs}`,
+                  },
+                    h('defs', null,
+                      h('marker', {
+                        id: 'bp-lineage-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5,
+                        markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse',
+                      }, h('path', { d: 'M0 0L10 5L0 10z', fill: 'var(--dsw-alias-label-secondary)' }))),
+                    laneRows.map(lane => h('line', {
+                      key: `lane-${lane}`, className: 'bp-lineage-lane',
+                      x1: 0, y1: LINEAGE_MARGIN + lane * LINEAGE_LANE_GAP + LINEAGE_NODE_H / 2,
+                      x2: graph.bounds.width, y2: LINEAGE_MARGIN + lane * LINEAGE_LANE_GAP + LINEAGE_NODE_H / 2,
+                    })),
+                    visibleEdges.map(edge => {
+                      return h('path', {
+                        key: edge.id, className: 'bp-lineage-edge',
+                        d: lineageEdgePath(byId, edge), fill: 'none',
+                        stroke: 'var(--dsw-alias-label-secondary)', strokeWidth: 1.4,
+                        markerEnd: 'url(#bp-lineage-arrow)',
+                        'data-edge-from': edge.from, 'data-edge-to': edge.to,
+                        'data-edge-label': edge.label,
+                      })
+                    }),
+                    visibleEdges.map(edge => {
+                      const from = byId.get(edge.from)
+                      const to = byId.get(edge.to)
+                      if (from === undefined || to === undefined) return null
+                      return h('text', {
+                        key: `${edge.id}:label`, className: 'bp-lineage-edge-label',
+                        x: (from.x + from.w + to.x) / 2,
+                        y: (from.y + from.h / 2 + to.y + to.h / 2) / 2 - 4,
+                        textAnchor: 'middle',
+                      }, edge.label)
+                    }),
+                    visibleNodes.map(node => h('g', {
+                      key: node.id,
+                      className: `bp-lineage-node bp-lineage-node-${node.kind}${selectedId === node.id ? ' selected' : ''}`,
+                      'data-lineage-id': node.id,
+                      role: 'button',
+                      tabIndex: 0,
+                      'aria-label': `${lineageKindLabel(node)} ${node.label || node.id}`,
+                      onClick: event => { event?.stopPropagation?.(); selectNode(node) },
+                      onKeyDown: event => {
+                        if (event?.key === 'Enter' || event?.key === ' ') {
+                          event.preventDefault?.()
+                          selectNode(node)
+                        }
+                      },
+                    },
+                      h('rect', {
+                        className: 'bp-lineage-node-shape',
+                        x: node.x, y: node.y, width: node.w, height: node.h,
+                        rx: node.kind === 'run' ? 22 : 10,
+                      }),
+                      h('text', {
+                        className: 'bp-lineage-node-label',
+                        x: node.x + 12, y: node.y + 20,
+                      }, lineageCut(node.label || node.id, 20)),
+                      h('text', {
+                        className: 'bp-lineage-node-meta',
+                        x: node.x + 12, y: node.y + 35,
+                      }, lineageCut(`${lineageStatusText(node)}${node.source === '' ? '' : ` · ${node.source}`}`, 24)))))),
+                LineageDetail({ node: selected })))
     }
 
     const VERIFICATION_ROLES = ['tests', 'reviewer', 'human']
@@ -7743,15 +8036,26 @@ ${task}
 .bp-lineage-filters{display:flex;gap:4px;margin-bottom:10px}
 .bp-lineage-filter{border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:3px 8px;border-radius:7px;cursor:pointer}
 .bp-lineage-filter.active{color:var(--dsw-alias-brand-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}
-.bp-lineage-list{position:relative;margin-left:8px;padding-left:14px;border-left:1px solid var(--dsw-alias-border-l2)}
-.bp-lineage-item{position:relative;margin-bottom:10px}
-.bp-lineage-dot{position:absolute;left:-19px;top:8px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-brand-primary);box-shadow:0 0 0 3px var(--dsw-alias-bg-base)}
-.bp-lineage-run .bp-lineage-dot{background:var(--dsw-alias-state-warn-primary)}
-.bp-lineage-card{border:1px solid var(--dsw-alias-border-l1);border-radius:9px;padding:8px 9px;background:var(--dsw-alias-bg-layer-1)}
-.bp-lineage-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px}
-.bp-lineage-top time{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:10px}
-.bp-lineage-meta{display:flex;gap:8px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:10px;margin-top:4px}
-.bp-lineage-id{display:block;margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:10px;opacity:.75;word-break:break-all}
+.bp-lineage-canvas{overflow-x:auto;overflow-y:hidden;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-base);margin-bottom:10px;scrollbar-width:thin}
+.bp-lineage-svg{display:block;max-width:none}
+.bp-lineage-lane{stroke:var(--dsw-alias-border-l1);stroke-dasharray:3 7;opacity:.55}
+.bp-lineage-edge{opacity:.72}
+.bp-lineage-edge-label{fill:var(--dsw-alias-label-secondary);font-size:9.5px;font-weight:600;opacity:.9}
+.bp-lineage-node{cursor:pointer}
+.bp-lineage-node-shape{fill:var(--dsw-alias-bg-layer-1);stroke:var(--dsw-alias-brand-primary);stroke-width:1.8}
+.bp-lineage-node-run .bp-lineage-node-shape{fill:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 10%,var(--dsw-alias-bg-layer-1));stroke:var(--dsw-alias-state-warn-primary)}
+.bp-lineage-node-current .bp-lineage-node-shape{fill:transparent;stroke:var(--dsw-alias-label-secondary);stroke-dasharray:6 4}
+.bp-lineage-node.selected .bp-lineage-node-shape{stroke-width:3}
+.bp-lineage-node-label{fill:var(--dsw-alias-label-primary);font-size:11.5px;font-weight:650;pointer-events:none}
+.bp-lineage-node-meta{fill:var(--dsw-alias-label-secondary);font-size:9.5px;pointer-events:none}
+.bp-lineage-detail{border:1px solid var(--dsw-alias-border-l1);border-radius:9px;padding:8px 9px;background:var(--dsw-alias-bg-base)}
+.bp-lineage-detail-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px}
+.bp-lineage-detail-rows{margin-top:6px}
+.bp-lineage-detail-row{display:flex;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--dsw-alias-label-secondary);line-height:1.55}
+.bp-lineage-detail-row span:last-child{color:var(--dsw-alias-label-primary);text-align:right}
+.bp-lineage-detail-extra{margin-top:5px;font-size:10px;color:var(--dsw-alias-label-secondary)}
+.bp-lineage-id{display:block;margin-top:5px;color:var(--dsw-alias-label-secondary);font-size:10px;opacity:.75;word-break:break-all}
+.bp-lineage-detail-empty{padding:8px 0}
 .bp-lineage-empty{padding:18px 0}
 .bp-toast{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:9px;padding:8px 14px;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
 .bp-toast.error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
@@ -8121,6 +8425,7 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
         importErrorMessage,
         latestRunForModule,
         lineageEvents,
+        lineageGraph,
         LineagePanel,
         layoutDiagram,
         layoutFlowchart,

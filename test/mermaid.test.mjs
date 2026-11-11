@@ -32,7 +32,7 @@ const {
   mountAccess, mountFromDraft, mountKind, moduleMounts, validateMountDraft,
   workspaceDispatchFor, workspaceDispatchLines, workspaceUnboundModules,
   ModuleRunInfo, RunsPanel, blueprintRuns, dispatchPrompt, formatRunLease,
-  latestRunForModule, lineageEvents, runCommandLine, runStartCommand, runningRunForModule, runsForFilter,
+  latestRunForModule, lineageEvents, lineageGraph, LineagePanel, runCommandLine, runStartCommand, runningRunForModule, runsForFilter,
 } = client.__test
 const parse = input => JSON.parse(JSON.stringify(parseMermaid(input)))
 const plain = value => JSON.parse(JSON.stringify(value))
@@ -597,6 +597,171 @@ test('lineage merges versions and runs into one reverse-chronological projection
   ])
   assert.equal(events[0].title, 'A1 API')
   assert.equal(events[0].evidence, 1)
+})
+
+test('lineageGraph builds the save chain, run branches and a current sink', () => {
+  const bp = {
+    modules: [
+      { id: 'm1', code: 'A1', name: 'API' },
+      { id: 'm2', code: 'A2', name: 'UI' },
+      { id: 'm3', code: 'A3', name: 'Docs' },
+    ],
+    runs: [
+      { id: 'run-4', moduleId: 'm3', adapter: 'manual', status: 'running', startedAt: 350 },
+      { id: 'run-2', moduleId: 'm1', adapter: 'cli', status: 'done', startedAt: 210, endedAt: 250 },
+      { id: 'run-1', moduleId: 'm1', adapter: 'cli', status: 'done', startedAt: 120, endedAt: 150, evidence: [{ text: 'ok' }] },
+      { id: 'run-3', moduleId: 'm2', adapter: 'http', status: 'done', startedAt: 320, endedAt: 340 },
+    ],
+  }
+  const versions = [
+    { id: 'v-3', at: 300, title: 'Third', status: 'draft', source: 'agent' },
+    { id: 'v-1', at: 100, title: 'First', status: 'confirmed', source: 'ui', counts: { modules: 1, diagrams: 2, nodes: 3 } },
+    { id: 'v-2', at: 200, title: 'Second', status: 'draft', source: 'agent' },
+  ]
+  const graph = plain(lineageGraph(bp, versions))
+  const byId = new Map(graph.nodes.map(node => [node.id, node]))
+  assert.deepEqual([...byId.keys()].sort(), ['current', 'run-1', 'run-2', 'run-3', 'run-4', 'v-1', 'v-2', 'v-3'])
+  assert.equal(byId.get('v-1').kind, 'version')
+  assert.equal(byId.get('v-1').lane, 0)
+  assert.equal(byId.get('v-1').status, 'confirmed')
+  assert.equal(byId.get('v-1').source, 'ui')
+  assert.equal(byId.get('v-1').label, 'First')
+  assert.equal(byId.get('run-1').kind, 'run')
+  assert.equal(byId.get('run-1').label, 'A1 API')
+  assert.equal(byId.get('run-1').at, 120)
+  assert.equal(byId.get('run-1').status, 'done')
+  assert.equal(byId.get('run-1').source, 'cli')
+  assert.equal(byId.get('run-1').evidence, 1)
+  assert.equal(byId.get('current').kind, 'current')
+  assert.equal(byId.get('current').at, null)
+  assert.ok(byId.get('v-1').x < byId.get('v-2').x && byId.get('v-2').x < byId.get('v-3').x, 'versions are laid out left-to-right by time')
+  assert.ok(byId.get('run-1').lane >= 1 && byId.get('run-2').lane === byId.get('run-1').lane, 'runs of one module share a lane')
+  assert.equal(byId.get('run-3').lane, 2)
+  assert.equal(byId.get('run-4').lane, 3)
+  assert.ok(graph.bounds.width > 0 && graph.bounds.height >= 4 * 46)
+
+  const edges = new Map(graph.edges.map(edge => [`${edge.from}>${edge.to}`, edge.label]))
+  assert.equal(edges.get('v-1>v-2'), 'save')
+  assert.equal(edges.get('v-2>v-3'), 'save')
+  assert.equal(edges.get('v-1>run-1'), 'start')
+  assert.equal(edges.get('run-1>v-2'), 'collect')
+  assert.equal(edges.get('v-2>run-2'), 'start')
+  assert.equal(edges.get('run-2>v-3'), 'collect')
+  assert.equal(edges.get('v-3>run-3'), 'start')
+  assert.equal(edges.get('run-3>current'), 'collect')
+  assert.equal(edges.get('v-3>run-4'), 'start')
+  assert.equal(graph.edges.some(edge => edge.from === 'run-4' && edge.to === 'current'), false, 'a running run has no collect edge yet')
+  assert.deepEqual(graph.lanes.map(lane => lane.lane).sort(), [0, 1, 2, 3])
+  assert.equal(graph.lanes.find(lane => lane.lane === 0).kind, 'version')
+  assert.deepEqual(graph.lanes.find(lane => lane.lane === 1).modules, ['m1'])
+})
+
+test('lineageGraph falls back to current without versions and merges extra lanes', () => {
+  const modules = Array.from({ length: 6 }, (_, index) => ({ id: `m${index + 1}`, code: `A${index + 1}`, name: `Mod ${index + 1}` }))
+  const runs = modules.map((module, index) => ({
+    id: `run-${index + 1}`, moduleId: module.id, adapter: 'cli', status: 'done',
+    startedAt: 100 + index * 10, endedAt: 105 + index * 10,
+  }))
+  // Deliberately shuffled: lanes must not depend on ledger order.
+  const graph = plain(lineageGraph({ modules, runs: [...runs].reverse() }, []))
+  const byId = new Map(graph.nodes.map(node => [node.id, node]))
+  assert.equal(graph.nodes.filter(node => node.kind === 'current').length, 1)
+  assert.equal(graph.edges.length, 6)
+  assert.ok(graph.edges.every(edge => edge.from.startsWith('run-') && edge.to === 'current' && edge.label === 'collect'))
+  assert.deepEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6'].map(id => byId.get(`run-${Number(id.slice(1))}`).lane), [1, 2, 3, 4, 4, 4])
+  assert.equal(byId.get('current').label, '当前')
+  assert.equal(graph.lanes.find(lane => lane.lane === 4).modules.length, 3, 'extra modules are merged into lane 4')
+
+  const running = plain(lineageGraph({ modules: [modules[0]], runs: [{ id: 'run-a', moduleId: 'm1', status: 'running', startedAt: 50 }] }, []))
+  assert.deepEqual(running.edges.map(edge => [edge.from, edge.to, edge.label]), [['run-a', 'current', 'start']])
+})
+
+test('lineageGraph layout is stable across shuffled inputs', () => {
+  const bp = {
+    modules: [{ id: 'm1', code: 'A1', name: 'API' }, { id: 'm2', code: 'A2', name: 'UI' }],
+    runs: [
+      { id: 'run-2', moduleId: 'm2', status: 'done', adapter: 'http', startedAt: 220, endedAt: 240 },
+      { id: 'run-1', moduleId: 'm1', status: 'done', adapter: 'cli', startedAt: 120, endedAt: 140 },
+    ],
+  }
+  const versions = [
+    { id: 'v-2', at: 200, title: 'Second' },
+    { id: 'v-1', at: 100, title: 'First' },
+  ]
+  const first = plain(lineageGraph(bp, versions))
+  const second = plain(lineageGraph({ modules: [...bp.modules].reverse(), runs: [...bp.runs].reverse() }, [...versions].reverse()))
+  const normalize = graph => ({
+    nodes: graph.nodes.map(node => [node.id, node.kind, node.lane, node.x, node.y]),
+    edges: graph.edges.map(edge => [edge.from, edge.to, edge.label]).sort(),
+    bounds: graph.bounds,
+  })
+  assert.deepEqual(normalize(second), normalize(first))
+  assert.equal(first.nodes.find(node => node.id === 'run-1').lane, 1, 'm1 keeps lane 1 regardless of input order')
+})
+
+test('lineage panel renders the DAG, filters and a selected node detail', () => {
+  const bp = {
+    modules: [{ id: 'm1', code: 'A1', name: 'API' }],
+    runs: [{ id: 'run-1', moduleId: 'm1', status: 'done', adapter: 'cli', startedAt: 150, endedAt: 250, evidence: [{ text: 'ok' }] }],
+  }
+  const versions = [
+    { id: 'v-1', at: 100, title: 'First save', status: 'confirmed', source: 'ui', counts: { modules: 1, diagrams: 2, nodes: 3 } },
+    { id: 'v-2', at: 200, title: 'Second save', status: 'draft', source: 'agent' },
+  ]
+  const store = { bp, versions, versionsLoaded: true, versionsLoading: false }
+  const panel = LineagePanel({ store })
+  const svg = findElement(panel, item => item.type === 'svg')
+  assert.ok(svg, 'lineage renders an SVG canvas')
+  assert.ok(findElement(panel, item => item.props?.['data-lineage-id'] === 'v-1'))
+  assert.ok(findElement(panel, item => item.props?.['data-lineage-id'] === 'v-2'))
+  assert.ok(findElement(panel, item => item.props?.['data-lineage-id'] === 'run-1'))
+  assert.ok(findElement(panel, item => item.props?.['data-lineage-id'] === 'current'))
+  assert.match(findElement(panel, item => item.props?.['data-lineage-id'] === 'current').props.className, /bp-lineage-node-current/)
+  const runNode = findElement(panel, item => item.props?.['data-lineage-id'] === 'run-1')
+  assert.match(runNode.props.className, /bp-lineage-node-run/)
+  const runRect = findElement(runNode, item => item.type === 'rect')
+  assert.equal(runRect.props.rx, 22, 'run nodes use rounded rectangles')
+  assert.ok(findElement(panel, item => item.props?.className === 'bp-lineage-canvas'))
+  assert.ok(findElement(panel, item => item.props?.['data-edge-label'] === 'save'))
+  assert.ok(findElement(panel, item => item.props?.['data-edge-label'] === 'collect'))
+  assert.ok(findElement(panel, item => item.type === 'marker' && item.props.id === 'bp-lineage-arrow'))
+  const text = elementText(panel)
+  assert.match(text, /First save/)
+  assert.match(text, /Second save/)
+  assert.match(text, /A1 API/)
+  assert.match(text, /点击节点查看详情|Select a node to inspect/)
+
+  const selected = LineagePanel({ store, initialSelection: 'v-1' })
+  const detail = findElement(selected, item => item.props?.['data-lineage-detail'] === 'v-1')
+  assert.ok(detail, 'selected node shows a detail block')
+  const detailText = elementText(detail)
+  assert.match(detailText, /v-1/)
+  assert.match(detailText, /confirmed|已确认/)
+  assert.match(detailText, /ui/)
+  assert.match(detailText, /modules 1/)
+  assert.match(detailText, /diagrams 2/)
+
+  const runSelected = LineagePanel({ store, initialSelection: 'run-1' })
+  assert.match(elementText(findElement(runSelected, item => item.props?.['data-lineage-detail'] === 'run-1')), /证据: 1|Evidence: 1/)
+
+  const versionOnly = LineagePanel({ store, initialFilter: 'version' })
+  assert.ok(findElement(versionOnly, item => item.props?.['data-lineage-id'] === 'v-1'))
+  assert.equal(findElement(versionOnly, item => item.props?.['data-lineage-id'] === 'run-1'), null)
+  assert.equal(findElement(versionOnly, item => item.props?.['data-lineage-id'] === 'current'), null)
+  assert.equal(findElement(versionOnly, item => item.props?.['data-edge-label'] === 'collect'), null)
+  assert.equal(findElement(versionOnly, item => item.props?.['data-edge-label'] === 'save') !== null, true)
+
+  const runOnly = LineagePanel({ store, initialFilter: 'run' })
+  assert.ok(findElement(runOnly, item => item.props?.['data-lineage-id'] === 'run-1'))
+  assert.ok(findElement(runOnly, item => item.props?.['data-lineage-id'] === 'current'))
+  assert.equal(findElement(runOnly, item => item.props?.['data-lineage-id'] === 'v-1'), null)
+
+  const node = findElement(panel, item => item.props?.['data-lineage-id'] === 'v-1')
+  assert.equal(typeof node.props.onClick, 'function')
+  assert.doesNotThrow(() => node.props.onClick({ stopPropagation() {} }))
+
+  const empty = elementText(LineagePanel({ store: { bp: { modules: [], runs: [] }, versions: [], versionsLoaded: true, versionsLoading: false } }))
+  assert.match(empty, /还没有版本或运行|No versions or runs yet/)
 })
 
 test('run helpers filter the ledger and build host commands', () => {
