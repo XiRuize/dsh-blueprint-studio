@@ -246,7 +246,11 @@ window.__ModuleLoader__.load({
       runRefresh: 'Refresh', runStatusRunning: 'Running', runStatusDone: 'Completed', runStatusFailed: 'Failed',
       runStatusCancelled: 'Cancelled', runStatusBlocked: 'Blocked',
       runInfo: 'Run', runInfoNone: 'No run yet for this module.', runOpenPanel: 'Open Runs',
-      runDispatchNote: 'Dispatch and Run are two execution paths for the same module: dispatch spawns a subagent with the prompt, while a Run claims the writable mounts for a local/CLI runner. Do not start both for one module at the same time; Run success does not replace the three verification layers.',
+      dispatchRunsSkipped: 'Dispatch sent, but {count} module(s) kept an existing run and were skipped.',
+      dispatchReviewRuns: 'Confirmation auto-creates a run for {modules} module(s); {active} run(s) are still active.',
+      dispatchReviewClaimWarn: '{count} module(s) overlap an active run claim and will be skipped.',
+      
+      runEvidenceEmpty: 'No evidence yet.',      runDispatchNote: 'Dispatch and Run are two execution paths for the same module: dispatch spawns a subagent with the prompt, while a Run claims the writable mounts for a local/CLI runner. Do not start both for one module at the same time; Run success does not replace the three verification layers.',
       runDispatchNone: 'Before dispatch, create an execution record with /blueprint run start {module}; never start it automatically.',
     }
     const ZH = {
@@ -489,7 +493,11 @@ window.__ModuleLoader__.load({
       runRefresh: '刷新', runStatusRunning: '运行中', runStatusDone: '已完成', runStatusFailed: '失败',
       runStatusCancelled: '已取消', runStatusBlocked: '受阻',
       runInfo: '执行记录', runInfoNone: '该模块还没有执行记录。', runOpenPanel: '打开执行面板',
-      runDispatchNote: '分派与 Run 是同一模块的两条执行路径：分派把提示词交给子代理，Run 为本地/CLI 执行器占用可写挂载。同一个模块不要同时启动两者；Run 成功也不等于三层验证通过。',
+      dispatchRunsSkipped: '已发送分派，但有 {count} 个模块因已有运行记录而跳过自动 Run。',
+      dispatchReviewRuns: '确认后将自动为 {modules} 个模块创建 Run；当前仍有 {active} 条运行中记录。',
+      dispatchReviewClaimWarn: '{count} 个模块与运行中的挂载占用重叠，将被跳过。',
+      
+      runEvidenceEmpty: '还没有证据。',      runDispatchNote: '分派与 Run 是同一模块的两条执行路径：分派把提示词交给子代理，Run 为本地/CLI 执行器占用可写挂载。同一个模块不要同时启动两者；Run 成功也不等于三层验证通过。',
       runDispatchNone: '分派前用 /blueprint run start {module} 建立执行记录，不要自动启动。',
     }
 
@@ -722,6 +730,7 @@ window.__ModuleLoader__.load({
     let blueprintLoadInFlight = false
     let versionsLoadInFlight = false
     let childrenLoadInFlight = false
+    const autoCompletedRuns = new Set()
 
     async function loadVersions() {
       const sessionId = state.sessionId
@@ -745,6 +754,34 @@ window.__ModuleLoader__.load({
       }
     }
 
+    async function autoCompleteFinishedRuns(children) {
+      const bp = state.bp
+      if (bp === null) return
+      const finished = []
+      for (const run of blueprintRuns(bp)) {
+        if (runStatusOf(run) !== 'running') continue
+        const adapter = stringValue(run.adapter).trim().toLowerCase()
+        if (adapter !== '' && adapter !== 'dsh-subagent') continue
+        const module = (bp.modules ?? []).find(item => String(item?.id ?? '').trim() === String(run.moduleId ?? '').trim())
+        const childId = stringValue(module?.subagentSessionId).trim()
+        if (childId === '') continue
+        const child = children.find(item => String(item?.id ?? item?.sessionId ?? '') === childId)
+        if (child === undefined) continue
+        if (child.running === true || String(child.status ?? '').toLowerCase() === 'running') continue
+        if (autoCompletedRuns.has(run.id)) continue
+        autoCompletedRuns.add(run.id)
+        finished.push(run)
+      }
+      if (finished.length === 0) return
+      for (const run of finished) {
+        try {
+          await runBlueprintCommand(`run complete ${run.id} child session finished`)
+        } catch {
+          autoCompletedRuns.delete(run.id)
+        }
+      }
+      await loadBlueprint({ silent: true }).catch(() => {})
+    }
     async function loadChildren() {
       const sessionId = state.sessionId
       const api = remote()
@@ -762,6 +799,7 @@ window.__ModuleLoader__.load({
           return
         }
         set({ children, childrenLoaded: true, childrenLoading: false, childrenFingerprint: fingerprint })
+        await autoCompleteFinishedRuns(children).catch(() => {})
       } catch (error) {
         set({ childrenLoaded: true, childrenLoading: false, childrenFingerprint: null })
         try { console.warn('blueprint children', error) } catch {}
@@ -5325,7 +5363,7 @@ ${task}
           type: 'button', className: 'bp-btn',
           onClick: event => {
             event.stopPropagation()
-            set({ panel: 'runs', focusRunModuleId: module.id })
+            set({ panel: 'board', focusRunModuleId: module.id })
           },
         }, h(Icon, { name: 'expand', size: 12 }), t('runOpenPanel')))
     }
@@ -5559,7 +5597,7 @@ ${task}
                 if (hint.action === 'bind') set({ panel: 'workspace', focusModuleId: module.id })
                 else if (hint.action === 'run') runModule(module)
                 else if (hint.action === 'open') openChildSession(module.subagentSessionId)
-                else set({ panel: 'runs', focusRunModuleId: module.id })
+                else set({ panel: 'board', focusRunModuleId: module.id })
               }
               return h('div', { className: 'bp-module-next' },
                 h('span', null, hint.text),
@@ -5613,12 +5651,24 @@ ${task}
                 if (hint.action === 'bind') set({ panel: 'workspace', focusModuleId: module.id })
                 else if (hint.action === 'run') runModule(module)
                 else if (hint.action === 'open') openChildSession(module.subagentSessionId)
-                else set({ panel: 'runs', focusRunModuleId: module.id })
+                else set({ panel: 'board', focusRunModuleId: module.id })
               }
               return h('div', { className: 'bp-module-next' },
                 h('span', null, hint.text),
                 h('button', { type: 'button', className: 'bp-btn bp-mini', onClick: run }, label))
-            })(),            h('div', { className: 'bp-child-actions' },
+            })(),
+            (() => {
+              const latest = latestRunForModule(bp, module.id)
+              if (latest === undefined) return null
+              const evidence = Array.isArray(latest.evidence) ? latest.evidence : []
+              return h('details', { className: 'bp-module-run' },
+                h('summary', null,
+                  `${t('runInfo')} · ${runStatusLabel(runStatusOf(latest))} · ${t('runEvidenceCount', { count: evidence.length })}`),
+                evidence.slice(-5).map((item, index) => h('div', { key: index, className: 'bp-module-run-evidence' },
+                  `· ${stringValue(item?.text)}`)),
+                evidence.length === 0 ? h('div', { className: 'bp-muted' }, t('runEvidenceEmpty')) : null)
+            })(),
+            h('div', { className: 'bp-child-actions' },
               module.subagentSessionId
                 ? h(React.Fragment, null,
                     h('button', { type: 'button', className: 'bp-btn', onClick: () => openChildSession(module.subagentSessionId) }, t('openChild')),
@@ -6779,6 +6829,11 @@ ${task}
         h('div', { className: 'bp-import-dialog bp-dispatch-review', onClick: event => event.stopPropagation() },
           h('div', { className: 'bp-kicker' }, t('dispatchReviewTitle')),
           h('p', { className: 'bp-muted' }, t('dispatchReviewHint')),
+          h('p', { className: review.activeRuns > 0 ? 'bp-dispatch-claim warn' : 'bp-dispatch-claim' },
+            t('dispatchReviewRuns', { modules: review.modules.length, active: review.activeRuns })),
+          review.claimConflicts > 0
+            ? h('p', { className: 'bp-dispatch-claim warn' }, t('dispatchReviewClaimWarn', { count: review.claimConflicts }))
+            : null,
           h('div', { className: 'bp-review-grid' },
             h('div', null, h('strong', null, t('dispatchWriteRoots')), list(review.writeRoots)),
             h('div', null, h('strong', null, t('dispatchCommands')), list(review.commands)),
@@ -7452,8 +7507,9 @@ ${task}
     }
 
     function RightPanel({ store }) {
-      const panel = store.panel ?? 'inspector'
-      const wide = ['workspace', 'runs', 'lineage', 'versions'].includes(panel)
+      const requestedPanel = store.panel ?? 'inspector'
+      const panel = requestedPanel === 'runs' ? 'board' : requestedPanel
+      const wide = ['workspace', 'lineage', 'versions'].includes(panel)
       return h('aside', { className: `bp-right${wide ? ' bp-right-wide' : ''}` },
         h('div', { className: 'bp-panel-tabs' },
           h('button', { type: 'button', className: `bp-panel-tab${panel === 'inspector' ? ' active' : ''}`, onClick: () => set({ panel: 'inspector' }) }, t('inspector')),
@@ -8618,6 +8674,7 @@ ${task}
             access: mountAccess(mount),
           })),
           cwd: info.cwd,
+          mountIds: info.mountIds,
           adapter: info.adapter,
           agentProfile: info.agentProfile,
           allow: info.allow,
@@ -8632,7 +8689,13 @@ ${task}
       )]
       const commands = [...new Set(modules.flatMap(module => module.commands))]
       const allow = [...new Set(modules.flatMap(module => module.allow))]
+      const activeRuns = blueprintRuns(bp).filter(run => runStatusOf(run) === 'running')
+      const occupied = new Set(activeRuns.flatMap(run => Array.isArray(run.mountIds) ? run.mountIds.map(String) : []))
+      const conflicts = modules.filter(module => module.mountIds.some(id => occupied.has(String(id))))
       return {
+        activeRuns: activeRuns.length,
+        claimedMounts: [...occupied],
+        claimConflicts: conflicts.length,
         modules,
         writeRoots,
         commands,
@@ -8683,6 +8746,30 @@ ${task}
           error: null,
           lastLoaded: Date.now(),
         })
+        stage = 'runs'
+        // Unify dispatch + execution: create the run ledger entries automatically so the
+        // user never has to open a separate Runs panel. Failures do not block dispatch.
+        const startedModules = []
+        const skippedModules = []
+        for (const module of state.bp?.modules ?? []) {
+          const moduleId = stringValue(module?.id).trim()
+          if (moduleId === '') continue
+          const active = latestRunForModule(state.bp, moduleId)
+          if (active !== undefined && runStatusOf(active) === 'running') {
+            skippedModules.push(moduleId)
+            continue
+          }
+          try {
+            await runBlueprintCommand(`run start ${moduleId}`)
+            startedModules.push(moduleId)
+          } catch {
+            skippedModules.push(moduleId)
+          }
+        }
+        if (startedModules.length > 0) {
+          await loadBlueprint({ silent: true }).catch(() => {})
+        }
+        if (skippedModules.length > 0) toast(t('dispatchRunsSkipped', { count: skippedModules.length }), 'error')
         stage = 'prompt'
         await sendPrompt(dispatchPrompt(), 'dispatching')
         toast(t('dispatching'), 'success')
@@ -8914,11 +9001,11 @@ ${task}
 
       useEffect(() => {
         if (!store.open) return
-        if (state.panel === 'board') loadChildren()
+        if (state.panel === 'board' || blueprintRuns(state.bp).some(run => runStatusOf(run) === 'running')) loadChildren()
         if (state.panel === 'versions' || state.panel === 'lineage') loadVersions()
         const timer = setInterval(() => {
           if (document.visibilityState === 'hidden') return
-          if (state.panel === 'board') loadChildren()
+          if (state.panel === 'board' || blueprintRuns(state.bp).some(run => runStatusOf(run) === 'running')) loadChildren()
           if (state.panel === 'versions' || state.panel === 'lineage') loadVersions()
         }, 6000)
         return () => clearInterval(timer)
@@ -9137,7 +9224,9 @@ ${task}
 .bp-node-option:hover{background:var(--dsw-alias-bg-layer-2)}
 .bp-node-option input{width:12px;height:12px;margin:1px 0 0;flex:0 0 auto}
 .bp-node-option .bp-node-text{display:inline;margin:0;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word}
-.bp-module-next{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 2px;padding:6px 8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.bp-module-run{margin:4px 0 2px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.bp-module-run summary{cursor:pointer;color:var(--dsw-alias-brand-primary)}
+.bp-module-run-evidence{margin:2px 0 0 10px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bp-module-next{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 2px;padding:6px 8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-size:11.5px;color:var(--dsw-alias-label-secondary)}
 .bp-btn.bp-mini{height:24px;padding:0 8px;font-size:11.5px}.bp-module-status-label{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
 .bp-module-status{width:auto;min-width:84px;max-width:118px;height:24px;padding:0 4px;font-size:10.5px}
 .bp-module-acceptance{margin-top:6px}
@@ -9502,6 +9591,8 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-template-library{width:min(760px,94%);max-height:80vh;overflow:auto}
 .bp-template-item{display:flex;flex-direction:column;gap:4px;cursor:default}
 .bp-template-item-actions{display:flex;gap:6px;margin-top:4px}
+.bp-dispatch-claim{margin:2px 0;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.bp-dispatch-claim.warn{color:var(--dsw-alias-state-warn-primary)}
 .bp-dispatch-review{width:min(820px,94%);max-height:82vh;overflow:auto}
 .bp-review-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .bp-review-grid strong{display:block;font-size:12px;margin-bottom:4px;color:var(--dsw-alias-label-secondary)}
