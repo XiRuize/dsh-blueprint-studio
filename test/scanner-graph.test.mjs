@@ -846,3 +846,324 @@ test('tsconfig takes precedence over jsconfig in the same directory', async () =
     assert.deepEqual(scan.imports.aliases.map(item => item.config), ['jsconfig.json', 'tsconfig.json'])
   })
 })
+
+// ---------------------------------------------------------------------------
+// v0.17: tsconfig extends and project/workspace references
+
+test('tsconfig extends resolves relative configs, extensionless names and merges paths wholesale', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'extends-app' }))
+    await write(root, 'tsconfig.base.json', [
+      '{',
+      '  // base config owns baseUrl and default aliases',
+      '  "compilerOptions": {',
+      '    "baseUrl": "src",',
+      '    "paths": {',
+      '      "@base/*": ["base/*"],',
+      '      "@shared/*": ["shared/*"], /* string // is not a comment */',
+      '    },',
+      '  },',
+      '}',
+      '',
+    ].join('\n'))
+    await write(root, 'tsconfig.json', [
+      '{',
+      '  "extends": "./tsconfig.base",',
+      '  "compilerOptions": {',
+      '    "paths": {',
+      '      "@app/*": ["app/*"],',
+      '      "@lit//path/*": ["lit/*"],',
+      '    },',
+      '  },',
+      '}',
+      '',
+    ].join('\n'))
+    await write(root, 'src/entry.ts', [
+      "import '@app/page'",
+      "import '@lit//path/lit'",
+      "import '@base/base'",
+      "import '@shared/shared'",
+      '',
+    ].join('\n'))
+    await write(root, 'src/app/page.ts', 'export const page = 1\n')
+    await write(root, 'src/lit/lit.ts', 'export const lit = 1\n')
+    await write(root, 'src/base/base.ts', 'export const base = 1\n')
+    await write(root, 'src/shared/shared.ts', 'export const shared = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    const edge = to => scan.imports.edges.find(item => item.from === 'src/entry.ts' && item.to === to)
+    assert.equal(edge('src/app/page.ts').alias, true)
+    assert.equal(edge('src/lit/lit.ts').alias, true)
+    // Child `paths` replaces the parent object instead of merging keys.
+    assert.ok(scan.imports.external.includes('@base/base'))
+    assert.ok(scan.imports.external.includes('@shared/shared'))
+    const summary = scan.imports.aliases.find(item => item.config === 'tsconfig.json')
+    assert.deepEqual(summary, {
+      config: 'tsconfig.json',
+      baseUrl: 'src',
+      patterns: ['@app/*', '@lit//path/*'],
+      extends: ['tsconfig.base.json'],
+    })
+    assert.equal(scan.imports.aliases.length, 1)
+  })
+})
+
+test('tsconfig extends inherits parent baseUrl and paths relative to the defining config', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'workspace', workspaces: ['packages/*'] }))
+    await write(root, 'tsconfig.base.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@root/*': ['src/*'] } },
+    }))
+    await write(root, 'packages/a/base.json', [
+      '{',
+      '  // baseUrl belongs to packages/a/base.json, not to the child config',
+      '  "compilerOptions": {',
+      '    "baseUrl": "lib",',
+      '    "paths": { "~/*": ["*"] },',
+      '  },',
+      '}',
+      '',
+    ].join('\n'))
+    await write(root, 'packages/a/tsconfig.json', JSON.stringify({ extends: './base.json' }))
+    await write(root, 'packages/a/src/index.ts', "import '~/helper'\n")
+    await write(root, 'packages/a/lib/helper.ts', 'export const helper = 1\n')
+    await write(root, 'packages/b/tsconfig.json', JSON.stringify({ extends: '../../tsconfig.base.json' }))
+    await write(root, 'packages/b/src/index.ts', "import '@root/util'\n")
+    await write(root, 'src/util.ts', 'export const util = 1\n')
+    await write(root, 'configs/paths-only.json', JSON.stringify({
+      compilerOptions: { paths: { '@shared/*': ['../shared-src/*'] } },
+    }))
+    await write(root, 'packages/c/tsconfig.json', JSON.stringify({ extends: '../../configs/paths-only.json' }))
+    await write(root, 'packages/c/src/index.ts', "import '@shared/thing'\n")
+    await write(root, 'shared-src/thing.ts', 'export const thing = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    assert.ok(scan.imports.edges.some(edge => (
+      edge.from === 'packages/a/src/index.ts'
+      && edge.to === 'packages/a/lib/helper.ts'
+      && edge.alias === true
+    )))
+    const packageA = scan.imports.aliases.find(item => item.config === 'packages/a/tsconfig.json')
+    assert.deepEqual(packageA, {
+      config: 'packages/a/tsconfig.json',
+      baseUrl: 'packages/a/lib',
+      patterns: ['~/*'],
+      extends: ['packages/a/base.json'],
+    })
+    // Parent paths are inherited when the child does not define its own.
+    assert.ok(scan.imports.edges.some(edge => (
+      edge.from === 'packages/b/src/index.ts'
+      && edge.to === 'src/util.ts'
+      && edge.alias === true
+    )))
+    const packageB = scan.imports.aliases.find(item => item.config === 'packages/b/tsconfig.json')
+    assert.deepEqual(packageB, {
+      config: 'packages/b/tsconfig.json',
+      baseUrl: '.',
+      patterns: ['@root/*'],
+      extends: ['tsconfig.base.json'],
+    })
+    // Inherited `paths` without baseUrl resolve from the config that declares them.
+    assert.ok(scan.imports.edges.some(edge => (
+      edge.from === 'packages/c/src/index.ts'
+      && edge.to === 'shared-src/thing.ts'
+      && edge.alias === true
+    )))
+    const packageC = scan.imports.aliases.find(item => item.config === 'packages/c/tsconfig.json')
+    assert.deepEqual(packageC, {
+      config: 'packages/c/tsconfig.json',
+      baseUrl: 'configs',
+      patterns: ['@shared/*'],
+      extends: ['configs/paths-only.json'],
+    })
+  })
+})
+
+test('tsconfig extends reads node_modules packages through the package.json tsconfig field', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'package-extends' }))
+    await write(root, 'node_modules/@shared/tsconfig/package.json', JSON.stringify({
+      name: '@shared/tsconfig',
+      tsconfig: 'tsconfig.base.json',
+    }))
+    await write(root, 'node_modules/@shared/tsconfig/tsconfig.base.json', JSON.stringify({
+      compilerOptions: {
+        // From node_modules/@shared/tsconfig back to the repository root.
+        baseUrl: '../../..',
+        paths: { '@pkg/*': ['src/pkg/*'] },
+      },
+    }))
+    await write(root, 'tsconfig.json', JSON.stringify({ extends: '@shared/tsconfig' }))
+    await write(root, 'src/index.ts', "import '@pkg/thing'\n")
+    await write(root, 'src/pkg/thing.ts', 'export const thing = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    assert.ok(scan.imports.edges.some(edge => (
+      edge.from === 'src/index.ts' && edge.to === 'src/pkg/thing.ts' && edge.alias === true
+    )))
+    const summary = scan.imports.aliases.find(item => item.config === 'tsconfig.json')
+    assert.deepEqual(summary.patterns, ['@pkg/*'])
+    assert.equal(summary.baseUrl, '.')
+    assert.deepEqual(summary.extends, ['node_modules/@shared/tsconfig/tsconfig.base.json'])
+  })
+})
+
+test('tsconfig extends resolves node_modules package tsconfig.json and subpaths', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'package-subpath' }))
+    await write(root, 'node_modules/plain-tsconfig/tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '../..', paths: { 'plain/*': ['plain-src/*'] } },
+    }))
+    await write(root, 'node_modules/plain-tsconfig/extra.json', JSON.stringify({
+      compilerOptions: { baseUrl: '../..', paths: { 'extra/*': ['extra-src/*'] } },
+    }))
+    await write(root, 'tsconfig.json', JSON.stringify({ extends: 'plain-tsconfig' }))
+    await write(root, 'src/index.ts', "import 'plain/x'\n")
+    await write(root, 'plain-src/x.ts', 'export const x = 1\n')
+    await write(root, 'packages/sub/tsconfig.json', JSON.stringify({ extends: 'plain-tsconfig/extra.json' }))
+    await write(root, 'packages/sub/src/index.ts', "import 'extra/y'\n")
+    await write(root, 'extra-src/y.ts', 'export const y = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    assert.ok(scan.imports.edges.some(edge => (
+      edge.from === 'src/index.ts' && edge.to === 'plain-src/x.ts' && edge.alias === true
+    )))
+    assert.ok(scan.imports.edges.some(edge => (
+      edge.from === 'packages/sub/src/index.ts' && edge.to === 'extra-src/y.ts' && edge.alias === true
+    )))
+    const sub = scan.imports.aliases.find(item => item.config === 'packages/sub/tsconfig.json')
+    assert.deepEqual(sub.extends, ['node_modules/plain-tsconfig/extra.json'])
+    assert.deepEqual(sub.patterns, ['extra/*'])
+  })
+})
+
+test('tsconfig extends follows deep chains and warns instead of looping on cycles', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'deep-chain' }))
+    await write(root, 'configs/level5.json', JSON.stringify({
+      compilerOptions: { baseUrl: '..', paths: { '@deep/*': ['deep/*'] } },
+    }))
+    await write(root, 'configs/level4.json', JSON.stringify({ extends: './level5.json' }))
+    await write(root, 'configs/level3.json', JSON.stringify({ extends: './level4.json' }))
+    await write(root, 'configs/level2.json', JSON.stringify({ extends: './level3.json' }))
+    await write(root, 'configs/level1.json', JSON.stringify({ extends: './level2.json' }))
+    await write(root, 'tsconfig.json', JSON.stringify({ extends: './configs/level1.json' }))
+    await write(root, 'src/index.ts', "import '@deep/feature'\n")
+    await write(root, 'deep/feature.ts', 'export const feature = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    assert.ok(scan.imports.edges.some(edge => (
+      edge.from === 'src/index.ts' && edge.to === 'deep/feature.ts' && edge.alias === true
+    )))
+    const summary = scan.imports.aliases.find(item => item.config === 'tsconfig.json')
+    assert.equal(summary.baseUrl, '.')
+    assert.deepEqual(summary.patterns, ['@deep/*'])
+    assert.equal(summary.extends.length, 5)
+  })
+
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'cycle-chain' }))
+    await write(root, 'a.json', JSON.stringify({ extends: './b.json' }))
+    await write(root, 'b.json', JSON.stringify({ extends: './a.json' }))
+    await write(root, 'tsconfig.json', JSON.stringify({ extends: './a.json' }))
+    await write(root, 'src/index.ts', 'export const value = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    assert.ok(scan.warnings.some(warning => warning.includes('循环')))
+    // The root config is still usable; the cyclic parent contributes nothing.
+    assert.deepEqual(scan.imports.aliases.map(item => item.patterns), [[]])
+    assert.ok(scan.imports.aliases[0].extends.includes('a.json'))
+  })
+})
+
+test('tsconfig extends stops after eight levels with a warning', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'depth-limit' }))
+    for (let level = 1; level <= 10; level += 1) {
+      const config = level === 10
+        ? { compilerOptions: { baseUrl: '..', paths: { '@deep/*': ['deep/*'] } } }
+        : { extends: `./level${level + 1}.json` }
+      await write(root, `configs/level${level}.json`, JSON.stringify(config))
+    }
+    await write(root, 'tsconfig.json', JSON.stringify({ extends: './configs/level1.json' }))
+    await write(root, 'deep/feature.ts', 'export const feature = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    assert.ok(scan.warnings.some(warning => warning.includes('超过 8 层')))
+    const summary = scan.imports.aliases.find(item => item.config === 'tsconfig.json')
+    assert.deepEqual(summary.patterns, [])
+  })
+})
+
+test('tsconfig extends warns about broken JSON and keeps the child config usable', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'broken-extends' }))
+    await write(root, 'base.json', '{ "compilerOptions": { "baseUrl": "src", "paths": { "@base/*": ["base/*"] } ')
+    await write(root, 'tsconfig.json', JSON.stringify({
+      extends: './base.json',
+      compilerOptions: { baseUrl: '.', paths: { '@ok/*': ['ok/*'] } },
+    }))
+    await write(root, 'src/index.ts', "import '@ok/thing'\n")
+    await write(root, 'ok/thing.ts', 'export const thing = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    assert.ok(scan.warnings.some(warning => (
+      warning.includes('解析别名配置失败') && warning.includes('base.json')
+    )))
+    assert.ok(scan.imports.edges.some(edge => (
+      edge.from === 'src/index.ts' && edge.to === 'ok/thing.ts' && edge.alias === true
+    )))
+    const summary = scan.imports.aliases.find(item => item.config === 'tsconfig.json')
+    assert.deepEqual(summary.patterns, ['@ok/*'])
+    assert.equal(summary.extends, undefined)
+  })
+})
+
+test('tsconfig references add directory and file configs as merged alias candidates', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'references-app', workspaces: ['packages/*'] }))
+    await write(root, 'tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@root/*': ['src/*'] } },
+      references: [
+        { path: './packages/b' },
+        { path: './packages/a/tsconfig.app.json' },
+        { path: '.' },
+      ],
+    }))
+    await write(root, 'src/main.ts', [
+      "import '@root/local'",
+      "import '@b/util'",
+      "import '@a/helper'",
+      "import 'react'",
+      '',
+    ].join('\n'))
+    await write(root, 'src/local.ts', 'export const local = 1\n')
+    await write(root, 'packages/b/tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@b/*': ['src/*'] } },
+    }))
+    await write(root, 'packages/b/src/util.ts', 'export const util = 1\n')
+    await write(root, 'packages/b/src/index.ts', "import '@b/util'\n")
+    await write(root, 'packages/a/tsconfig.app.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@a/*': ['lib/*'] } },
+    }))
+    await write(root, 'packages/a/lib/helper.ts', 'export const helper = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    const edge = to => scan.imports.edges.find(item => item.from === 'src/main.ts' && item.to === to)
+    assert.equal(edge('src/local.ts').alias, true)
+    // Imports from a sibling package resolve through the referenced config.
+    assert.equal(edge('packages/b/src/util.ts').alias, true)
+    assert.equal(edge('packages/a/lib/helper.ts').alias, true)
+    assert.ok(scan.imports.external.includes('react'))
+    assert.ok(scan.imports.edges.some(edgeItem => (
+      edgeItem.from === 'packages/b/src/index.ts'
+      && edgeItem.to === 'packages/b/src/util.ts'
+      && edgeItem.alias === true
+    )))
+    assert.deepEqual(
+      scan.imports.aliases.map(item => item.config),
+      ['packages/a/tsconfig.app.json', 'packages/b/tsconfig.json', 'tsconfig.json'],
+    )
+  })
+})
+
