@@ -44,6 +44,14 @@ import { scanWorkspace, suggestBlueprint } from './lib/scanner.js'
 import { appendScanSnapshot, buildScanSnapshot, diffScanSnapshots, readScanHistory } from './lib/scan-history.js'
 import * as scannerApi from './lib/scanner.js'
 import { renderDiagramSvg } from './lib/svg.js'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  readCommunityTemplate,
+  readCommunityTemplates,
+  summaryOf as templateSummary,
+  TemplateStore,
+} from './lib/templates.js'
 
 export const name = 'blueprint-studio'
 export const inject = ['tools']
@@ -1278,10 +1286,76 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比、恢复、导出、评审交接、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | scan [preview|apply|snapshot|history|diff] | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | template list|get <id>|save <base64>|import <base64>|remove <id>|export <id> | scan [preview|apply|snapshot|history|diff] | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
+          if (sub === 'template') {
+            const action = String(rest[0] || 'list').trim().toLowerCase()
+            const current = await readCurrent(invocation.agent)
+            const store = new TemplateStore(path.join(path.dirname(current.file.absolute), 'templates'))
+            if (action === 'list') {
+              const [local, community] = await Promise.all([
+                store.list(),
+                readCommunityTemplates(REPO_ROOT),
+              ])
+              return { kind: 'success', text: JSON.stringify({ local, community }) }
+            }
+            if (action === 'get') {
+              const id = String(rest[1] || '').trim()
+              let template = null
+              try {
+                template = await store.get(id)
+              } catch {
+                template = await readCommunityTemplate(REPO_ROOT, id)
+              }
+              if (!template) return { kind: 'error', text: `未找到模板：${id || '(空)'}` }
+              return { kind: 'success', text: JSON.stringify(template) }
+            }
+            if (action === 'save' || action === 'import') {
+              const encoded = String(rest[1] || '').trim()
+              if (encoded === '') return { kind: 'error', text: '缺少模板数据（base64 JSON）。' }
+              let parsed
+              try {
+                parsed = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'))
+              } catch {
+                return { kind: 'error', text: '模板数据不是合法的 base64 JSON。' }
+              }
+              try {
+                const saved = await store.save(parsed)
+                return {
+                  kind: 'success',
+                  text: `已保存模板 ${saved.id}（${saved.name}）\n${JSON.stringify(templateSummary(saved))}`,
+                }
+              } catch (error) {
+                return { kind: 'error', text: String(error?.message ?? error) }
+              }
+            }
+            if (action === 'remove') {
+              const id = String(rest[1] || '').trim()
+              try {
+                await store.remove(id)
+                return { kind: 'success', text: `已删除模板：${id}` }
+              } catch (error) {
+                return { kind: 'error', text: String(error?.message ?? error) }
+              }
+            }
+            if (action === 'export') {
+              const id = String(rest[1] || '').trim()
+              let template = null
+              try {
+                template = await store.get(id)
+              } catch {
+                template = await readCommunityTemplate(REPO_ROOT, id)
+              }
+              if (!template) return { kind: 'error', text: `未找到模板：${id || '(空)'}` }
+              return { kind: 'success', text: JSON.stringify(template, null, 2) }
+            }
+            return {
+              kind: 'error',
+              text: '可用：template list | get <id> | save <base64> | import <base64> | remove <id> | export <id>',
+            }
+          }
           if (sub === 'save') {
             const { encoded, draft, base, force } = parseBlueprintSaveInput(rest.join(' '))
             if (encoded === '') return { kind: 'error', text: '缺少蓝图数据。' }

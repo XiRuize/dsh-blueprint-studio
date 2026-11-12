@@ -1,0 +1,62 @@
+{
+  "id": "example-minimal",
+  "name": "最小示例：单模块 CLI",
+  "description": "演示社区模板格式：一个 CLI 模块 + 最小用例图 / 模块图。",
+  "domain": "general",
+  "tags": ["example", "cli"],
+  "author": "blueprint-studio",
+  "version": "1.0.0",
+  "blueprint": {
+    "title": "最小示例 CLI",
+    "summary": "一个只做参数解析与文件输出的命令行工具。",
+    "prompt": "写一个 CLI：读取输入文件，输出统计结果。",
+    "sections": [
+      {
+        "key": "goals",
+        "title": "目标",
+        "items": [{ "id": "g1", "text": "一条命令完成统计并输出。" }]
+      },
+      {
+        "key": "functional",
+        "title": "功能需求",
+        "items": [{ "id": "f1", "text": "支持 --input 与 --format json|text。", "moduleId": "A1" }]
+      },
+      {
+        "key": "acceptance",
+        "title": "验收标准",
+        "items": [{ "id": "a1", "text": "示例输入能输出正确统计。", "moduleId": "A1" }]
+      }
+    ],
+    "diagrams": [
+      {
+        "key": "usecase",
+        "layerId": "A",
+        "type": "usecase",
+        "title": "用例图",
+        "nodes": [
+          { "id": "u1", "type": "actor", "label": "用户" },
+          { "id": "u2", "type": "usecase", "label": "统计文件" }
+        ],
+        "edges": [{ "from": "u1", "to": "u2", "label": "执行", "kind": "association" }]
+      },
+      {
+        "key": "module",
+        "layerId": "A",
+        "type": "module",
+        "title": "模块图",
+        "nodes": [{ "id": "A1", "type": "module", "label": "CLI" }],
+        "edges": []
+      }
+    ],
+    "modules": [
+      {
+        "id": "A1",
+        "name": "CLI",
+        "layerId": "A",
+        "code": "A1",
+        "summary": "参数解析 + 统计输出。",
+        "acceptance": ["--input 指向的示例文件输出正确统计"]
+      }
+    ]
+  }
+}

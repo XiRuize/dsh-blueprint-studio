@@ -13,6 +13,12 @@ window.__ModuleLoader__.load({
       emptyPlaceholder: 'e.g. Build a plugin marketplace for DSH with search, version pinning and one-click install…',
       generate: 'Generate blueprint', regenerate: 'Regenerate', save: 'Save', saved: 'Saved', unsaved: 'Unsaved changes',
       saving: 'Saving…', confirmDispatch: 'Confirm & dispatch', dispatching: 'Dispatching…', expand: 'Expand with AI',
+      templateLibrary: 'Template library', templateApply: 'Apply',
+      templateMine: 'My templates', templateCommunity: 'Community templates', templateImport: 'Import template JSON', templateImported: 'Template imported', saveTemplate: 'Save as template', templateSaved: 'Saved to template library', templateEmpty: 'No templates yet.',
+      dispatchReviewTitle: 'Review before dispatch', dispatchReviewHint: 'These modules will be dispatched with the exact access below. Subagents cannot exceed it.',
+      dispatchWriteRoots: 'Writable roots', dispatchCommands: 'Commands', dispatchAllow: 'Allow list', dispatchNoItems: 'None',
+      dispatchUnbound: 'No mount bound', dispatchConflict: 'Read-only mount but write access/commands declared',
+      dispatchAck: 'I have reviewed the write scopes and commands above', dispatchBack: 'Back', dispatchProceed: 'Confirm & dispatch',
       expandSection: 'Expand this section with AI', expandDiagram: 'Expand this diagram with AI', addItem: 'Add item',
       addSection: 'Add section', delete: 'Delete', requirements: 'Requirements', inspector: 'Inspector', modules: 'Modules',
       usecase: 'Use case', dfd: 'Data flow', module: 'Modules', select: 'Select', connect: 'Connect', autoLayout: 'Auto layout',
@@ -244,6 +250,12 @@ window.__ModuleLoader__.load({
       emptyPlaceholder: '例如：为 DSH 做一个插件市场，支持搜索、版本锁定与一键安装……',
       generate: '生成蓝图', regenerate: '重新生成', save: '保存', saved: '已保存', unsaved: '有未保存修改',
       saving: '保存中…', confirmDispatch: '确认并分派', dispatching: '分派中…', expand: '一键扩充',
+      templateLibrary: '模板库', templateApply: '应用',
+      templateMine: '我的模板', templateCommunity: '社区模板', templateImport: '导入模板 JSON', templateImported: '模板已导入', saveTemplate: '存为模板', templateSaved: '已存入模板库', templateEmpty: '还没有模板。',
+      dispatchReviewTitle: '分派前复核', dispatchReviewHint: '以下模块将按此范围分派；子代理不能超出这里列出的写入范围与命令。',
+      dispatchWriteRoots: '可写根目录', dispatchCommands: '可执行命令', dispatchAllow: '允许列表', dispatchNoItems: '无',
+      dispatchUnbound: '未绑定挂载', dispatchConflict: '只读挂载却声明了写操作/命令',
+      dispatchAck: '我已核对上面的写入范围与命令', dispatchBack: '返回', dispatchProceed: '确认并分派',
       expandSection: '用 AI 扩充本栏', expandDiagram: '用 AI 扩充本图', addItem: '新增条目',
       addSection: '新增栏目', delete: '删除', requirements: '需求栏目', inspector: '检查器', modules: '模块',
       usecase: '用例图', dfd: '数据流图', module: '模块图', select: '选择', connect: '连线', autoLayout: '自动布局',
@@ -560,6 +572,8 @@ window.__ModuleLoader__.load({
       childrenLoaded: false,
       childrenLoading: false,
       importOpen: false,
+      dispatchReview: null,
+      dispatchAck: false,
       landing: false,
       canUndo: false,
       canRedo: false,
@@ -3484,6 +3498,108 @@ ${task}
       set({ open: false, saving: false })
     }
 
+    function templatePayloadToBlueprint(payload, fallbackName) {
+      const now = Date.now()
+      const sections = (payload.sections ?? []).map(section => ({
+        key: stringValue(section.key),
+        title: stringValue(section.title),
+        items: (section.items ?? []).map((item, index) => {
+          const id = stringValue(item.id) || `i${index + 1}`
+          return {
+            id,
+            uid: stringValue(item.uid) || `${stringValue(section.key)}:${id}`,
+            code: stringValue(item.code) || `R${index + 1}`,
+            text: stringValue(item.text),
+            ...(stringValue(item.moduleId) ? { moduleId: stringValue(item.moduleId) } : {}),
+          }
+        }),
+      }))
+      const diagrams = (payload.diagrams ?? []).map(diagram => ({
+        key: stringValue(diagram.key),
+        layerId: stringValue(diagram.layerId) || 'A',
+        type: stringValue(diagram.type),
+        title: stringValue(diagram.title),
+        nodes: Array.isArray(diagram.nodes) ? diagram.nodes : [],
+        edges: Array.isArray(diagram.edges) ? diagram.edges : [],
+      }))
+      const modules = (payload.modules ?? []).map((module, index) => ({
+        id: stringValue(module.id) || `A${index + 1}`,
+        name: stringValue(module.name),
+        layerId: stringValue(module.layerId) || 'A',
+        code: stringValue(module.code) || `A${index + 1}`,
+        parentId: module.parentId ?? null,
+        summary: stringValue(module.summary),
+        dependsOn: Array.isArray(module.dependsOn) ? module.dependsOn : [],
+        mountIds: Array.isArray(module.mountIds) ? module.mountIds : [],
+        files: Array.isArray(module.files) ? module.files : [],
+        acceptance: Array.isArray(module.acceptance) ? module.acceptance : [],
+        ...(module.execution ? { execution: module.execution } : {}),
+      }))
+      const bp = tplBlueprint({
+        title: stringValue(payload.title) || fallbackName || '模板蓝图',
+        summary: stringValue(payload.summary),
+        prompt: stringValue(payload.prompt),
+        sections,
+        diagrams,
+        modules,
+      })
+      if (Array.isArray(payload.mounts) && payload.mounts.length > 0) bp.mounts = payload.mounts
+      return bp
+    }
+
+    async function loadTemplateLibrary() {
+      const text = await runBlueprintCommand('template list')
+      return JSON.parse(String(text ?? '{}'))
+    }
+
+    async function applyLibraryTemplate(entry) {
+      try {
+        const text = await runBlueprintCommand(`template get ${entry.id}`)
+        const raw = JSON.parse(String(text ?? '{}'))
+        const bp = templatePayloadToBlueprint(raw.blueprint || raw, raw.name || entry.name)
+        ensureLayout(bp)
+        resetHistory()
+        set({
+          bp, missing: false, dirty: true, tab: 'usecase', activeLayerId: 'A', landing: false,
+          canUndo: false, canRedo: false, error: null, selected: null,
+          mode: 'select', connectFrom: null, panel: 'inspector',
+        })
+        const ok = await saveBlueprint({ silent: true })
+        if (ok) toast(t('templateApplied'), 'success')
+      } catch (error) {
+        set({ error: String(error?.message ?? error) })
+      }
+    }
+
+    async function importTemplateText(text) {
+      try {
+        JSON.parse(text)
+        const encoded = base64(text)
+        await runBlueprintCommand(`template import ${encoded}`)
+        toast(t('templateImported'), 'success')
+        return true
+      } catch (error) {
+        set({ error: String(error?.message ?? error) })
+        return false
+      }
+    }
+
+    async function saveCurrentAsTemplate() {
+      const bp = state.bp
+      if (bp === null) return
+      try {
+        const payload = {
+          name: bp.title || 'untitled-template',
+          description: bp.summary || '',
+          domain: 'general',
+          blueprint: bp,
+        }
+        await runBlueprintCommand(`template save ${base64(JSON.stringify(payload))}`)
+        toast(t('templateSaved'), 'success')
+      } catch (error) {
+        set({ error: String(error?.message ?? error) })
+      }
+    }
     function EmptyState() {
       const store = useStore()
       const existing = store.bp !== null
@@ -6273,6 +6389,114 @@ ${task}
             h('button', { type: 'button', className: 'bp-btn bp-primary', disabled: text.trim() === '', onClick: run }, t('importAction')))))
     }
 
+    function DispatchReview({ store }) {
+      const review = store.dispatchReview
+      if (review === null) return null
+      const close = () => set({ dispatchReview: null, dispatchAck: false })
+      const list = items => items.length === 0
+        ? h('p', { className: 'bp-muted' }, t('dispatchNoItems'))
+        : h('ul', { className: 'bp-review-list' }, items.map(item => h('li', { key: item }, h('code', null, item))))
+      return h('div', { className: 'bp-import-backdrop', onClick: close },
+        h('div', { className: 'bp-import-dialog bp-dispatch-review', onClick: event => event.stopPropagation() },
+          h('div', { className: 'bp-kicker' }, t('dispatchReviewTitle')),
+          h('p', { className: 'bp-muted' }, t('dispatchReviewHint')),
+          h('div', { className: 'bp-review-grid' },
+            h('div', null, h('strong', null, t('dispatchWriteRoots')), list(review.writeRoots)),
+            h('div', null, h('strong', null, t('dispatchCommands')), list(review.commands)),
+            h('div', null, h('strong', null, t('dispatchAllow')), list(review.allow))),
+          h('div', { className: 'bp-review-modules' },
+            review.modules.map(module => h('div', { key: module.id, className: 'bp-review-module' },
+              h('div', { className: 'bp-review-head' },
+                h('strong', null, `${module.code} · ${module.name}`),
+                module.unbound ? h('span', { className: 'bp-chip' }, t('dispatchUnbound')) : null,
+                module.conflict ? h('span', { className: 'bp-chip bp-chip-warn', title: module.readonlyIds.join(', ') }, t('dispatchConflict')) : null),
+              h('div', { className: 'bp-muted' },
+                `${t('dispatchWriteRoots')}: ${module.mounts.filter(mount => mount.access === 'rw').map(mount => mount.root).join(' , ') || t('dispatchNoItems')}`),
+              h('div', { className: 'bp-muted' },
+                `cwd: ${module.cwd || '-'} · adapter: ${module.adapter || 'dsh-subagent'}${module.agentProfile ? ` · ${module.agentProfile}` : ''}`),
+              h('div', { className: 'bp-muted' }, `${t('dispatchCommands')}: ${module.commands.join(' | ') || t('dispatchNoItems')}`),
+              h('div', { className: 'bp-muted' }, `${t('dispatchAllow')}: ${module.allow.join(', ') || t('dispatchNoItems')}`)))),
+          h('label', { className: 'bp-check' },
+            h('input', {
+              type: 'checkbox',
+              checked: Boolean(store.dispatchAck),
+              onChange: event => set({ dispatchAck: event.target.checked }),
+            }),
+            t('dispatchAck')),
+          h('div', { className: 'bp-import-actions' },
+            h('button', { type: 'button', className: 'bp-btn', onClick: close }, t('dispatchBack')),
+            h('button', {
+              type: 'button',
+              className: 'bp-btn bp-primary',
+              disabled: !store.dispatchAck,
+              onClick: () => {
+                set({ dispatchReview: null, dispatchAck: false })
+                void dispatch()
+              },
+            }, t('dispatchProceed')))))
+    }
+    function TemplateLibraryDialog({ store }) {
+      const [lib, setLib] = useState(null)
+      const [error, setError] = useState(null)
+      useEffect(() => {
+        let alive = true
+        loadTemplateLibrary()
+          .then(value => { if (alive) setLib(value) })
+          .catch(failure => { if (alive) setError(String(failure?.message ?? failure)) })
+        return () => { alive = false }
+      }, [])
+      const close = () => set({ templateOpen: false })
+      const card = (entry, source) => h('div', { key: `${source}-${entry.id}`, className: 'bp-template-card bp-template-item' },
+        h('strong', null, entry.name),
+        entry.description ? h('span', null, entry.description) : null,
+        h('span', { className: 'bp-muted' },
+          `${entry.domain || 'general'} · ${entry.modules ?? 0} modules · ${source === 'local' ? t('templateMine') : t('templateCommunity')}`),
+        h('div', { className: 'bp-template-item-actions' },
+          h('button', {
+            type: 'button', className: 'bp-btn bp-primary',
+            onClick: async () => { await applyLibraryTemplate(entry); close() },
+          }, t('templateApply')),
+          source === 'local'
+            ? h('button', {
+                type: 'button', className: 'bp-btn',
+                onClick: async () => {
+                  try {
+                    await runBlueprintCommand(`template remove ${entry.id}`)
+                    setLib(await loadTemplateLibrary())
+                  } catch (failure) {
+                    setError(String(failure?.message ?? failure))
+                  }
+                },
+              }, t('delete'))
+            : null))
+      return h('div', { className: 'bp-import-backdrop', onClick: close },
+        h('div', { className: 'bp-import-dialog bp-template-library', onClick: event => event.stopPropagation() },
+          h('div', { className: 'bp-kicker' }, t('templateLibrary')),
+          h('p', { className: 'bp-muted' }, t('templatesHint')),
+          error ? h('div', { className: 'bp-error' }, error) : null,
+          lib === null
+            ? h('p', { className: 'bp-muted' }, t('waiting'))
+            : (lib.local ?? []).length + (lib.community ?? []).length === 0
+              ? h('p', { className: 'bp-muted' }, t('templateEmpty'))
+              : h('div', { className: 'bp-template-grid' },
+                  [...(lib.local ?? []).map(entry => card(entry, 'local')),
+                   ...(lib.community ?? []).map(entry => card(entry, 'community'))]),
+          h('div', { className: 'bp-import-actions' },
+            h('label', { className: 'bp-btn' }, t('templateImport'),
+              h('input', {
+                type: 'file', accept: '.json,application/json', style: { display: 'none' },
+                onChange: async event => {
+                  const file = event.target.files?.[0]
+                  if (file === undefined) return
+                  const ok = await importTemplateText(await file.text())
+                  if (ok) {
+                    setError(null)
+                    setLib(await loadTemplateLibrary().catch(() => ({ local: [], community: [] })))
+                  }
+                },
+              })),
+            h('button', { type: 'button', className: 'bp-btn bp-primary', onClick: close }, t('close')))))
+    }
     const SCAN_TREE_RENDER_LIMIT = 200
     const SCAN_TREE_DEFAULT_DEPTH = 2
 
@@ -7988,6 +8212,53 @@ ${task}
       return parsed.token.trim()
     }
 
+    function buildDispatchReview(bp) {
+      const modules = (bp.modules ?? []).map(module => {
+        const info = workspaceDispatchFor(bp, module)
+        const readonly = info.mounts.filter(mount => mountAccess(mount) === 'ro' || mountReadOnly(mount))
+        return {
+          id: stringValue(module.id),
+          code: stringValue(module.code) || stringValue(module.id),
+          name: stringValue(module.name) || stringValue(module.id),
+          mounts: info.mounts.map(mount => ({
+            id: stringValue(mount.id),
+            root: stringValue(mount.root),
+            kind: mountKind(mount),
+            access: mountAccess(mount),
+          })),
+          cwd: info.cwd,
+          adapter: info.adapter,
+          agentProfile: info.agentProfile,
+          allow: info.allow,
+          commands: info.commands,
+          unbound: info.mounts.length === 0,
+          conflict: readonly.length > 0 && (info.allow.length > 0 || info.commands.length > 0),
+          readonlyIds: readonly.map(mount => stringValue(mount.id)),
+        }
+      })
+      const writeRoots = [...new Set(
+        modules.flatMap(module => module.mounts.filter(mount => mount.access === 'rw' && mount.kind === 'working').map(mount => mount.root)).filter(Boolean),
+      )]
+      const commands = [...new Set(modules.flatMap(module => module.commands))]
+      const allow = [...new Set(modules.flatMap(module => module.allow))]
+      return {
+        modules,
+        writeRoots,
+        commands,
+        allow,
+        conflicts: modules.filter(module => module.conflict).length,
+        unbound: modules.filter(module => module.unbound).length,
+      }
+    }
+
+    function openDispatchReview() {
+      const bp = state.bp
+      if (bp === null) return
+      if (bp.modules.length === 0) { toast(t('dispatchBlocked'), 'error'); return }
+      // Retry after a successful host dispatch must not re-ask for confirmation.
+      if (bp.status === 'dispatched') { void dispatch(); return }
+      set({ dispatchReview: buildDispatchReview(bp), dispatchAck: false })
+    }
     async function dispatch() {
       const bp = state.bp
       if (bp === null) return
@@ -8179,11 +8450,15 @@ ${task}
                 onClick: exportProjectReview,
               }, store.exporting === 'project-review' ? t('exporting') : t('exportProjectReview')))) : null,
           bp !== null && !store.landing ? h('button', {
+            type: 'button', className: 'bp-btn', title: t('saveTemplate'),
+            onClick: () => { void saveCurrentAsTemplate() },
+          }, t('saveTemplate')) : null,
+          bp !== null && !store.landing ? h('button', {
             type: 'button',
             className: 'bp-btn bp-primary',
             disabled: busy || bp.modules.length === 0,
             title: bp.modules.length === 0 ? t('dispatchBlocked') : t('confirmHint'),
-            onClick: dispatch,
+            onClick: openDispatchReview,
           }, h(Icon, { name: 'send', size: 15 }), bp.status === 'dispatched' ? t('dispatching') : t('confirmDispatch')) : null,
           h('div', { className: 'bp-lang-switch', role: 'group', 'aria-label': t('language') },
             h('button', {
@@ -8339,6 +8614,8 @@ ${task}
             h('button', { type: 'button', className: 'bp-btn', onClick: () => loadBlueprint({ initial: true }) }, t('reload'))) : null,
           store.error ? h('div', { className: 'bp-error-bar' }, store.error) : null,
           store.importOpen ? h(ImportDialog, { store }) : null,
+          store.dispatchReview ? h(DispatchReview, { store }) : null,
+          store.templateOpen ? h(TemplateLibraryDialog, { store }) : null,
           store.toast ? h('div', { className: `bp-toast ${store.toast.tone}` }, store.toast.message) : null))
     }
 
@@ -8830,6 +9107,17 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-tabs{max-width:100%;overflow-x:auto;scrollbar-width:thin;flex-wrap:nowrap;min-width:0}
 .bp-tab{white-space:nowrap}
 .bp-import-backdrop{position:absolute;inset:0;background:rgba(8,12,20,.45);display:flex;align-items:center;justify-content:center;z-index:10}
+.bp-template-library{width:min(760px,94%);max-height:80vh;overflow:auto}
+.bp-template-item{display:flex;flex-direction:column;gap:4px;cursor:default}
+.bp-template-item-actions{display:flex;gap:6px;margin-top:4px}
+.bp-dispatch-review{width:min(820px,94%);max-height:82vh;overflow:auto}
+.bp-review-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.bp-review-grid strong{display:block;font-size:12px;margin-bottom:4px;color:var(--dsw-alias-label-secondary)}
+.bp-review-list{margin:0;padding-left:16px;font-size:12px;max-height:120px;overflow:auto}
+.bp-review-modules{display:flex;flex-direction:column;gap:8px;max-height:44vh;overflow:auto;padding:4px 0}
+.bp-review-module{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.bp-review-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.bp-chip-warn{color:var(--dsw-alias-state-warn-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 45%,transparent)}
 .bp-import-dialog{width:min(680px,90%);background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:16px;box-shadow:0 18px 50px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:8px}
 .bp-import-dialog p{margin:0}
 .bp-import-source{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary)}

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "description": "社区蓝图模板索引。新增模板：在 templates/ 下添加 <id>.json，并在此登记（id/name/domain/author/file）。",
+  "templates": [
+    {
+      "id": "example-minimal",
+      "name": "最小示例：单模块 CLI",
+      "domain": "general",
+      "author": "blueprint-studio",
+      "file": "example-minimal.json"
+    }
+  ]
+}

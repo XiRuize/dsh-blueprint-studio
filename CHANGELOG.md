@@ -1,3 +1,16 @@
+## [0.19.0] — 2026-11-12
+
+### 新增
+
+- **分派前安全复核**：点击「确认并分派」先弹出复核面板，逐模块展示挂载 root/kind/access、cwd、adapter、allow 列表与 commands 列表，并聚合可写根目录与可执行命令；必须勾选「我已核对」后才能继续。只读挂载却声明写操作/命令时给出冲突标记。
+- **蓝图模板库**：新增 `lib/templates.js` 与 `/blueprint template list|get|save|import|remove|export`；用户模板存于工作区 `.dsh/blueprints/templates/`，社区模板随仓库 `templates/`（`index.json` + 模板 JSON）发布。
+- **模板库面板**：欢迎页新增「模板库」，支持应用本地/社区模板、导入 JSON、删除；已打开蓝图时工具栏提供「存为模板」。
+- **社区贡献流程**：`templates/example-minimal.json` 作为格式样例，`docs/templates.md` 说明提交方式与安全约束。
+
+### 测试
+
+- 新增 `test/templates.test.mjs`（6 条：id 规范化、字段剥离、大小/空名校验、CRUD、覆盖保留 createdAt、社区模板格式校验）；全量 307 条测试通过。
+
 # Changelog
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
