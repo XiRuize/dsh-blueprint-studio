@@ -306,11 +306,19 @@ test('suggestBlueprint splits a single root package into source-directory module
     const suggestions = suggestBlueprint(scan)
     assert.equal(suggestions.mounts.length, 1)
     assert.deepEqual(suggestions.mounts[0].root, '.')
-    assert.equal(suggestions.modules.length, 2)
-    assert.deepEqual(suggestions.modules.map(module => module.code), ['A1', 'A2'])
-    assert.deepEqual(suggestions.modules.map(module => module.name), ['src', 'lib'])
+    // The package stays the A-layer overview; source directories move to a child layer.
+    assert.equal(suggestions.modules.length, 1)
+    assert.deepEqual(suggestions.modules.map(module => module.code), ['A1'])
+    assert.deepEqual(suggestions.modules.map(module => module.name), ['single'])
     assert.ok(suggestions.modules.every(module => module.mountIds[0] === 'root'))
     assert.ok(!suggestions.modules.some(module => module.name === 'docs'))
+    const layerB = suggestions.layers.find(layer => layer.letter === 'B')
+    assert.equal(layerB.parentModuleId, suggestions.modules[0].id)
+    assert.deepEqual(layerB.modules.map(module => module.code), ['B1', 'B2'])
+    assert.deepEqual(layerB.modules.map(module => module.name), ['src', 'lib'])
+    assert.ok(layerB.modules.every(module => module.layerId === 'B' && module.parentId === suggestions.modules[0].id))
+    assert.ok(layerB.modules.every(module => !module.name.includes('docs')))
+    assert.ok(layerB.diagrams.some(diagram => diagram.key === 'B:module'))
   } finally {
     await fs.rm(root, { recursive: true, force: true })
   }
