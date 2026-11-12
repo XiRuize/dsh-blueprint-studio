@@ -155,6 +155,9 @@ window.__ModuleLoader__.load({
       workspaceScanApply: 'Add suggested mounts', workspaceScanApplied: 'Added {count} mounts',
       workspaceScanGraph: 'Create structure diagram',
       workspaceScanGraphDone: 'Created structure diagram ({mounts} mounts, {modules} modules, {layers} layers)',
+      workspaceScanSnapshot: 'Save scan snapshot',
+      workspaceScanSnapshotDone: 'Saved scan snapshot ({count} total)',
+      workspaceScanSnapshotFailed: 'Could not save scan snapshot',
       workspacePreviewDiagram: 'Preview structure diagram',
       workspaceScanNoMounts: 'No suggested mounts to add',
       workspaceScanTotals: '{files} files · {size} · {packages} packages',
@@ -383,6 +386,9 @@ window.__ModuleLoader__.load({
       workspaceScanApply: '添加建议挂载', workspaceScanApplied: '已添加 {count} 个挂载',
       workspaceScanGraph: '生成结构图',
       workspaceScanGraphDone: '已生成结构图（{mounts} 个挂载，{modules} 个模块，{layers} 层）',
+      workspaceScanSnapshot: '保存扫描快照',
+      workspaceScanSnapshotDone: '已保存扫描快照（共 {count} 个）',
+      workspaceScanSnapshotFailed: '保存扫描快照失败',
       workspacePreviewDiagram: '预览结构图',
       workspaceScanNoMounts: '没有可添加的建议挂载',
       workspaceScanTotals: '{files} 个文件 · {size} · {packages} 个包',
@@ -6678,10 +6684,21 @@ ${task}
           className: 'bp-input', value: draft[key], placeholder: t(placeholderKey),
           onChange: event => setDraftField(key, event.target.value),
         }))
+      const saveScanSnapshot = async () => {
+        try {
+          const text = await runBlueprintCommand('scan snapshot')
+          const result = JSON.parse(text)
+          if (result.ok !== true) throw new Error(result.message ?? 'scan snapshot failed')
+          toast(t('workspaceScanSnapshotDone', { count: result.count ?? 0 }), 'success')
+        } catch (failure) {
+          toast(`${t('workspaceScanSnapshotFailed')}: ${String(failure?.message ?? failure)}`, 'error')
+        }
+      }
       const scanActions = [
         h('button', { type: 'button', className: 'bp-btn', key: 'preview', disabled: scanBusy, onClick: runScan }, t('workspacePreviewDiagram')),
         h('button', { type: 'button', className: 'bp-btn', key: 'graph', onClick: applyScanBlueprint }, t('workspaceScanGraph')),
         h('button', { type: 'button', className: 'bp-btn', key: 'mounts', onClick: applyScanMounts }, t('workspaceScanApply')),
+        h('button', { type: 'button', className: 'bp-btn', key: 'snapshot', onClick: saveScanSnapshot }, t('workspaceScanSnapshot')),
       ]
       return h('div', { className: 'bp-workspace' },
         h('div', { className: 'bp-kicker' }, t('workspace')),

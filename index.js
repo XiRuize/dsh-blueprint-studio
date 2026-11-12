@@ -41,6 +41,7 @@ import { buildHandoff, buildReviewPacket, exportReviewHtml } from './lib/review.
 import { buildProjectReview, exportProjectReviewHtml, readProjectBlueprints } from './lib/project-review.js'
 import { PLAN_MODE_PROMPT } from './lib/plan.js'
 import { scanWorkspace, suggestBlueprint } from './lib/scanner.js'
+import { appendScanSnapshot, buildScanSnapshot, diffScanSnapshots, readScanHistory } from './lib/scan-history.js'
 import * as scannerApi from './lib/scanner.js'
 import { renderDiagramSvg } from './lib/svg.js'
 
@@ -1277,7 +1278,7 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比、恢复、导出、评审交接、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | scan [preview|apply] | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | scan [preview|apply|snapshot|history|diff] | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -1925,8 +1926,74 @@ export function apply(ctx, rawConfig) {
                 return { kind: 'error', text: `扫描应用失败：${errorMessage(error)}` }
               }
             }
+            if (mode === 'snapshot') {
+              try {
+                const { file } = await readCurrent(invocation.agent)
+                const scan = await scanCached(file.cwd, { fresh: true })
+                const label = rest.slice(1).join(' ').trim()
+                const snapshot = buildScanSnapshot(scan, label)
+                const saved = await appendScanSnapshot(file.cwd, file.sessionId, snapshot)
+                return {
+                  kind: 'success',
+                  text: JSON.stringify({
+                    ok: true,
+                    snapshot: { id: snapshot.id, at: snapshot.at, label: snapshot.label, health: snapshot.health, totals: snapshot.totals },
+                    path: saved.path,
+                    count: saved.snapshots.length,
+                  }),
+                }
+              } catch (error) {
+                return { kind: 'error', text: `扫描快照保存失败：${errorMessage(error)}` }
+              }
+            }
+            if (mode === 'history') {
+              try {
+                const { file } = await readCurrent(invocation.agent)
+                const history = await readScanHistory(file.cwd, file.sessionId)
+                return {
+                  kind: 'success',
+                  text: JSON.stringify({
+                    ok: true,
+                    path: history.path,
+                    warning: history.warning ?? null,
+                    snapshots: history.snapshots.map(snapshot => ({
+                      id: snapshot.id,
+                      at: snapshot.at,
+                      label: snapshot.label,
+                      health: snapshot.health,
+                      totals: snapshot.totals,
+                    })),
+                  }),
+                }
+              } catch (error) {
+                return { kind: 'error', text: `扫描历史读取失败：${errorMessage(error)}` }
+              }
+            }
+            if (mode === 'diff') {
+              try {
+                const { file } = await readCurrent(invocation.agent)
+                const history = await readScanHistory(file.cwd, file.sessionId)
+                const snapshots = history.snapshots
+                if (snapshots.length < 2) {
+                  return { kind: 'error', text: '至少需要两个扫描快照才能比较；先运行 /blueprint scan snapshot。' }
+                }
+                const pick = (token, fallback) => {
+                  const value = String(token ?? '').trim()
+                  if (value === '' || value === 'latest') return snapshots[snapshots.length - 1 - fallback]
+                  return snapshots.find(snapshot => snapshot.id === value || snapshot.label === value)
+                }
+                const from = pick(rest[1], 1)
+                const to = pick(rest[2], 0)
+                if (from === undefined || to === undefined) {
+                  return { kind: 'error', text: '找不到指定的扫描快照；用法：/blueprint scan diff [fromId|label] [toId|latest]。' }
+                }
+                return { kind: 'success', text: JSON.stringify({ ok: true, ...diffScanSnapshots(from, to) }) }
+              } catch (error) {
+                return { kind: 'error', text: `扫描快照比较失败：${errorMessage(error)}` }
+              }
+            }
             if (mode !== '') {
-              return { kind: 'error', text: `未知 scan 参数：${mode}。用法：/blueprint scan [preview|apply]` }
+              return { kind: 'error', text: `未知 scan 参数：${mode}。用法：/blueprint scan [preview|apply|snapshot|history|diff]` }
             }
             try {
               const cwd = await cwdOf(invocation.agent)

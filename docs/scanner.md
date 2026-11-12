@@ -56,6 +56,20 @@ Runs the normal blueprint checks plus repository health insights
 (`scan-no-tests`, `scan-large-files`, …). Each issue keeps its fix. Plain
 `/blueprint check` does not scan the filesystem.
 
+## Health history
+
+```text
+/blueprint scan snapshot [label]
+/blueprint scan history
+/blueprint scan diff [fromId|label] [toId|latest]
+```
+
+Snapshots store only aggregates: totals, languages, health, package scores and
+insights. They live in `.dsh/blueprints/<session>.scan-history.json`, keep the
+newest 20, and never contain file contents or environment variables. The diff
+reports size/test/doc/health deltas, resolved/new insights and package health
+changes.
+
 ## Cache
 
 Preview/apply/check scan share a short in-memory scan cache (10 seconds, max 8

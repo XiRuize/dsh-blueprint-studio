@@ -2,6 +2,14 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.18.0] — 2026-11-12
+
+### Added
+
+- **Scan health history.** `/blueprint scan snapshot [label]` stores a lightweight, secret-free aggregate snapshot; `/blueprint scan history` lists the newest 20; `/blueprint scan diff [from] [to]` reports size/test/doc/health deltas plus resolved/new insights and package health changes.
+- Workspace scan results have a **Save scan snapshot** action.
+- History writes are atomic, per-session and capped at 20 snapshots.
+
 ## [0.17.0] — 2026-11-12
 
 ### Added

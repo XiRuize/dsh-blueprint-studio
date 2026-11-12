@@ -188,7 +188,7 @@ test('scan preview returns metrics, tree, imports and a Host SVG without writing
     await write(root, 'test/app.test.mjs', 'test("app", () => {})\n')
     await write(root, 'docs/readme.md', '# docs\n')
 
-    assert.match(plugin.commands[0].input.hint, /scan \[preview\|apply\]/u)
+    assert.match(plugin.commands[0].input.hint, /scan \[preview\|apply\|snapshot\|history\|diff\]/u)
 
     const result = await plugin.commands[0].handler({ rawInput: 'scan preview', agent: plugin.agent })
     assert.equal(result.kind, 'success')
