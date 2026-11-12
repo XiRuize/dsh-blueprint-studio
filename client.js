@@ -135,6 +135,9 @@ window.__ModuleLoader__.load({
       templatesTitle: 'Start from a template', templatesHint: 'One click creates a full draft — no AI call needed.',
       tplWeb: 'Web application', tplWebDesc: 'Frontend, backend, database and auth',
       tplPlan: 'Implementation plan', tplPlanDesc: 'Plan flowchart with decisions, groups, verification and rollback',
+      tplEcommerce: 'E-commerce admin', tplEcommerceDesc: 'Products, orders, inventory and roles',
+      tplMobile: 'Mobile app', tplMobileDesc: 'React Native app with feed, offline cache and push',
+      tplAgent: 'AI agent app', tplAgentDesc: 'LLM orchestration, tool calls, RAG and evals',
       tplCli: 'CLI tool', tplCliDesc: 'Command parsing, execution, config and output',
       tplPipeline: 'Data pipeline', tplPipelineDesc: 'Ingest, clean, store and schedule',
       tplPlugin: 'DSH plugin', tplPluginDesc: 'Host tool, client panel, storage and tests',
@@ -372,6 +375,9 @@ window.__ModuleLoader__.load({
       templatesTitle: '从模板开始', templatesHint: '一键生成完整草稿，不调用 AI。',
       tplWeb: 'Web 应用', tplWebDesc: '前端、后端、数据库与鉴权',
       tplPlan: '实施计划', tplPlanDesc: '含判断、分组、验证与回滚的计划流程图',
+      tplEcommerce: '电商后台', tplEcommerceDesc: '商品、订单、库存与权限',
+      tplMobile: '移动应用', tplMobileDesc: '双端 App：信息流、离线缓存与推送',
+      tplAgent: 'AI Agent 应用', tplAgentDesc: '编排、工具调用、检索与评测',
       tplCli: 'CLI 工具', tplCliDesc: '命令解析、执行、配置与输出',
       tplPipeline: '数据管道', tplPipelineDesc: '采集、清洗、存储与调度',
       tplPlugin: 'DSH 插件', tplPluginDesc: 'Host 工具、Client 面板、存储与测试',
@@ -1294,6 +1300,7 @@ ${task}
       edges: edges.map(([from, to, label, kind]) => ({ from, to, label, kind })),
     })
     const tplModule = (id, name, summary, dependsOn) => ({ id, name, summary, dependsOn, status: 'pending' })
+    const tplEmpty = (key, title) => tplDiagram(key, title, [], [])
     function tplBlueprint({ title, summary, prompt, sections, diagrams, modules }) {
       const now = Date.now()
       return {
@@ -1302,6 +1309,253 @@ ${task}
         sections, diagrams, modules,
         createdAt: now, updatedAt: now,
       }
+    }
+    function tplEcommerceBlueprint() {
+      return tplBlueprint({
+        title: '电商后台',
+        summary: '商品、订单、库存三条主链路，先跑通「上架 → 下单 → 扣库存」闭环，再补营销与售后。',
+        prompt: '做一个电商管理后台：商品上架、订单处理、库存扣减与售后；管理员分角色，先跑通核心交易闭环。',
+        sections: [
+          tplSection('goals', '目标与价值', [
+            '运营能在 5 分钟内完成商品上架并生成可售 SKU。',
+            '下单后库存实时扣减，超卖为 0。',
+            '客服能按订单号查到支付、发货与售后状态。',
+          ]),
+          tplSection('actors', '角色与场景', [
+            '运营：商品、价格、上下架。',
+            '仓库：拣货、发货、库存盘点。',
+            '客服：订单查询、退款与售后。',
+            '管理员：角色权限与操作审计。',
+          ]),
+          tplSection('functional', '功能需求', [
+            '商品与 SKU：多规格、价格、库存、上下架。',
+            '订单：创建、支付回调、发货、取消与超时关闭。',
+            '库存：下单预占、支付扣减、退款回补。',
+            '售后：退款/退货申请与状态流转。',
+            '权限：按角色控制菜单与接口。',
+          ]),
+          tplSection('nonfunctional', '非功能需求', [
+            '下单接口 P95 低于 300ms，支付回调幂等。',
+            '库存扣减使用事务或乐观锁，禁止负库存。',
+            '关键操作写审计日志，保留 180 天。',
+          ]),
+          tplSection('constraints', '约束与依赖', [
+            '后端 Node API + PostgreSQL；前端 React 管理台。',
+            '支付只对接一种渠道，回调需验签。',
+            '首版不做多仓与跨境。',
+          ]),
+          tplSection('acceptance', '验收标准', [
+            '上架商品 → 下单 → 支付 → 库存减 1，全链路可复现。',
+            '并发 50 单抢最后 10 件库存，无超卖。',
+            '退款成功后库存回补且订单状态正确。',
+          ]),
+          tplSection('risks', '风险与开放问题', [
+            '超时未支付订单的关闭策略需与运营确认。',
+            '退款是否回补库存取决于商品类型，需规则化。',
+          ]),
+        ],
+        diagrams: [
+          tplDiagram('usecase', '用例图', [
+            ['a-ops', 'actor', '运营'], ['a-wh', 'actor', '仓库'], ['a-cs', 'actor', '客服'],
+            ['uc-product', 'usecase', '管理商品'], ['uc-order', 'usecase', '处理订单'],
+            ['uc-stock', 'usecase', '库存管理'], ['uc-after', 'usecase', '售后处理'],
+          ], [
+            ['a-ops', 'uc-product', '关联', 'association'],
+            ['a-ops', 'uc-stock', '查看', 'association'],
+            ['a-wh', 'uc-order', '发货', 'association'],
+            ['a-cs', 'uc-after', '处理', 'association'],
+          ]),
+          tplDiagram('dfd', '数据流图', [
+            ['ext-admin', 'entity', '管理台'], ['p-order', 'process', '订单服务'],
+            ['p-stock', 'process', '库存服务'], ['s-order', 'store', '订单库'], ['s-stock', 'store', '库存库'],
+          ], [
+            ['ext-admin', 'p-order', '下单/发货', 'flow'],
+            ['p-order', 's-order', '订单记录', 'flow'],
+            ['p-order', 'p-stock', '扣减/回补', 'flow'],
+            ['p-stock', 's-stock', '库存流水', 'flow'],
+          ]),
+          tplDiagram('module', '模块图', [
+            ['m-admin', 'module', '管理台'], ['m-product', 'module', '商品'], ['m-order', 'module', '订单'],
+            ['m-stock', 'module', '库存'], ['m-auth', 'module', '权限'],
+          ], [
+            ['m-admin', 'm-product', 'REST', 'depends'],
+            ['m-admin', 'm-order', 'REST', 'depends'],
+            ['m-order', 'm-stock', '预占/扣减', 'depends'],
+            ['m-admin', 'm-auth', '登录/鉴权', 'depends'],
+          ]),
+          tplEmpty('sequence', '时序图'),
+          tplEmpty('er', 'ER 图'),
+          tplEmpty('c4', 'C4 图'),
+          tplEmpty('class', '类图'),
+          tplEmpty('state', '状态图'),
+          tplEmpty('flowchart', '计划流程图'),
+        ],
+        modules: [
+          tplModule('shop-product', '商品与 SKU', '商品、规格、价格、上下架与列表检索。', []),
+          tplModule('shop-stock', '库存', '预占、扣减、回补与库存流水。', []),
+          tplModule('shop-order', '订单与支付', '下单、支付回调、发货、取消与超时关闭。', ['shop-product', 'shop-stock']),
+          tplModule('shop-admin', '管理台与权限', '角色权限、菜单、订单/商品页面与审计。', ['shop-order']),
+        ],
+      })
+    }
+
+    function tplMobileBlueprint() {
+      return tplBlueprint({
+        title: '移动应用',
+        summary: 'React Native / Flutter 双端应用：登录、信息流、详情、离线缓存与推送，先跑通主路径。',
+        prompt: '做一个移动 App：登录、信息流、详情、收藏与推送；支持离线缓存，先用 React Native 实现 iOS/Android 双端。',
+        sections: [
+          tplSection('goals', '目标与价值', [
+            '新用户 1 分钟内完成登录并看到首屏内容。',
+            '弱网下已看过的内容可离线打开。',
+            '推送到达率与点击率可观测。',
+          ]),
+          tplSection('actors', '角色与场景', [
+            '访客：浏览与注册登录。',
+            '登录用户：浏览、收藏、接收推送。',
+            '运营：配置推送与内容推荐。',
+          ]),
+          tplSection('functional', '功能需求', [
+            '登录/注册（手机号或第三方），令牌刷新。',
+            '信息流分页、下拉刷新、详情页。',
+            '收藏与本地缓存，离线可读。',
+            '推送注册、接收与点击跳转。',
+          ]),
+          tplSection('nonfunctional', '非功能需求', [
+            '冷启动 3 秒内可交互，列表滚动 60fps。',
+            '令牌与缓存加密存储，退出登录清理。',
+            '崩溃率低于 0.5%，关键路径埋点齐全。',
+          ]),
+          tplSection('constraints', '约束与依赖', [
+            'React Native + TypeScript，后端 REST/JSON。',
+            '推送使用系统通道，首版不接厂商推送。',
+            '首版不做平板适配。',
+          ]),
+          tplSection('acceptance', '验收标准', [
+            '登录 → 信息流 → 详情 → 收藏，全链路可复现。',
+            '飞行模式下可打开已缓存详情。',
+            '收到推送点击后跳到正确详情页。',
+          ]),
+          tplSection('risks', '风险与开放问题', [
+            '第三方登录的账号合并策略未定。',
+            '推送权限被拒时的降级提示需产品确认。',
+          ]),
+        ],
+        diagrams: [
+          tplDiagram('usecase', '用例图', [
+            ['a-user', 'actor', '用户'], ['sys', 'system', 'App'],
+            ['uc-login', 'usecase', '登录'], ['uc-feed', 'usecase', '浏览信息流'],
+            ['uc-detail', 'usecase', '查看详情'], ['uc-fav', 'usecase', '收藏'],
+          ], [
+            ['a-user', 'uc-login', '关联', 'association'],
+            ['a-user', 'uc-feed', '关联', 'association'],
+            ['a-user', 'uc-detail', '关联', 'association'],
+            ['a-user', 'uc-fav', '关联', 'association'],
+          ]),
+          tplDiagram('module', '模块图', [
+            ['m-app', 'module', 'App 壳'], ['m-auth', 'module', '登录'], ['m-feed', 'module', '信息流'],
+            ['m-cache', 'module', '缓存'], ['m-push', 'module', '推送'],
+          ], [
+            ['m-app', 'm-auth', '登录态', 'depends'],
+            ['m-app', 'm-feed', '数据', 'depends'],
+            ['m-feed', 'm-cache', '读写缓存', 'depends'],
+            ['m-app', 'm-push', '注册/跳转', 'depends'],
+          ]),
+          tplEmpty('dfd', '数据流图'),
+          tplEmpty('sequence', '时序图'),
+          tplEmpty('er', 'ER 图'),
+          tplEmpty('c4', 'C4 图'),
+          tplEmpty('class', '类图'),
+          tplEmpty('state', '状态图'),
+          tplEmpty('flowchart', '计划流程图'),
+        ],
+        modules: [
+          tplModule('mobile-shell', 'App 壳与导航', '路由、主题、启动与错误边界。', []),
+          tplModule('mobile-auth', '登录与令牌', '登录、刷新、登出与安全存储。', ['mobile-shell']),
+          tplModule('mobile-feed', '信息流与详情', '分页、下拉刷新、详情与收藏。', ['mobile-auth']),
+          tplModule('mobile-cache', '离线缓存', '缓存读写、过期与清理。', ['mobile-feed']),
+          tplModule('mobile-push', '推送', '权限、注册、接收与深链跳转。', ['mobile-shell']),
+        ],
+      })
+    }
+
+    function tplAgentBlueprint() {
+      return tplBlueprint({
+        title: 'AI Agent 应用',
+        summary: 'LLM 编排 + 工具调用 + 知识检索：先跑通「提问 → 检索 → 调用工具 → 回答」闭环，再补评测与成本控制。',
+        prompt: '做一个 AI Agent 应用：支持知识库检索、工具调用与多轮对话；需要可观测的调用链、失败重试与评测集。',
+        sections: [
+          tplSection('goals', '目标与价值', [
+            '用户提问后 10 秒内得到带引用的回答。',
+            '工具调用失败可重试并给出可读降级。',
+            '每次调用可回放：输入、检索片段、工具参数与耗时。',
+          ]),
+          tplSection('actors', '角色与场景', [
+            '终端用户：提问、追问、反馈。',
+            '知识库管理员：导入与更新文档。',
+            '开发者：配置工具、查看评测与成本。',
+          ]),
+          tplSection('functional', '功能需求', [
+            '对话编排：系统提示、上下文裁剪与多轮记忆。',
+            '检索：切分、向量化、召回与引用。',
+            '工具调用：参数校验、超时、重试与幂等。',
+            '评测：固定问题集、断言与回归对比。',
+          ]),
+          tplSection('nonfunctional', '非功能需求', [
+            '单轮 P95 低于 10s，超时可中断。',
+            '密钥只从环境读取，日志脱敏。',
+            '单次会话 token 成本可计量并有上限。',
+          ]),
+          tplSection('constraints', '约束与依赖', [
+            '模型通过统一网关调用，便于切换与限流。',
+            '向量库首版用本地 SQLite/pgvector。',
+            '不训练自有模型。',
+          ]),
+          tplSection('acceptance', '验收标准', [
+            '提问 → 检索 → 工具 → 回答链路可复现且带引用。',
+            '工具超时触发重试并返回降级答案。',
+            '评测集通过率不低于基线，成本不超预算。',
+          ]),
+          tplSection('risks', '风险与开放问题', [
+            '检索质量依赖切分策略，需要样本调参。',
+            '工具调用的权限边界（可写/只读）需明确。',
+          ]),
+        ],
+        diagrams: [
+          tplDiagram('c4', 'C4 容器图', [
+            ['p-user', 'person', '用户'], ['c-app', 'container', 'Web 应用'],
+            ['c-api', 'container', 'Agent API'], ['c-vec', 'database', '向量库'], ['x-llm', 'external', 'LLM 网关'],
+          ], [
+            ['p-user', 'c-app', '使用', 'depends'],
+            ['c-app', 'c-api', 'REST', 'depends'],
+            ['c-api', 'c-vec', '检索', 'depends'],
+            ['c-api', 'x-llm', '生成', 'depends'],
+          ]),
+          tplDiagram('module', '模块图', [
+            ['m-orch', 'module', '编排器'], ['m-rag', 'module', '检索'], ['m-tool', 'module', '工具'],
+            ['m-eval', 'module', '评测'], ['m-obs', 'module', '可观测'],
+          ], [
+            ['m-orch', 'm-rag', '召回', 'depends'],
+            ['m-orch', 'm-tool', '调用', 'depends'],
+            ['m-eval', 'm-orch', '回归', 'depends'],
+            ['m-obs', 'm-orch', '追踪', 'depends'],
+          ]),
+          tplEmpty('usecase', '用例图'),
+          tplEmpty('dfd', '数据流图'),
+          tplEmpty('sequence', '时序图'),
+          tplEmpty('er', 'ER 图'),
+          tplEmpty('class', '类图'),
+          tplEmpty('state', '状态图'),
+          tplEmpty('flowchart', '计划流程图'),
+        ],
+        modules: [
+          tplModule('agent-orch', '对话编排', '系统提示、上下文裁剪、多轮记忆与重试。', []),
+          tplModule('agent-rag', '检索与引用', '切分、向量化、召回与引用拼接。', ['agent-orch']),
+          tplModule('agent-tool', '工具调用', '参数校验、超时、幂等与权限边界。', ['agent-orch']),
+          tplModule('agent-eval', '评测与成本', '固定问题集、断言、回归对比与成本计量。', ['agent-orch']),
+          tplModule('agent-obs', '可观测', '调用链、日志脱敏与回放。', ['agent-orch']),
+        ],
+      })
     }
 
     // Welcome-page starters. Each one is a complete draft blueprint; layout is
@@ -1756,7 +2010,18 @@ ${task}
           ],
         }),
       },
-    ]
+      {
+        key: 'ecommerce', nameKey: 'tplEcommerce', descKey: 'tplEcommerceDesc',
+        build: () => tplEcommerceBlueprint(),
+      },
+      {
+        key: 'mobile', nameKey: 'tplMobile', descKey: 'tplMobileDesc',
+        build: () => tplMobileBlueprint(),
+      },
+      {
+        key: 'agent', nameKey: 'tplAgent', descKey: 'tplAgentDesc',
+        build: () => tplAgentBlueprint(),
+      },    ]
 
     const TYPE_META = {
       actor: { label: 'actor', color: '#f59e0b', w: 90, h: 104 },
