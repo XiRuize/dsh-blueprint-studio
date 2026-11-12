@@ -5,8 +5,10 @@ import os from 'node:os'
 import path from 'node:path'
 
 import {
+  IMPORT_DIAGRAM_LIMITS,
   TREE_LIMITS,
   buildFileTree,
+  buildImportDiagram,
   scanWorkspace,
   suggestBlueprint,
 } from '../lib/scanner.js'
@@ -473,6 +475,7 @@ test('empty repositories expose empty graph structures', async () => {
       unresolved: [],
       external: [],
       byDirectory: [],
+      aliases: [],
     })
     assert.equal(scan.metrics.totals.totalFiles, 0)
     assert.deepEqual(scan.metrics.totals.languages, [])
@@ -505,5 +508,341 @@ test('graph results are deterministic across repeated scans', async () => {
     assert.deepEqual(first.tree, second.tree)
     assert.deepEqual(first.imports, second.imports)
     assert.deepEqual(suggestBlueprint(first), suggestBlueprint(second))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v0.16: TypeScript/JavaScript path aliases
+
+test('scanner resolves tsconfig paths with JSONC, fallbacks and baseUrl imports', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'alias-app' }))
+    await write(root, 'tsconfig.json', [
+      '{',
+      '  // comments and trailing commas are valid tsconfig syntax',
+      '  "compilerOptions": {',
+      '    "baseUrl": ".",',
+      '    "paths": {',
+      '      "@/*": ["src/*", "fallback/*"], /* second target is a fallback */',
+      '    },',
+      '  },',
+      '}',
+      '',
+    ].join('\n'))
+    await write(root, 'src/index.ts', [
+      "import { util } from '@/util'",
+      "import { pkg } from '@/pkg'",
+      "import { only } from '@/fallback-only'",
+      "import '@/missing'",
+      "import react from 'react'",
+      '',
+    ].join('\n'))
+    await write(root, 'src/other.ts', "import 'src/util'\n")
+    await write(root, 'src/util.ts', 'export const util = 1\n')
+    await write(root, 'src/pkg/index.ts', 'export const pkg = 1\n')
+    await write(root, 'fallback/fallback-only.ts', 'export const only = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    const edges = scan.imports.edges
+    const aliasEdge = (from, to) => edges.find(edge => edge.from === from && edge.to === to)
+
+    assert.deepEqual(scan.imports.aliases, [{
+      config: 'tsconfig.json',
+      baseUrl: '.',
+      patterns: ['@/*'],
+    }])
+    assert.equal(aliasEdge('src/index.ts', 'src/util.ts').alias, true)
+    assert.equal(aliasEdge('src/index.ts', 'src/pkg/index.ts').alias, true)
+    // The second paths target is tried when the first one has no file.
+    assert.equal(aliasEdge('src/index.ts', 'fallback/fallback-only.ts').alias, true)
+    // Without a matching paths pattern, baseUrl still supports absolute imports.
+    assert.equal(aliasEdge('src/other.ts', 'src/util.ts').alias, true)
+    const failed = scan.imports.unresolved.find(item => item.specifier === '@/missing')
+    assert.equal(failed.reason, 'alias')
+    assert.ok(scan.imports.external.includes('react'))
+    assert.ok(!scan.imports.unresolved.some(item => item.specifier === 'react'))
+  })
+})
+
+test('scanner applies the nearest jsconfig and keeps relative imports working', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'workspace', workspaces: ['packages/*'] }))
+    await write(root, 'tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['root-src/*'] } },
+    }, null, 2))
+    await write(root, 'root-src/root.ts', 'export const root = 1\n')
+    await write(root, 'src/root-user.ts', "import '@/root'\n")
+    await write(root, 'packages/a/package.json', JSON.stringify({ name: '@alias/a' }))
+    await write(root, 'packages/a/jsconfig.json', [
+      '{',
+      '  // package-local jsconfig wins for files under packages/a',
+      '  "compilerOptions": {',
+      '    "baseUrl": "lib",',
+      '    "paths": { "~/*": ["*"] },',
+      '  },',
+      '}',
+      '',
+    ].join('\n'))
+    await write(root, 'packages/a/src/index.js', [
+      "import { helper } from '~/helper'",
+      "import { local } from './local'",
+      "import { root } from '@/root'",
+      '',
+    ].join('\n'))
+    await write(root, 'packages/a/src/local.js', 'export const local = 1\n')
+    await write(root, 'packages/a/lib/helper.js', 'export const helper = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    const edges = scan.imports.edges
+    assert.ok(edges.some(edge => (
+      edge.from === 'packages/a/src/index.js'
+      && edge.to === 'packages/a/lib/helper.js'
+      && edge.alias === true
+    )))
+    assert.ok(edges.some(edge => (
+      edge.from === 'packages/a/src/index.js'
+      && edge.to === 'packages/a/src/local.js'
+      && edge.alias === undefined
+    )))
+    // The parent tsconfig is not merged into the nearest package config.
+    assert.ok(scan.imports.external.includes('@/root'))
+    assert.ok(edges.some(edge => (
+      edge.from === 'src/root-user.ts' && edge.to === 'root-src/root.ts' && edge.alias === true
+    )))
+    const summaries = scan.imports.aliases
+    assert.deepEqual(summaries.map(item => item.config), ['packages/a/jsconfig.json', 'tsconfig.json'])
+    assert.deepEqual(summaries[0], {
+      config: 'packages/a/jsconfig.json',
+      baseUrl: 'packages/a/lib',
+      patterns: ['~/*'],
+    })
+  })
+})
+
+test('scan without alias config keeps bare specifiers external', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'no-alias' }))
+    await write(root, 'src/index.ts', "import 'src/util'\nimport './local'\n")
+    await write(root, 'src/util.ts', 'export const util = 1\n')
+    await write(root, 'src/local.ts', 'export const local = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    assert.deepEqual(scan.imports.aliases, [])
+    assert.ok(scan.imports.external.includes('src/util'))
+    assert.ok(scan.imports.edges.some(edge => edge.to === 'src/local.ts' && edge.alias === undefined))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v0.16: Python src layout and absolute imports
+
+test('scanner resolves Python src layout, __init__.py and keeps stdlib external', async () => {
+  await withRepo(async root => {
+    await write(root, 'pyproject.toml', '[project]\nname = "layout"\n')
+    await write(root, 'src/pkg/__init__.py', '')
+    await write(root, 'src/pkg/mod.py', 'value = 1\n')
+    await write(root, 'src/pkg/sub/__init__.py', '')
+    await write(root, 'src/pkg/sub/deep.py', 'deep = 1\n')
+    await write(root, 'src/app.py', [
+      'from pkg.mod import value',
+      'import pkg',
+      'from pkg.sub.deep import deep',
+      'from pkg.missing import nope',
+      'import os',
+      'import typing',
+      'from collections import OrderedDict',
+      'from requests import get',
+      '',
+    ].join('\n'))
+    await write(root, 'tools/__init__.py', '')
+    await write(root, 'tools/helper.py', 'helper = 1\n')
+    await write(root, 'main.py', 'from tools.helper import helper\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    const edges = scan.imports.edges
+    const has = (from, to) => edges.some(edge => edge.from === from && edge.to === to)
+    assert.ok(has('src/app.py', 'src/pkg/mod.py'))
+    assert.ok(has('src/app.py', 'src/pkg/__init__.py'))
+    assert.ok(has('src/app.py', 'src/pkg/sub/deep.py'))
+    assert.ok(has('main.py', 'tools/helper.py'))
+    const missing = scan.imports.unresolved.find(item => item.specifier === 'pkg.missing')
+    assert.equal(missing.reason, 'not-found')
+    for (const external of ['os', 'typing', 'collections', 'requests']) {
+      assert.ok(scan.imports.external.includes(external), `expected external ${external}`)
+      assert.ok(!edges.some(edge => edge.specifier === external))
+    }
+    assert.ok(!scan.imports.external.some(name => name === 'pkg'))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v0.16: buildImportDiagram
+
+function syntheticScan(edges) {
+  return { root: '/repo', imports: { edges } }
+}
+
+test('buildImportDiagram returns an empty legal diagram without imports', () => {
+  for (const scan of [syntheticScan([]), {}, { imports: null }]) {
+    assert.deepEqual(buildImportDiagram(scan), {
+      key: 'imports',
+      layerId: 'A',
+      type: 'module',
+      title: 'File import graph',
+      nodes: [],
+      edges: [],
+      truncated: false,
+    })
+  }
+  assert.throws(() => buildImportDiagram(null), TypeError)
+})
+
+test('buildImportDiagram aggregates directory edges with weights and stable order', () => {
+  const edges = [
+    { from: 'src/a/one.ts', to: 'src/b/two.ts' },
+    { from: 'src/a/three.ts', to: 'src/b/two.ts' },
+    { from: 'src/b/two.ts', to: 'src/a/one.ts' },
+    { from: 'src/a/one.ts', to: 'src/a/three.ts' },
+  ]
+  const diagram = buildImportDiagram(syntheticScan(edges))
+  assert.equal(diagram.key, 'imports')
+  assert.equal(diagram.layerId, 'A')
+  assert.equal(diagram.type, 'module')
+  assert.equal(diagram.title, 'File import graph')
+  assert.deepEqual(diagram.nodes.map(node => node.id), ['src/a', 'src/b'])
+  assert.ok(diagram.nodes.every(node => node.type === 'module' && typeof node.label === 'string'))
+  assert.deepEqual(diagram.edges, [
+    { from: 'src/a', to: 'src/b', label: 'imports', kind: 'depends', weight: 2 },
+    { from: 'src/b', to: 'src/a', label: 'imports', kind: 'depends', weight: 1 },
+  ])
+  assert.equal(diagram.truncated, false)
+  assert.deepEqual(buildImportDiagram(syntheticScan(edges)), diagram)
+})
+
+test('buildImportDiagram uses file nodes for a single directory under the node cap', () => {
+  const edges = [
+    { from: 'src/one.ts', to: 'src/two.ts' },
+    { from: 'src/two.ts', to: 'src/three.ts' },
+  ]
+  const diagram = buildImportDiagram(syntheticScan(edges))
+  assert.deepEqual(diagram.nodes.map(node => node.id), ['src/one.ts', 'src/three.ts', 'src/two.ts'])
+  assert.deepEqual(diagram.edges.map(edge => edge.weight), [1, 1])
+  assert.equal(diagram.truncated, false)
+  const directory = buildImportDiagram(syntheticScan(edges), { level: 'directory' })
+  assert.deepEqual(directory.nodes.map(node => node.id), ['src'])
+  assert.deepEqual(directory.edges, [])
+})
+
+test('buildImportDiagram caps nodes and edges deterministically', () => {
+  const edges = []
+  for (let index = 0; index < 60; index += 1) {
+    edges.push({ from: `pkg-${index}/a.ts`, to: `pkg-${index}/b.ts` })
+    edges.push({ from: `pkg-${index}/a.ts`, to: `pkg-${(index + 1) % 60}/b.ts` })
+  }
+  const first = buildImportDiagram(syntheticScan(edges))
+  const second = buildImportDiagram(syntheticScan(edges))
+  assert.deepEqual(first, second)
+  assert.ok(first.nodes.length <= IMPORT_DIAGRAM_LIMITS.maxNodes)
+  assert.ok(first.edges.length <= IMPORT_DIAGRAM_LIMITS.maxEdges)
+  assert.equal(first.truncated, true)
+  const ids = new Set(first.nodes.map(node => node.id))
+  for (const edge of first.edges) {
+    assert.ok(ids.has(edge.from), `edge source ${edge.from} must be a node`)
+    assert.ok(ids.has(edge.to), `edge target ${edge.to} must be a node`)
+  }
+  assert.deepEqual(first.nodes.map(node => node.id), [...first.nodes.map(node => node.id)].sort())
+  assert.deepEqual(
+    first.edges.map(edge => `${edge.from}|${edge.to}`),
+    [...first.edges]
+      .sort((left, right) => left.from.localeCompare(right.from) || left.to.localeCompare(right.to))
+      .map(edge => `${edge.from}|${edge.to}`),
+  )
+
+  const narrow = buildImportDiagram(syntheticScan(edges), { maxNodes: 4, maxEdges: 5 })
+  assert.ok(narrow.nodes.length <= 4)
+  assert.ok(narrow.edges.length <= 5)
+  assert.equal(narrow.truncated, true)
+  assert.deepEqual(narrow, buildImportDiagram(syntheticScan(edges), { maxNodes: 4, maxEdges: 5 }))
+})
+
+// ---------------------------------------------------------------------------
+// v0.16: child-layer edges reuse import weights and stay node-consistent
+
+test('suggestBlueprint child layers use real import weights and consistent node ids', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'import-layers' }))
+    await write(root, 'src/ignored.ts', 'export const ignored = 1\n')
+    await write(root, 'app/entry.ts', [
+      "import { x } from '../lib/x'",
+      "import { y } from '../lib/y'",
+      "import './entry'",
+      '',
+    ].join('\n'))
+    await write(root, 'lib/x.ts', 'export const x = 1\n')
+    await write(root, 'lib/y.ts', 'export const y = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    const suggestions = suggestBlueprint(scan)
+    const layer = suggestions.layers.find(item => item.letter === 'B')
+    assert.ok(layer !== undefined)
+    const diagram = layer.diagrams.find(item => item.key === 'B:module')
+    const app = layer.modules.find(module => module.name === 'app')
+    const lib = layer.modules.find(module => module.name === 'lib')
+    assert.deepEqual(app.dependsOn, [lib.id])
+    assert.deepEqual(diagram.edges, [{ from: app.id, to: lib.id, label: 'depends', kind: 'depends', weight: 2 }])
+    const nodeIds = new Set(diagram.nodes.map(node => node.id))
+    assert.deepEqual([...nodeIds].sort(), layer.modules.map(module => module.id).sort())
+    for (const edge of diagram.edges) {
+      assert.ok(nodeIds.has(edge.from) && nodeIds.has(edge.to))
+    }
+  })
+})
+
+test('suggestBlueprint falls back to package dependencies when no imports exist', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'manifest-only', workspaces: ['packages/*'] }))
+    await write(root, 'packages/a/package.json', JSON.stringify({
+      name: '@manifest/a',
+      dependencies: { '@manifest/b': '1.0.0' },
+    }))
+    await write(root, 'packages/a/src/index.ts', 'export const a = 1\n')
+    await write(root, 'packages/b/package.json', JSON.stringify({ name: '@manifest/b' }))
+    await write(root, 'packages/b/src/index.ts', 'export const b = 1\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    const suggestions = suggestBlueprint(scan)
+    const moduleA = suggestions.modules.find(module => module.name === '@manifest/a')
+    const moduleB = suggestions.modules.find(module => module.name === '@manifest/b')
+    assert.deepEqual(moduleA.dependsOn, [moduleB.id])
+    const top = suggestions.diagrams.find(diagram => diagram.key === 'module')
+    assert.ok(top.edges.some(edge => edge.from === moduleA.id && edge.to === moduleB.id && edge.weight === undefined))
+    for (const layer of suggestions.layers.slice(1)) {
+      const diagram = layer.diagrams[0]
+      const nodeIds = new Set(diagram.nodes.map(node => node.id))
+      assert.deepEqual(diagram.edges, [])
+      for (const module of layer.modules) assert.ok(nodeIds.has(module.id))
+    }
+  })
+})
+
+test('tsconfig takes precedence over jsconfig in the same directory', async () => {
+  await withRepo(async root => {
+    await write(root, 'package.json', JSON.stringify({ name: 'config-priority' }))
+    await write(root, 'jsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['js/*'] } },
+    }))
+    await write(root, 'tsconfig.json', JSON.stringify({
+      compilerOptions: { baseUrl: '.', paths: { '@/*': ['ts/*'] } },
+    }))
+    await write(root, 'src/index.ts', "import '@/x'\n")
+    await write(root, 'ts/x.ts', 'export const source = "ts"\n')
+    await write(root, 'js/x.ts', 'export const source = "js"\n')
+  }, async root => {
+    const scan = await scanWorkspace(root)
+    assert.ok(scan.imports.edges.some(edge => (
+      edge.from === 'src/index.ts' && edge.to === 'ts/x.ts' && edge.alias === true
+    )))
+    assert.ok(!scan.imports.edges.some(edge => edge.to === 'js/x.ts'))
+    assert.deepEqual(scan.imports.aliases.map(item => item.config), ['jsconfig.json', 'tsconfig.json'])
   })
 })
