@@ -575,10 +575,17 @@ function buildPreviewImports(scan, suggestions, limits) {
 }
 
 function previewModuleDiagram(suggestions) {
-  const diagrams = listOf(suggestions.diagrams)
-  return diagrams.find(diagram => textOf(diagram?.layerId).toUpperCase() === 'A' && textOf(diagram?.type).toLowerCase() === 'module')
-    ?? diagrams.find(diagram => textOf(diagram?.type).toLowerCase() === 'module')
-    ?? { key: 'module', layerId: 'A', type: 'module', title: 'Repository structure', nodes: [], edges: [] }
+  const diagrams = [
+    ...listOf(suggestions.diagrams),
+    ...listOf(suggestions.layers).flatMap(layer => listOf(layer?.diagrams)),
+  ].filter(diagram => isRecord(diagram))
+  const modules = diagrams.filter(diagram => textOf(diagram.type).toLowerCase() === 'module')
+  const root = modules.find(diagram => textOf(diagram.layerId).toUpperCase() === 'A')
+  if (root !== undefined && listOf(root.nodes).length >= 2) return root
+  const best = modules
+    .slice()
+    .sort((left, right) => listOf(right.nodes).length - listOf(left.nodes).length)[0]
+  return best ?? root ?? { key: 'module', layerId: 'A', type: 'module', title: 'Repository structure', nodes: [], edges: [] }
 }
 
 function trimPreviewDiagram(diagram, limits) {
@@ -792,10 +799,14 @@ function buildModuleDiagram(modules, layerId = 'A') {
 export function mergeScanSuggestions({ previous, suggestions } = {}) {
   const current = isRecord(previous) ? previous : undefined
   const suggested = isRecord(suggestions) ? suggestions : {}
+  const suggestedLayers = listOf(suggested.layers).filter(layer => isRecord(layer))
+  const nestedModules = suggestedLayers.flatMap(layer => listOf(layer.modules).filter(module => isRecord(module)))
+  const nestedDiagrams = suggestedLayers.flatMap(layer => listOf(layer.diagrams).filter(diagram => isRecord(diagram)))
+  const suggestedModules = [...listOf(suggested.modules).filter(module => isRecord(module)), ...nestedModules]
   const mountResult = mergeMounts(current?.mounts, suggested.mounts)
-  const moduleResult = mergeModules(current?.modules, suggested.modules)
+  const moduleResult = mergeModules(current?.modules, suggestedModules)
   const candidateModules = moduleResult.modules
-  const layerResult = mergeLayers(current?.layers, suggested.layers, candidateModules)
+  const layerResult = mergeLayers(current?.layers, suggestedLayers, candidateModules)
   const layers = layerResult.layers
   const layerLetters = new Set(layers.map(layer => layer.letter))
   // A suggested module anchored to a layer that could not be applied must not be
@@ -819,7 +830,7 @@ export function mergeScanSuggestions({ previous, suggestions } = {}) {
     diagramKeys.add(identity.key)
     return true
   }
-  const suggestedDiagrams = listOf(suggested.diagrams).filter(diagram => isRecord(diagram))
+  const suggestedDiagrams = [...listOf(suggested.diagrams).filter(diagram => isRecord(diagram)), ...nestedDiagrams]
   const suggestedAModule = suggestedDiagrams.find(diagram => {
     const identity = diagramIdentity(diagram)
     return identity.layerId === 'A' && identity.type === 'module'

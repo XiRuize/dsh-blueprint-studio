@@ -2,6 +2,16 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.15.0] — 2026-11-12
+
+### Added
+
+- **Repository metrics and health insights.** Scanner reports total/source/test/docs bytes and files, language distribution, per-package health scores, hotspots and actionable gaps (`no-tests`, `no-docs`, `no-entry`, `large-files`, `high-fanout`, `vendor-heavy`, …).
+- **File-level structure tree.** `scan.tree` exposes a depth/child-capped directory tree with entry, test and doc annotation.
+- **Relative import graph.** TS/JS, Python, Go and Rust parsers resolve local imports into file edges, unresolved references, external packages and directory-level weights.
+- **Scan preview.** `/blueprint scan preview` returns metrics, tree, import summary, layered suggestions and an inline SVG thumbnail without writing a blueprint.
+- **Layered structure apply.** `scan apply` adds A-layer package overview plus B/C child layers for package internals, with real import edges; existing modules are preserved and repeated apply is idempotent.
+
 ## [0.14.2] — 2026-11-12
 
 ### Added
