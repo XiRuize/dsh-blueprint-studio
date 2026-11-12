@@ -135,6 +135,8 @@ window.__ModuleLoader__.load({
       templatesTitle: 'Start from a template', templatesHint: 'One click creates a full draft — no AI call needed.',
       tplWeb: 'Web application', tplWebDesc: 'Frontend, backend, database and auth',
       tplPlan: 'Implementation plan', tplPlanDesc: 'Plan flowchart with decisions, groups, verification and rollback',
+      roleLegendHint: 'Click a module to focus it; click again to clear. Double-click enters the child layer.',
+      roleFrontend: 'Frontend', roleBackend: 'Backend', roleData: 'Data', roleInfra: 'Infra', roleSecurity: 'Security', roleExternal: 'External', roleTest: 'Tests', roleModule: 'Module',
       tplEcommerce: 'E-commerce admin', tplEcommerceDesc: 'Products, orders, inventory and roles',
       tplMobile: 'Mobile app', tplMobileDesc: 'React Native app with feed, offline cache and push',
       tplAgent: 'AI agent app', tplAgentDesc: 'LLM orchestration, tool calls, RAG and evals',
@@ -375,6 +377,8 @@ window.__ModuleLoader__.load({
       templatesTitle: '从模板开始', templatesHint: '一键生成完整草稿，不调用 AI。',
       tplWeb: 'Web 应用', tplWebDesc: '前端、后端、数据库与鉴权',
       tplPlan: '实施计划', tplPlanDesc: '含判断、分组、验证与回滚的计划流程图',
+      roleLegendHint: '点击模块聚焦上下游，再点一次取消；双击进入子层。',
+      roleFrontend: '前端', roleBackend: '后端', roleData: '数据', roleInfra: '基础设施', roleSecurity: '安全', roleExternal: '外部系统', roleTest: '测试', roleModule: '模块',
       tplEcommerce: '电商后台', tplEcommerceDesc: '商品、订单、库存与权限',
       tplMobile: '移动应用', tplMobileDesc: '双端 App：信息流、离线缓存与推送',
       tplAgent: 'AI Agent 应用', tplAgentDesc: '编排、工具调用、检索与评测',
@@ -4232,12 +4236,12 @@ ${task}
         [...line].reduce((sum, char) => sum + (/[\u3000-\u9fff\uff00-\uffef]/.test(char) ? 11 : 6.5), 0))) + 18)
     }
 
-    function NodeShape({ node, selected, highlighted, onPointerDown, onClick, onDoubleClick, onEnterChild, childLayer, diagramType, index, onToggleGroup }) {
+    function NodeShape({ node, selected, highlighted, dimmed, accent, onPointerDown, onClick, onDoubleClick, onEnterChild, childLayer, diagramType, index, onToggleGroup }) {
       const size = sizeOf(node)
       const w = size.w
       const height = size.h
       const meta = TYPE_META[node.type] ?? TYPE_META.usecase
-      const color = meta.color
+      const color = accent || meta.color
       const lines = wrapLines(node.label, w - 24)
       const shape = []
       const isFlowchart = diagramType === 'flowchart'
@@ -4480,7 +4484,7 @@ ${task}
       const outlineHeight = isFlowchart && node.type === 'group' && node.collapsed === true ? 40 : height
       return h('g', {
         transform: `translate(${node.x ?? 0} ${node.y ?? 0})`,
-        className: `bp-node${selected ? ' selected' : ''}${highlighted ? ' linked' : ''}`,
+        className: `bp-node${selected ? ' selected' : ''}${highlighted ? ' linked' : ''}${dimmed ? ' dimmed' : ''}`,
         onPointerDown,
         onClick,
         onDoubleClick: childLayer !== undefined && childLayer !== null ? onDoubleClick : undefined,
@@ -4735,6 +4739,33 @@ ${task}
         messages)
     }
 
+    const MODULE_ROLE_COLORS = {
+      frontend: '#38bdf8',
+      backend: '#22c55e',
+      data: '#f472b6',
+      infra: '#0ea5e9',
+      security: '#ef4444',
+      external: '#94a3b8',
+      test: '#eab308',
+      module: '#a78bfa',
+    }
+
+    function moduleRoleOf(module) {
+      const text = [
+        stringValue(module?.name),
+        stringValue(module?.summary),
+        ...(Array.isArray(module?.files) ? module.files.map(stringValue) : []),
+        stringValue(module?.execution?.adapter),
+      ].join(' ').toLowerCase()
+      if (/security|auth|permission|权限|鉴权|安全|登录/.test(text)) return 'security'
+      if (/database|postgres|mysql|sqlite|redis|store|storage|数据|存储|库/.test(text)) return 'data'
+      if (/deploy|docker|k8s|kubernetes|cloud|infra|部署|云|ci\b/.test(text)) return 'infra'
+      if (/frontend|web|react|vue|ui|页面|组件|前端|管理台/.test(text)) return 'frontend'
+      if (/api|backend|server|service|接口|后端|服务/.test(text)) return 'backend'
+      if (/test|spec|测试|验收/.test(text)) return 'test'
+      if (/external|third|外部|第三方/.test(text)) return 'external'
+      return 'module'
+    }
     function Canvas({ store }) {
       const bp = store.bp
       const diagram = currentDiagramFor(bp, store.tab, store.activeLayerId)
@@ -4747,15 +4778,26 @@ ${task}
       const dragRef = useRef(null)
       const [, force] = useState(0)
       const [hoverPoint, setHoverPoint] = useState(null)
+      const [focusNode, setFocusNode] = useState(null)
 
       useEffect(() => {
         setView(fitViewFor(diagram))
         setHoverPoint(null)
+        setFocusNode(null)
       }, [store.tab, store.activeLayerId])
 
       if (diagram === undefined) return null
       const tabKey = diagram.key
       const diagramType = diagramTypeOf(diagram)
+      const focusNeighbors = (() => {
+        if (focusNode === null) return null
+        const set = new Set([focusNode])
+        for (const edge of diagram.edges ?? []) {
+          if (edge.from === focusNode) set.add(edge.to)
+          if (edge.to === focusNode) set.add(edge.from)
+        }
+        return set
+      })()
 
       const W = 2000
       const H = 1200
@@ -4824,6 +4866,9 @@ ${task}
           return
         }
         set({ selected: { kind: 'node', id: node.id } })
+        if (diagramType === 'module' && node.type === 'module') {
+          setFocusNode(current => current === node.id ? null : node.id)
+        }
       }
 
       const addEdge = (from, to) => {
@@ -4906,9 +4951,14 @@ ${task}
               const childLayer = module === undefined
                 ? undefined
                 : (bp.layers ?? []).find(layer => layer.parentModuleId === module.id)
+              const moduleEntry = diagramType === 'module' && node.type === 'module'
+                ? (bp?.modules ?? []).find(item => item.id === node.id)
+                : null
               return h(NodeShape, {
                 key: node.id, node: displayNode,
                 diagramType,
+                accent: moduleEntry === null || moduleEntry === undefined ? undefined : MODULE_ROLE_COLORS[moduleRoleOf(moduleEntry)],
+                dimmed: focusNeighbors !== null && !focusNeighbors.has(node.id),
                 childLayer,
                 onEnterChild: childLayer === undefined ? undefined : () => activateLayer(childLayer.letter),
                 onDoubleClick: childLayer === undefined ? undefined : event => {
@@ -5475,7 +5525,32 @@ ${task}
                 h('strong', null, child.running ? t('running') : t('idle')),
                 h('span', { className: 'bp-child-time' }, new Date(child.updatedAt ?? Date.now()).toLocaleTimeString())),
               h('div', { className: 'bp-child-id' }, child.sessionId),
-              h('div', { className: 'bp-child-actions' },
+              (() => {
+              const bound = moduleMountIds(module).length > 0
+              const hint = displayStatus === 'pending'
+                ? { text: bound ? t('moduleNextPending') : t('moduleNextPending'), action: bound ? 'run' : 'bind' }
+                : displayStatus === 'running'
+                  ? { text: t('moduleNextRunning'), action: module.subagentSessionId ? 'open' : 'evidence' }
+                  : displayStatus === 'needs-rework' || displayStatus === 'blocked'
+                    ? { text: t('moduleNextRework'), action: 'evidence' }
+                    : displayStatus === 'done'
+                      ? { text: t('moduleNextDone'), action: 'evidence' }
+                      : null
+              if (hint === null) return null
+              const label = hint.action === 'bind' ? t('moduleNextBind')
+                : hint.action === 'run' ? t('moduleNextRun')
+                  : hint.action === 'open' ? t('moduleNextOpen')
+                    : t('moduleNextEvidence')
+              const run = () => {
+                if (hint.action === 'bind') set({ panel: 'workspace', focusModuleId: module.id })
+                else if (hint.action === 'run') runModule(module)
+                else if (hint.action === 'open') openChildSession(module.subagentSessionId)
+                else set({ panel: 'runs', focusRunModuleId: module.id })
+              }
+              return h('div', { className: 'bp-module-next' },
+                h('span', null, hint.text),
+                h('button', { type: 'button', className: 'bp-btn bp-mini', onClick: run }, label))
+            })(),            h('div', { className: 'bp-child-actions' },
                 h('button', { type: 'button', className: 'bp-btn', onClick: () => openChild(child) }, t('openSession')),
                 h('button', { type: 'button', className: 'bp-btn', onClick: () => copy(child) }, t('copyId'))))),
         h('div', { className: 'bp-divider' }),
@@ -5504,7 +5579,32 @@ ${task}
                 value: status,
                 disabled: status === 'done' && !verificationAllPassed(module),
               }, moduleStatusLabel(status))))),
-            h('div', { className: 'bp-child-actions' },
+            (() => {
+              const bound = moduleMountIds(module).length > 0
+              const hint = displayStatus === 'pending'
+                ? { text: bound ? t('moduleNextPending') : t('moduleNextPending'), action: bound ? 'run' : 'bind' }
+                : displayStatus === 'running'
+                  ? { text: t('moduleNextRunning'), action: module.subagentSessionId ? 'open' : 'evidence' }
+                  : displayStatus === 'needs-rework' || displayStatus === 'blocked'
+                    ? { text: t('moduleNextRework'), action: 'evidence' }
+                    : displayStatus === 'done'
+                      ? { text: t('moduleNextDone'), action: 'evidence' }
+                      : null
+              if (hint === null) return null
+              const label = hint.action === 'bind' ? t('moduleNextBind')
+                : hint.action === 'run' ? t('moduleNextRun')
+                  : hint.action === 'open' ? t('moduleNextOpen')
+                    : t('moduleNextEvidence')
+              const run = () => {
+                if (hint.action === 'bind') set({ panel: 'workspace', focusModuleId: module.id })
+                else if (hint.action === 'run') runModule(module)
+                else if (hint.action === 'open') openChildSession(module.subagentSessionId)
+                else set({ panel: 'runs', focusRunModuleId: module.id })
+              }
+              return h('div', { className: 'bp-module-next' },
+                h('span', null, hint.text),
+                h('button', { type: 'button', className: 'bp-btn bp-mini', onClick: run }, label))
+            })(),            h('div', { className: 'bp-child-actions' },
               module.subagentSessionId
                 ? h(React.Fragment, null,
                     h('button', { type: 'button', className: 'bp-btn', onClick: () => openChildSession(module.subagentSessionId) }, t('openChild')),
@@ -6938,6 +7038,18 @@ ${task}
       return elements
     }
 
+    function formatScanInsight(insight) {
+      if (insight === null || insight === undefined) return ''
+      if (typeof insight !== 'object') return String(insight)
+      const message = stringValue(insight.message) || stringValue(insight.title) || stringValue(insight.code)
+      const subjectRaw = insight.subject
+      const subject = Array.isArray(subjectRaw)
+        ? subjectRaw.map(stringValue).filter(Boolean).join(', ')
+        : stringValue(subjectRaw)
+      const fix = stringValue(insight.fix)
+      return `${message}${subject ? ` · ${subject}` : ''}${fix ? `（建议：${fix}）` : ''}`.trim()
+    }
+
     function ScanPreview({ result, t, initialExpandedPaths, initialSelectedPath, initialPreviewMode, actions }) {
       const [expandedOverrides, setExpandedOverrides] = useState(() => {
         if (Array.isArray(initialExpandedPaths)) {
@@ -7013,7 +7125,7 @@ ${task}
             : h('span', null, t('workspaceScanLanguages', { list: languages.join(' · ') }))),
         insights.length === 0 ? null : h('div', { className: 'bp-workspace-scan-insights' },
           h('span', { className: 'bp-workspace-scan-subtitle' }, t('workspaceScanInsights')),
-          h('ul', null, insights.map((insight, index) => h('li', { key: index }, insight)))),
+          h('ul', null, insights.map((insight, index) => h('li', { key: index, className: 'bp-workspace-scan-insight' }, formatScanInsight(insight))))),
         treeRows,
         selectedPath === '' ? null : h('div', { className: 'bp-workspace-scan-selected' },
           h('span', { className: 'bp-workspace-scan-selected-label' }, t('workspaceScanTreePath')),
@@ -9011,7 +9123,8 @@ ${task}
 .bp-node-option:hover{background:var(--dsw-alias-bg-layer-2)}
 .bp-node-option input{width:12px;height:12px;margin:1px 0 0;flex:0 0 auto}
 .bp-node-option .bp-node-text{display:inline;margin:0;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word}
-.bp-module-status-label{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.bp-module-next{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 2px;padding:6px 8px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.bp-btn.bp-mini{height:24px;padding:0 8px;font-size:11.5px}.bp-module-status-label{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
 .bp-module-status{width:auto;min-width:84px;max-width:118px;height:24px;padding:0 4px;font-size:10.5px}
 .bp-module-acceptance{margin-top:6px}
 .bp-acceptance-list{margin:3px 0 0;padding-left:16px;font-size:10.5px;line-height:1.45;color:var(--dsw-alias-label-secondary)}
@@ -9185,7 +9298,7 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-workspace-scan-insights ul{margin:2px 0 0;padding-left:14px;display:flex;flex-direction:column;gap:1px;max-height:76px;overflow:auto;font-size:10px}
 .bp-workspace-scan-insights li{line-height:1.4}
 .bp-workspace-scan-tree{display:flex;flex-direction:column;gap:0;max-height:210px;overflow:auto;font-size:10px;min-width:0;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:3px;background:var(--dsw-alias-bg-layer-1)}
-.bp-workspace-scan-tree-row{display:flex;align-items:center;gap:4px;min-width:0;white-space:nowrap;overflow:hidden;padding:1px 3px;border-radius:5px;cursor:pointer;line-height:1.5}
+.bp-workspace-scan-tree-row{display:flex;align-items:center;gap:4px;min-width:0;white-space:nowrap;overflow:hidden;padding:1px 3px;flex:0 0 auto;min-height:16px;line-height:16px;border-radius:5px;cursor:pointer}
 .bp-workspace-scan-tree-row:hover{background:var(--dsw-alias-bg-layer-2)}
 .bp-workspace-scan-tree-row.selected{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);color:var(--dsw-alias-label-primary)}
 .bp-workspace-scan-tree-row:focus-visible{outline:1px solid var(--dsw-alias-brand-primary);outline-offset:-1px}
@@ -9433,7 +9546,11 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-item-module{flex:0 0 auto;max-width:74px;margin-top:4px;padding:0 4px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:9px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bp-tab.missing{opacity:.55;border-style:dashed}
 .bp-tab.missing:hover{opacity:.85}
-.bp-node-enter{cursor:pointer}
+.bp-node.dimmed{opacity:.22;transition:opacity .15s}
+.bp-node{transition:opacity .15s}
+.bp-role-legend{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--dsw-alias-label-secondary);padding:0 4px}
+.bp-role-legend-item{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.bp-role-legend-item i{width:8px;height:8px;border-radius:2px;display:inline-block}.bp-node-enter{cursor:pointer}
 .bp-module-layer{display:flex;align-items:center;gap:7px;margin-top:2px;padding-top:6px;border-top:1px dashed var(--dsw-alias-border-l2)}
 .bp-module-layer .bp-btn{height:26px;font-size:10.5px;padding:0 8px}
 .bp-module-layer .bp-muted{font-size:10px}
@@ -9529,6 +9646,9 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
         layoutFlowchart,
         layoutFlowchartGroups,
         mountAccess,
+      moduleRoleOf,
+      formatScanInsight,
+      MODULE_ROLE_COLORS,
         mountFromDraft,
         mountKind,
         moduleMounts,
