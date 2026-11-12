@@ -41,6 +41,7 @@ import { buildHandoff, buildReviewPacket, exportReviewHtml } from './lib/review.
 import { buildProjectReview, exportProjectReviewHtml, readProjectBlueprints } from './lib/project-review.js'
 import { PLAN_MODE_PROMPT } from './lib/plan.js'
 import { scanWorkspace, suggestBlueprint } from './lib/scanner.js'
+import { renderDiagramSvg } from './lib/svg.js'
 
 export const name = 'blueprint-studio'
 export const inject = ['tools']
@@ -298,6 +299,579 @@ function summaryText(blueprint, path) {
   return lines.join('\n')
 }
 
+// ---------------------------------------------------------------------------
+// Scan preview / layered structure apply (v0.15).
+//
+// Both helpers are pure: they never write to disk. The Host command wraps them
+// with a scan and (for apply) a single blueprint save. Keeping them exported lets
+// tests exercise the layered contract even when lib/scanner.js still emits the
+// pre-v0.15 shape.
+// ---------------------------------------------------------------------------
+
+export const SCAN_PREVIEW_LIMITS = Object.freeze({
+  maxTreeNodes: 200,
+  maxTreeDepth: 8,
+  maxDiagramNodes: 80,
+  maxPackages: 30,
+  maxHotspots: 10,
+  maxInsights: 10,
+  maxImportsDirectories: 40,
+  maxLanguages: 12,
+})
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function listOf(value) {
+  return Array.isArray(value) ? value : []
+}
+
+function textOf(value) {
+  return value === null || value === undefined ? '' : String(value)
+}
+
+function cloneData(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
+
+function baseName(target) {
+  const parts = textOf(target).split(/[\\/]/u).filter(Boolean)
+  return parts.length === 0 ? '' : parts[parts.length - 1]
+}
+
+function testPath(relative) {
+  const value = textOf(relative)
+  return /(^|\/)(?:__tests__|tests?|specs?)\//iu.test(value)
+    || /\.(?:test|spec)\.[A-Za-z0-9]+$/u.test(value)
+}
+
+function positiveInteger(value, fallback) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
+}
+
+function normalizeLetter(value) {
+  const letter = textOf(value).trim().toUpperCase()
+  return /^[A-Z]+$/u.test(letter) && letter.length <= 2 ? letter : ''
+}
+
+function moduleReference(modules, reference) {
+  const key = textOf(reference).trim().toLowerCase()
+  if (key === '') return undefined
+  return modules.find(module => textOf(module?.id).toLowerCase() === key
+    || textOf(module?.code).toLowerCase() === key
+    || textOf(module?.name).toLowerCase() === key)
+}
+
+function languageBuckets(raw, limit) {
+  const buckets = isRecord(raw) ? raw : {}
+  const entries = Object.entries(buckets)
+    .filter(([name, value]) => name !== '' && isRecord(value))
+    .sort((left, right) => positiveInteger(right[1].bytes, 0) - positiveInteger(left[1].bytes, 0))
+  const result = {}
+  for (const [name, value] of entries.slice(0, limit)) {
+    result[name] = {
+      files: positiveInteger(value.files, 0),
+      bytes: positiveInteger(value.bytes, 0),
+    }
+  }
+  return result
+}
+
+function previewTreeEntry(raw, basePath = '') {
+  if (!isRecord(raw)) return undefined
+  const name = textOf(raw.name ?? raw.label).trim() || baseName(raw.path) || baseName(basePath)
+  if (name === '') return undefined
+  const path = textOf(raw.path).trim() || (basePath === '' ? name : `${basePath}/${name}`)
+  const children = listOf(raw.children ?? raw.items)
+    .map(child => previewTreeEntry(child, path))
+    .filter(child => child !== undefined)
+  const explicitType = textOf(raw.type).toLowerCase()
+  const type = explicitType === 'file' || explicitType === 'directory'
+    ? explicitType
+    : (children.length > 0 ? 'directory' : 'file')
+  const node = {
+    name,
+    path,
+    type,
+    children,
+    entryPoint: raw.entryPoint === true || raw.entry === true,
+    test: raw.test === true || testPath(path),
+  }
+  if (typeof raw.size === 'number' && Number.isFinite(raw.size)) node.size = raw.size
+  if (typeof raw.language === 'string' && raw.language !== '') node.language = raw.language
+  return node
+}
+
+function stripHintTree(raw) {
+  if (Array.isArray(raw)) return raw
+  if (isRecord(raw) && (Array.isArray(raw.children) || raw.name !== undefined || raw.path !== undefined)) return [raw]
+  return []
+}
+
+function buildFallbackTree(scan) {
+  const rootName = baseName(scan.root) || 'root'
+  const root = { name: rootName, path: '', type: 'directory', children: [], entryPoint: false, test: false }
+  const byPath = new Map([['', root]])
+  const ensureDirectory = relative => {
+    const value = textOf(relative).replace(/^\.\//u, '').replace(/\/+$/u, '')
+    if (value === '') return root
+    if (byPath.has(value)) return byPath.get(value)
+    const index = value.lastIndexOf('/')
+    const parent = ensureDirectory(index < 0 ? '' : value.slice(0, index))
+    const node = {
+      name: value.slice(index + 1),
+      path: value,
+      type: 'directory',
+      children: [],
+      entryPoint: false,
+      test: false,
+    }
+    parent.children.push(node)
+    byPath.set(value, node)
+    return node
+  }
+  for (const directory of listOf(scan.directories)) {
+    if (textOf(directory).trim() === '') continue
+    ensureDirectory(directory)
+  }
+  const entryPoints = new Set(listOf(scan.entryPoints).map(item => textOf(item)))
+  for (const file of listOf(scan.files)) {
+    const relative = textOf(file?.path).trim()
+    if (relative === '') continue
+    const index = relative.lastIndexOf('/')
+    const parent = ensureDirectory(index < 0 ? '' : relative.slice(0, index))
+    const node = {
+      name: relative.slice(index + 1),
+      path: relative,
+      type: 'file',
+      children: [],
+      entryPoint: entryPoints.has(relative),
+      test: testPath(relative),
+    }
+    if (typeof file.size === 'number' && Number.isFinite(file.size)) node.size = file.size
+    if (typeof file.language === 'string' && file.language !== '') node.language = file.language
+    parent.children.push(node)
+  }
+  return [root]
+}
+
+function sortTree(nodes) {
+  nodes.sort((left, right) => {
+    if (left.type !== right.type) return left.type === 'directory' ? -1 : 1
+    return left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+  })
+  for (const node of nodes) sortTree(node.children)
+  return nodes
+}
+
+function trimPreviewTree(roots, limits) {
+  const state = { count: 0, truncated: false }
+  const walk = (node, depth) => {
+    if (state.count >= limits.maxTreeNodes) {
+      state.truncated = true
+      return undefined
+    }
+    state.count += 1
+    const children = []
+    if (depth >= limits.maxTreeDepth && node.children.length > 0) {
+      state.truncated = true
+    } else {
+      for (const child of node.children) {
+        if (state.count >= limits.maxTreeNodes) {
+          state.truncated = true
+          break
+        }
+        const trimmed = walk(child, depth + 1)
+        if (trimmed !== undefined) children.push(trimmed)
+      }
+    }
+    return { ...node, children }
+  }
+  const tree = []
+  for (const root of roots) {
+    const trimmed = walk(root, 0)
+    if (trimmed === undefined) break
+    tree.push(trimmed)
+  }
+  return { tree, truncated: state.truncated }
+}
+
+function previewHealth(scan, warnings) {
+  const supplied = isRecord(scan.metrics?.health) ? scan.metrics.health : undefined
+  if (supplied !== undefined && typeof supplied.score === 'number') return supplied
+  let score = 100
+  score -= Math.min(24, warnings.length * 4)
+  const limits = isRecord(scan.limits) ? scan.limits : {}
+  if (positiveInteger(scan.fileCount, 0) >= positiveInteger(limits.maxFiles, Number.POSITIVE_INFINITY)) score -= 6
+  score = Math.max(0, Math.min(100, score))
+  const level = score >= 85 ? 'low' : score >= 60 ? 'medium' : 'high'
+  return { score, level }
+}
+
+function buildPreviewMetrics(scan, limits) {
+  const supplied = isRecord(scan.metrics) ? scan.metrics : {}
+  const files = listOf(scan.files)
+  const fileCount = positiveInteger(supplied.totals?.files, positiveInteger(scan.fileCount, files.length))
+  const totalBytes = positiveInteger(supplied.totals?.bytes, positiveInteger(scan.totalBytes, files.reduce((total, file) => total + positiveInteger(file?.size, 0), 0)))
+  const directories = positiveInteger(supplied.totals?.directories, listOf(scan.directories).length)
+  const packageCount = positiveInteger(supplied.totals?.packages, listOf(scan.packages).length)
+  const languages = languageBuckets(isRecord(supplied.languages) ? supplied.languages : scan.languages, limits.maxLanguages)
+  const suppliedPackages = listOf(supplied.packages)
+  const packages = (suppliedPackages.length > 0 ? suppliedPackages : listOf(scan.packages).map(entry => ({
+    name: textOf(entry?.name),
+    relativePath: textOf(entry?.relativePath) || '.',
+    kind: textOf(entry?.kind),
+  }))).slice(0, limits.maxPackages)
+  const suppliedHotspots = listOf(supplied.hotspots)
+  const hotspots = (suppliedHotspots.length > 0
+    ? suppliedHotspots
+    : [...files]
+        .sort((left, right) => positiveInteger(right?.size, 0) - positiveInteger(left?.size, 0))
+        .slice(0, limits.maxHotspots)
+        .map(file => ({ path: textOf(file?.path), size: positiveInteger(file?.size, 0) })))
+    .slice(0, limits.maxHotspots)
+  const warnings = listOf(scan.warnings).map(item => textOf(item)).filter(item => item !== '')
+  const suppliedInsights = listOf(supplied.insights).map(item => textOf(item)).filter(item => item !== '')
+  let insights = suppliedInsights
+  if (insights.length === 0) {
+    insights = [
+      ...warnings.slice(0, 3),
+      `扫描到 ${fileCount} 个文件、${packageCount} 个包；主要语言：${Object.keys(languages).slice(0, 3).join(', ') || '未知'}。`,
+    ]
+    if (listOf(scan.entryPoints).length > 0) insights.push(`识别出 ${listOf(scan.entryPoints).length} 个入口点。`)
+    if (listOf(scan.testCommands).length > 0) insights.push(`可用测试命令：${listOf(scan.testCommands).slice(0, 3).join('、')}。`)
+  }
+  return {
+    totals: { files: fileCount, bytes: totalBytes, directories, packages: packageCount },
+    languages,
+    packages,
+    hotspots,
+    insights: insights.slice(0, limits.maxInsights),
+    health: previewHealth(scan, warnings),
+  }
+}
+
+function buildPreviewImports(scan, suggestions, limits) {
+  const supplied = isRecord(scan.imports) ? scan.imports : {}
+  let edges
+  if (Array.isArray(supplied.edges)) edges = supplied.edges.length
+  else if (typeof supplied.edges === 'number' && Number.isFinite(supplied.edges)) edges = Math.max(0, Math.floor(supplied.edges))
+  else {
+    edges = listOf(suggestions.modules).reduce((total, module) => total + listOf(module?.dependsOn).length, 0)
+  }
+  const rawByDirectory = isRecord(supplied.byDirectory)
+    ? supplied.byDirectory
+    : isRecord(supplied.byDir) ? supplied.byDir : {}
+  const byDirectory = {}
+  for (const [key, value] of Object.entries(rawByDirectory).slice(0, limits.maxImportsDirectories)) {
+    byDirectory[key] = value
+  }
+  let external
+  if (Array.isArray(supplied.external)) external = supplied.external.length
+  else if (typeof supplied.external === 'number' && Number.isFinite(supplied.external)) external = Math.max(0, Math.floor(supplied.external))
+  else external = listOf(scan.externalDeps).length
+  return { edges, byDirectory, external }
+}
+
+function previewModuleDiagram(suggestions) {
+  const diagrams = listOf(suggestions.diagrams)
+  return diagrams.find(diagram => textOf(diagram?.layerId).toUpperCase() === 'A' && textOf(diagram?.type).toLowerCase() === 'module')
+    ?? diagrams.find(diagram => textOf(diagram?.type).toLowerCase() === 'module')
+    ?? { key: 'module', layerId: 'A', type: 'module', title: 'Repository structure', nodes: [], edges: [] }
+}
+
+function trimPreviewDiagram(diagram, limits) {
+  const source = isRecord(diagram) ? diagram : {}
+  const nodes = listOf(source.nodes).filter(node => isRecord(node)).slice(0, limits.maxDiagramNodes).map(node => cloneData(node))
+  const nodeIds = new Set(nodes.map(node => textOf(node.id)))
+  const edges = listOf(source.edges)
+    .filter(edge => isRecord(edge) && nodeIds.has(textOf(edge.from)) && nodeIds.has(textOf(edge.to)))
+    .slice(0, limits.maxDiagramNodes * 3)
+    .map(edge => cloneData(edge))
+  return {
+    key: textOf(source.key) || 'module',
+    layerId: textOf(source.layerId) || 'A',
+    type: textOf(source.type) || 'module',
+    title: textOf(source.title) || 'Repository structure',
+    nodes,
+    edges,
+  }
+}
+
+export function buildScanPreview({ scan, suggestions, limits } = {}) {
+  const source = isRecord(scan) ? scan : {}
+  const suggested = isRecord(suggestions) ? suggestions : {}
+  const mergedLimits = { ...SCAN_PREVIEW_LIMITS, ...(isRecord(limits) ? limits : {}) }
+  const provided = stripHintTree(source.tree)
+    .map(node => previewTreeEntry(node))
+    .filter(node => node !== undefined)
+  const baseTree = provided.length > 0 ? provided : buildFallbackTree(source)
+  const sorted = sortTree(baseTree)
+  const trimmed = trimPreviewTree(sorted, mergedLimits)
+  const metrics = buildPreviewMetrics(source, mergedLimits)
+  const imports = buildPreviewImports(source, suggested, mergedLimits)
+  const svg = renderDiagramSvg(trimPreviewDiagram(previewModuleDiagram(suggested), mergedLimits))
+  const layers = listOf(suggested.layers).filter(layer => normalizeLetter(layer?.letter ?? layer?.id) !== '')
+  return {
+    ok: true,
+    scan: {
+      root: textOf(source.root),
+      metrics,
+      tree: trimmed.tree,
+      languages: metrics.languages,
+      packages: metrics.packages,
+      hotspots: metrics.hotspots,
+      insights: metrics.insights,
+      imports,
+      truncated: trimmed.truncated,
+    },
+    suggestions: {
+      mounts: listOf(suggested.mounts).length,
+      modules: listOf(suggested.modules).length,
+      layers: layers.length === 0 ? 1 : layers.length,
+      diagrams: listOf(suggested.diagrams).length,
+    },
+    svg,
+  }
+}
+
+function diagramIdentity(diagram) {
+  const layerId = normalizeLetter(diagram?.layerId) || 'A'
+  const rawKey = textOf(diagram?.key)
+  let type = textOf(diagram?.type).trim().toLowerCase()
+  if (type === '' && rawKey !== '') {
+    const index = rawKey.indexOf(':')
+    type = (index < 0 ? rawKey : rawKey.slice(index + 1)).toLowerCase()
+  }
+  return { layerId, type, key: layerId === 'A' ? type : `${layerId}:${type}` }
+}
+
+function moduleNode(module) {
+  const label = `${textOf(module?.code)} ${textOf(module?.name)}`.trim()
+  return {
+    id: textOf(module?.id),
+    type: 'module',
+    label: label || textOf(module?.id),
+    moduleId: textOf(module?.id),
+  }
+}
+
+function edgeKey(edge) {
+  return `${textOf(edge?.from)}|${textOf(edge?.to)}|${textOf(edge?.kind)}`
+}
+
+function addMissingEdges(target, edges, knownNodeIds) {
+  const present = new Set(listOf(target?.edges).map(edgeKey))
+  for (const edge of listOf(edges)) {
+    if (!isRecord(edge)) continue
+    if (!knownNodeIds.has(textOf(edge.from)) || !knownNodeIds.has(textOf(edge.to))) continue
+    const key = edgeKey(edge)
+    if (present.has(key)) continue
+    present.add(key)
+    target.edges.push(cloneData(edge))
+  }
+}
+
+function mergeLayers(previousLayers, suggestedLayers, modules) {
+  const previous = listOf(previousLayers).filter(layer => normalizeLetter(layer?.letter ?? layer?.id) !== '')
+  const layers = []
+  const byLetter = new Map()
+  for (const layer of previous) {
+    const letter = normalizeLetter(layer?.letter ?? layer?.id)
+    if (byLetter.has(letter)) continue
+    const entry = {
+      letter,
+      id: letter,
+      title: textOf(layer?.title ?? layer?.name).trim() || (letter === 'A' ? 'Overview' : `Layer ${letter}`),
+      parentModuleId: letter === 'A' ? null : textOf(layer?.parentModuleId).trim() || null,
+    }
+    byLetter.set(letter, entry)
+    layers.push(entry)
+  }
+  if (!byLetter.has('A')) {
+    const root = { letter: 'A', id: 'A', title: 'Overview', parentModuleId: null }
+    byLetter.set('A', root)
+    layers.unshift(root)
+  } else {
+    const root = byLetter.get('A')
+    root.parentModuleId = null
+    layers.sort((left, right) => (left.letter === 'A' ? -1 : right.letter === 'A' ? 1 : 0))
+  }
+  const previousLetters = new Set(previous.filter(layer => normalizeLetter(layer?.letter ?? layer?.id) !== '')
+    .map(layer => normalizeLetter(layer?.letter ?? layer?.id)))
+  const pending = listOf(suggestedLayers)
+    .map(layer => {
+      const letter = normalizeLetter(layer?.letter ?? layer?.id)
+      return letter === '' || letter === 'A' || byLetter.has(letter) ? undefined : {
+        letter,
+        title: textOf(layer?.title ?? layer?.name).trim() || `Layer ${letter}`,
+        parentModuleId: textOf(layer?.parentModuleId).trim(),
+      }
+    })
+    .filter(layer => layer !== undefined)
+  let progress = true
+  while (progress) {
+    progress = false
+    for (let index = 0; index < pending.length; index += 1) {
+      const layer = pending[index]
+      const parent = moduleReference(modules, layer.parentModuleId)
+      if (parent === undefined) continue
+      if (!byLetter.has(textOf(parent.layerId).toUpperCase() || 'A')) continue
+      const entry = {
+        letter: layer.letter,
+        id: layer.letter,
+        title: layer.title,
+        parentModuleId: textOf(parent.id),
+      }
+      byLetter.set(layer.letter, entry)
+      layers.push(entry)
+      pending.splice(index, 1)
+      progress = true
+      index -= 1
+    }
+  }
+  return { layers, layersAdded: layers.filter(layer => !previousLetters.has(layer.letter)).length }
+}
+
+function mergeMounts(previousMounts, suggestedMounts) {
+  const mounts = listOf(previousMounts).filter(mount => isRecord(mount)).map(cloneData)
+  const ids = new Set(mounts.map(mount => textOf(mount.id)))
+  const added = []
+  for (const mount of listOf(suggestedMounts)) {
+    if (!isRecord(mount)) continue
+    const id = textOf(mount.id).trim()
+    if (id === '' || ids.has(id)) continue
+    ids.add(id)
+    const entry = cloneData(mount)
+    mounts.push(entry)
+    added.push(entry)
+  }
+  return { mounts, mountsAdded: added.length }
+}
+
+function mergeModules(previousModules, suggestedModules) {
+  const modules = listOf(previousModules).filter(module => isRecord(module)).map(cloneData)
+  const hasPrevious = listOf(previousModules).some(module => isRecord(module))
+  const ids = new Set(modules.map(module => textOf(module.id).toLowerCase()))
+  const codes = new Set(modules.map(module => textOf(module.code).toUpperCase()).filter(code => code !== ''))
+  const added = []
+  for (const module of listOf(suggestedModules)) {
+    if (!isRecord(module)) continue
+    const layerId = normalizeLetter(module.layerId)
+    const id = textOf(module.id).trim()
+    const code = textOf(module.code).trim().toUpperCase()
+    if (hasPrevious && (layerId === '' || layerId === 'A')) continue
+    if (id === '' || ids.has(id.toLowerCase())) continue
+    if (code !== '' && codes.has(code)) continue
+    const entry = cloneData(module)
+    modules.push(entry)
+    added.push(entry)
+    ids.add(id.toLowerCase())
+    if (code !== '') codes.add(code)
+  }
+  return { modules, modulesAdded: added.length }
+}
+
+function buildModuleDiagram(modules, layerId = 'A') {
+  const nodes = modules
+    .filter(module => (normalizeLetter(module.layerId) || 'A') === layerId)
+    .map(moduleNode)
+  const ids = new Set(nodes.map(node => node.id))
+  const edges = []
+  for (const module of modules) {
+    for (const dependency of listOf(module.dependsOn)) {
+      if (ids.has(textOf(module.id)) && ids.has(textOf(dependency))) {
+        edges.push({ from: textOf(module.id), to: textOf(dependency), label: 'depends', kind: 'depends' })
+      }
+    }
+  }
+  return { key: layerId === 'A' ? 'module' : `${layerId}:module`, layerId, type: 'module', title: 'Repository structure', nodes, edges }
+}
+
+export function mergeScanSuggestions({ previous, suggestions } = {}) {
+  const current = isRecord(previous) ? previous : undefined
+  const suggested = isRecord(suggestions) ? suggestions : {}
+  const mountResult = mergeMounts(current?.mounts, suggested.mounts)
+  const moduleResult = mergeModules(current?.modules, suggested.modules)
+  const candidateModules = moduleResult.modules
+  const layerResult = mergeLayers(current?.layers, suggested.layers, candidateModules)
+  const layers = layerResult.layers
+  const layerLetters = new Set(layers.map(layer => layer.letter))
+  // A suggested module anchored to a layer that could not be applied must not be
+  // persisted: the layered blueprint would reject it at save time.
+  const modules = candidateModules.filter(module => {
+    const layerId = normalizeLetter(module.layerId) || 'A'
+    return layerLetters.has(layerId)
+  })
+  const moduleIds = new Set(modules.map(module => textOf(module.id)))
+  const diagrams = listOf(current?.diagrams).filter(diagram => isRecord(diagram)).map(cloneData)
+  const diagramKeys = new Set(diagrams.filter(diagram => isRecord(diagram)).map(diagramIdentity).map(identity => identity.key))
+  const addDiagram = value => {
+    if (!isRecord(value)) return false
+    const identity = diagramIdentity(value)
+    if (identity.type === '' || !layerLetters.has(identity.layerId) || diagramKeys.has(identity.key)) return false
+    const entry = cloneData(value)
+    entry.key = identity.key
+    entry.layerId = identity.layerId
+    entry.type = identity.type
+    diagrams.push(entry)
+    diagramKeys.add(identity.key)
+    return true
+  }
+  const suggestedDiagrams = listOf(suggested.diagrams).filter(diagram => isRecord(diagram))
+  const suggestedAModule = suggestedDiagrams.find(diagram => {
+    const identity = diagramIdentity(diagram)
+    return identity.layerId === 'A' && identity.type === 'module'
+  })
+  const existingAModule = diagrams.find(diagram => {
+    const identity = diagramIdentity(diagram)
+    return identity.layerId === 'A' && identity.type === 'module'
+  })
+  if (existingAModule !== undefined) {
+    // Existing A modules stay; imported edges from the fresh scan are preferred,
+    // and module.dependsOn fills any relationship the import scan did not catch.
+    const nodes = listOf(existingAModule.nodes).filter(node => isRecord(node))
+    existingAModule.nodes = nodes
+    const nodeIds = new Set(nodes.map(node => textOf(node.id)))
+    const rootModules = modules.filter(module => (normalizeLetter(module.layerId) || 'A') === 'A')
+    for (const module of rootModules) {
+      const id = textOf(module.id)
+      if (id === '' || nodeIds.has(id)) continue
+      nodes.push(moduleNode(module))
+      nodeIds.add(id)
+    }
+    existingAModule.edges = listOf(existingAModule.edges).filter(edge => isRecord(edge))
+    const known = nodeIds
+    addMissingEdges(existingAModule, suggestedAModule?.edges, known)
+    for (const module of rootModules) {
+      const dependencies = listOf(module.dependsOn)
+      addMissingEdges(existingAModule, dependencies.map(dependency => ({
+        from: textOf(module.id), to: textOf(dependency), label: 'depends', kind: 'depends',
+      })), known)
+    }
+  } else if (suggestedAModule !== undefined) {
+    addDiagram(suggestedAModule)
+  } else if (modules.length > 0) {
+    addDiagram(buildModuleDiagram(modules, 'A'))
+  }
+  for (const diagram of suggestedDiagrams) {
+    const identity = diagramIdentity(diagram)
+    if (identity.layerId === 'A' && identity.type === 'module') continue
+    addDiagram(diagram)
+  }
+  return {
+    layers,
+    modules,
+    diagrams,
+    mounts: mountResult.mounts,
+    layersAdded: layerResult.layersAdded,
+    modulesAdded: Math.max(0, modules.length - listOf(current?.modules).length),
+    diagramsAdded: diagrams.length - listOf(current?.diagrams).length,
+    mountsAdded: mountResult.mountsAdded,
+  }
+}
+
 export function apply(ctx, rawConfig) {
   const config = objectArgs(rawConfig)
   const workingDirectory = ctx.get('workingDirectory')
@@ -487,7 +1061,7 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比、恢复、导出、评审交接、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | scan | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | scan [preview|apply] | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -1037,65 +1611,43 @@ export function apply(ctx, rawConfig) {
           }
           if (sub === 'scan') {
             const mode = String(rest[0] ?? '').trim()
+            if (mode === 'preview') {
+              try {
+                const cwd = await cwdOf(invocation.agent)
+                const scan = await scanWorkspace(cwd)
+                const suggestions = suggestBlueprint(scan)
+                const preview = buildScanPreview({ scan, suggestions })
+                return { kind: 'success', text: JSON.stringify(preview) }
+              } catch (error) {
+                return { kind: 'error', text: `扫描预览失败：${errorMessage(error)}` }
+              }
+            }
             if (mode === 'apply') {
               try {
                 const { file, raw } = await readCurrent(invocation.agent)
                 const scan = await scanWorkspace(file.cwd)
                 const suggestions = suggestBlueprint(scan)
                 const previous = raw === undefined ? undefined : normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
-                const existingMounts = previous === undefined ? [] : (previous.mounts ?? [])
-                const existingIds = new Set(existingMounts.map(mount => mount.id))
-                const addedMounts = (suggestions.mounts ?? []).filter(mount => !existingIds.has(mount.id))
-                const modules = previous !== undefined && previous.modules.length > 0
-                  ? previous.modules
-                  : (suggestions.modules ?? [])
-                const diagrams = previous === undefined ? [...(suggestions.diagrams ?? [])] : [...previous.diagrams]
-                let diagramsAdded = previous === undefined ? diagrams.length : 0
-                if (!diagrams.some(diagram => diagram.type === 'module' || diagram.key === 'module')) {
-                  if (modules.length > 0) {
-                    const nodes = modules.map(module => ({
-                      id: module.id,
-                      type: 'module',
-                      label: `${module.code ?? ''} ${module.name ?? ''}`.trim() || module.id,
-                      moduleId: module.id,
-                    }))
-                    const edges = []
-                    for (const module of modules) {
-                      for (const dependency of module.dependsOn ?? []) {
-                        if (nodes.some(node => node.id === dependency)) {
-                          edges.push({ from: module.id, to: dependency, label: 'depends', kind: 'depends' })
-                        }
-                      }
-                    }
-                    diagrams.push({ key: 'module', layerId: 'A', type: 'module', title: 'Repository structure', nodes, edges })
-                    diagramsAdded += 1
-                  }
-                }
-                if (!diagrams.some(diagram => diagram.type === 'c4' || diagram.key === 'c4')) {
-                  const c4 = (suggestions.diagrams ?? []).find(diagram => diagram.type === 'c4' || diagram.key === 'c4')
-                  if (c4 !== undefined) {
-                    diagrams.push(c4)
-                    diagramsAdded += 1
-                  }
-                }
-                const title = previous?.title || String(scan.root).split(/[\\/]/u).pop() || 'Repository structure'
+                const merged = mergeScanSuggestions({ previous, suggestions })
+                const title = previous?.title || baseName(scan.root) || 'Repository structure'
                 const input = previous === undefined
                   ? {
                       title,
                       summary: 'Repository structure generated by workspace scan; refine before confirmation.',
                       prompt: 'Understand the existing repository structure and module dependencies before changing code.',
                       status: 'draft',
-                      layers: [{ letter: 'A', title: 'Overview', parentModuleId: null }],
+                      layers: merged.layers,
                       sections: SECTION_DEFS.map(def => ({ key: def.key, title: def.title, items: [] })),
-                      mounts: suggestions.mounts ?? [],
-                      modules,
-                      diagrams,
+                      mounts: merged.mounts,
+                      modules: merged.modules,
+                      diagrams: merged.diagrams,
                     }
                   : {
                       ...previous,
-                      mounts: [...existingMounts, ...addedMounts],
-                      modules,
-                      diagrams,
+                      layers: merged.layers,
+                      mounts: merged.mounts,
+                      modules: merged.modules,
+                      diagrams: merged.diagrams,
                     }
                 const saved = await saveBlueprintFromCommand({
                   cwd: file.cwd,
@@ -1108,9 +1660,10 @@ export function apply(ctx, rawConfig) {
                   kind: 'success',
                   text: JSON.stringify({
                     ok: true,
-                    mountsAdded: addedMounts.length,
-                    modulesAdded: previous === undefined ? modules.length : 0,
-                    diagramsAdded,
+                    mountsAdded: merged.mountsAdded,
+                    modulesAdded: merged.modulesAdded,
+                    layersAdded: merged.layersAdded,
+                    diagramsAdded: merged.diagramsAdded,
                     path: file.relative,
                     updatedAt: saved.blueprint.updatedAt,
                   }),
@@ -1120,7 +1673,7 @@ export function apply(ctx, rawConfig) {
               }
             }
             if (mode !== '') {
-              return { kind: 'error', text: `未知 scan 参数：${mode}。用法：/blueprint scan` }
+              return { kind: 'error', text: `未知 scan 参数：${mode}。用法：/blueprint scan [preview|apply]` }
             }
             try {
               const cwd = await cwdOf(invocation.agent)
