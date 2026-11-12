@@ -3,6 +3,7 @@ import test from 'node:test'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import vm from 'node:vm'
 
 import {
   SCAN_PREVIEW_LIMITS,
@@ -61,6 +62,72 @@ function setupPlugin(cwd) {
 function countTreeNodes(nodes) {
   if (!Array.isArray(nodes)) return 0
   return nodes.reduce((total, node) => total + 1 + countTreeNodes(node?.children), 0)
+}
+
+async function loadClient() {
+  const source = await fs.readFile(new URL('../client.js', import.meta.url), 'utf8')
+  let captured
+  const window = { __ModuleLoader__: { load(definition) { captured = definition } } }
+  vm.runInNewContext(source, { window, console }, { filename: 'client.js' })
+  assert.ok(captured, 'client.js should register a module factory')
+  const React = {
+    Component: class Component {
+      constructor(props) { this.props = props; this.state = {} }
+      setState(patch) { this.state = { ...this.state, ...patch } }
+    },
+    Fragment: Symbol('Fragment'),
+    createElement(type, props, ...children) { return { type, props: props ?? {}, children } },
+    useState(initial) { return [typeof initial === 'function' ? initial() : initial, () => {}] },
+    useEffect() {},
+    useRef() { return { current: null } },
+    useMemo(callback) { return callback() },
+    useSyncExternalStore() { return undefined },
+  }
+  const client = captured.factory(name => {
+    if (name === 'react') return React
+    throw new Error(`unexpected require: ${name}`)
+  })
+  return client
+}
+
+function walkElements(element, visit) {
+  if (element === null || element === undefined || typeof element !== 'object') return
+  if (Array.isArray(element)) {
+    for (const item of element) walkElements(item, visit)
+    return
+  }
+  visit(element)
+  for (const child of element.children ?? []) walkElements(child, visit)
+}
+
+function findElement(element, predicate) {
+  let found = null
+  walkElements(element, item => { if (found === null && predicate(item)) found = item })
+  return found
+}
+
+function elementText(element) {
+  if (element === null || element === undefined || element === false) return ''
+  if (typeof element === 'string' || typeof element === 'number') return String(element)
+  if (Array.isArray(element)) return element.map(elementText).join('')
+  return (element.children ?? []).map(elementText).join('')
+}
+
+function scanTreeFixture() {
+  return [{
+    name: 'src', path: 'src', type: 'directory', children: [
+      {
+        name: 'app', path: 'src/app', type: 'directory', children: [
+          {
+            name: 'deep', path: 'src/app/deep', type: 'directory', children: [
+              { name: 'main.js', path: 'src/app/deep/main.js', type: 'file', entryPoint: true, children: [] },
+            ],
+          },
+        ],
+      },
+      { name: 'index.js', path: 'src/index.js', type: 'file', test: true, entryPoint: true, children: [] },
+    ],
+  }, { name: 'README.md', path: 'README.md', type: 'file', children: [] }]
 }
 
 function layeredSuggestions() {
@@ -130,12 +197,16 @@ test('scan preview returns metrics, tree, imports and a Host SVG without writing
     assert.equal(payload.scan.root, path.resolve(root))
     assert.match(payload.svg, /<svg/u)
     assert.match(payload.svg, /<\/svg>/u)
+    assert.match(payload.importSvg, /<svg/u)
+    assert.match(payload.importSvg, /<\/svg>/u)
     assert.equal(typeof payload.scan.metrics.totals.files, 'number')
     assert.ok(payload.scan.metrics.totals.files >= 5)
     assert.equal(typeof payload.scan.metrics.health.score, 'number')
     assert.ok(payload.scan.metrics.insights.length > 0)
     assert.equal(typeof payload.scan.imports.edges, 'number')
     assert.equal(typeof payload.scan.imports.external, 'number')
+    assert.ok(Array.isArray(payload.scan.imports.aliases))
+    assert.equal(typeof payload.scan.imports.byDirectory, 'object')
     assert.ok(Array.isArray(payload.scan.tree))
     assert.ok(countTreeNodes(payload.scan.tree) > 0)
     // The pre-v0.15 scanner has no layer suggestions; A is still reported.
@@ -154,6 +225,168 @@ test('scan preview returns metrics, tree, imports and a Host SVG without writing
     plugin.dispose()
     await fs.rm(root, { recursive: true, force: true })
   }
+})
+
+test('scan preview builds an import graph fallback from edges and escapes labels', () => {
+  const scan = {
+    root: '/synthetic/imports',
+    metrics: { totals: { files: 3, bytes: 90, directories: 3, packages: 1 } },
+    tree: [{ name: 'src', path: 'src', type: 'directory', children: [] }],
+    imports: {
+      edges: [
+        { from: 'src/<script>/a.js', to: 'lib/b.js', kind: 'import' },
+        { from: 'lib/b.js', to: 'src/<script>/a.js', kind: 'import' },
+      ],
+      external: ['react'],
+    },
+  }
+  const preview = buildScanPreview({ scan, suggestions: {} })
+  assert.match(preview.importSvg, /<svg/u)
+  assert.ok(!preview.importSvg.includes('<script>'), 'directory labels must stay escaped')
+  assert.ok(preview.importSvg.includes('&lt;script&gt;'), 'escaped directory label is visible')
+  assert.equal(preview.scan.imports.edges, 2)
+  assert.equal(preview.scan.imports.external, 1)
+  assert.deepEqual(preview.scan.imports.aliases, [])
+  assert.equal(typeof preview.scan.imports.byDirectory, 'object')
+})
+
+test('scan preview summarizes array byDirectory and aliases without changing module svg', () => {
+  const scan = {
+    root: '/synthetic/aliases',
+    metrics: { totals: { files: 2, bytes: 10, directories: 2, packages: 1 } },
+    tree: [],
+    imports: {
+      byDirectory: [
+        { from: 'src', to: 'lib', weight: 4 },
+        { from: 'lib', to: 'src', weight: 1 },
+      ],
+      external: ['react', 'node:fs'],
+      aliases: [{ alias: '@app', prefix: 'src' }],
+    },
+  }
+  const suggestions = {
+    layers: [{ letter: 'A', title: 'Overview', parentModuleId: null }],
+    modules: [{ id: 'src', name: 'src', code: 'A1', layerId: 'A' }],
+    diagrams: [{
+      key: 'module', layerId: 'A', type: 'module', title: 'Structure',
+      nodes: [{ id: 'src', type: 'module', label: 'src' }], edges: [],
+    }],
+  }
+  const preview = buildScanPreview({ scan, suggestions })
+  assert.equal(preview.scan.imports.byDirectory['src → lib'], 4)
+  assert.ok(preview.scan.imports.aliases.includes('@app'))
+  assert.equal(preview.scan.imports.external, 2)
+  assert.match(preview.svg, /<svg/u)
+  assert.match(preview.importSvg, /<svg/u)
+  assert.match(preview.importSvg, /src/u)
+  assert.match(preview.importSvg, /lib/u)
+})
+
+test('client tree helpers default to two levels, respect flags and cap rendering', async () => {
+  const client = await loadClient()
+  const { defaultScanTreeExpanded, flattenScanTree, scanDocPath, scanTreeIsExpanded } = client.__test
+  const tree = scanTreeFixture()
+  const defaults = defaultScanTreeExpanded(tree)
+  assert.ok(defaults.has('src'))
+  assert.ok(defaults.has('src/app'))
+  assert.ok(!defaults.has('src/app/deep'), 'third-level directory is collapsed by default')
+
+  const initial = flattenScanTree(tree, { defaults, limit: client.__test.SCAN_TREE_RENDER_LIMIT })
+  assert.deepEqual([...initial.rows.map(row => row.path)], [
+    'src', 'src/app', 'src/app/deep', 'src/index.js', 'README.md',
+  ])
+  assert.equal(initial.hidden, 0)
+  assert.ok(initial.rows[0].expanded)
+  assert.ok(initial.rows[2].hasChildren)
+  assert.ok(!initial.rows[2].expanded)
+
+  const all = flattenScanTree(tree, {
+    expanded: new Set(['src', 'src/app', 'src/app/deep']),
+    limit: client.__test.SCAN_TREE_RENDER_LIMIT,
+  })
+  assert.ok(all.rows.some(row => row.path === 'src/app/deep/main.js'))
+  assert.ok(scanTreeIsExpanded('src/app', new Set(['src/app']), defaults))
+
+  const capped = flattenScanTree(tree, { defaults, limit: 2 })
+  assert.equal(capped.rows.length, 2)
+  assert.equal(capped.hidden, 3)
+  assert.equal(capped.limited, true)
+
+  assert.equal(scanDocPath('README.md'), true)
+  assert.equal(scanDocPath('docs/guide.txt'), true)
+  assert.equal(scanDocPath('src/index.js'), false)
+
+  const many = Array.from({ length: 250 }, (_, index) => ({
+    name: `file-${index}.js`, path: `file-${index}.js`, type: 'file', children: [],
+  }))
+  const wide = client.__test.ScanPreview({
+    result: {
+      ok: true,
+      scan: { tree: many, metrics: { totals: { files: 250 }, insights: [] } },
+      suggestions: { mounts: 0, modules: 0 },
+      svg: '<svg id="module"></svg>',
+      importSvg: '<svg id="import"></svg>',
+    },
+    t: (key, vars) => `${key}${vars === undefined ? '' : JSON.stringify(vars)}`,
+  })
+  const more = findElement(wide, item => String(item.props?.className ?? '').includes('bp-workspace-scan-more'))
+  assert.ok(more, 'overflow notice renders')
+  assert.match(elementText(more), /50/u)
+})
+
+test('client scan preview renders expandable tree, selection and both Host SVG previews', async () => {
+  const client = await loadClient()
+  const { ScanPreview } = client.__test
+  const result = {
+    ok: true,
+    scan: {
+      tree: scanTreeFixture(),
+      metrics: {
+        totals: { files: 5, bytes: 2048, packages: 1 },
+        languages: { js: { files: 3, bytes: 1024 } },
+        insights: ['entry detected'],
+        health: { score: 92, level: 'low' },
+      },
+    },
+    suggestions: { mounts: 1, modules: 1 },
+    svg: '<svg id="module-graph"></svg>',
+    importSvg: '<svg id="import-graph"></svg>',
+  }
+  const t = (key, vars) => `${key}${vars === undefined ? '' : JSON.stringify(vars)}`
+  const element = ScanPreview({
+    result,
+    t,
+    initialSelectedPath: 'src/index.js',
+    initialPreviewMode: 'import',
+  })
+  const text = elementText(element)
+  assert.match(text, /workspaceScanTree/)
+  assert.match(text, /app/)
+  assert.match(text, /deep/)
+  assert.ok(!text.includes('main.js'), 'default tree stops at the second expanded level')
+  assert.match(text, /workspaceScanEntry/)
+  assert.match(text, /workspaceScanTest/)
+  assert.match(text, /workspaceScanDoc/)
+  assert.match(text, /workspaceScanImportGraph/)
+  assert.match(text, /src\/index\.js/)
+  assert.match(text, /workspaceScanCopy/)
+
+  const selected = findElement(element, item => String(item.props?.className ?? '').includes('bp-workspace-scan-tree-row selected'))
+  assert.ok(selected, 'selected file row is highlighted')
+  assert.equal(selected.props['aria-selected'], 'true')
+
+  const importSvg = findElement(element, item => String(item.props?.dangerouslySetInnerHTML?.__html ?? '').includes('id="import-graph"'))
+  assert.ok(importSvg, 'import preview renders the Host SVG')
+
+  const expanded = ScanPreview({
+    result,
+    t,
+    initialExpandedPaths: ['src/app/deep'],
+    initialPreviewMode: 'module',
+  })
+  assert.match(elementText(expanded), /main\.js/)
+  const moduleSvg = findElement(expanded, item => String(item.props?.dangerouslySetInnerHTML?.__html ?? '').includes('id="module-graph"'))
+  assert.ok(moduleSvg, 'module preview renders the Host SVG')
 })
 
 test('scan preview trims oversized trees and diagrams but keeps suggestion counts', async () => {

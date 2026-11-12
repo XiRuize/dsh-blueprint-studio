@@ -41,6 +41,7 @@ import { buildHandoff, buildReviewPacket, exportReviewHtml } from './lib/review.
 import { buildProjectReview, exportProjectReviewHtml, readProjectBlueprints } from './lib/project-review.js'
 import { PLAN_MODE_PROMPT } from './lib/plan.js'
 import { scanWorkspace, suggestBlueprint } from './lib/scanner.js'
+import * as scannerApi from './lib/scanner.js'
 import { renderDiagramSvg } from './lib/svg.js'
 
 export const name = 'blueprint-studio'
@@ -312,10 +313,13 @@ export const SCAN_PREVIEW_LIMITS = Object.freeze({
   maxTreeNodes: 200,
   maxTreeDepth: 8,
   maxDiagramNodes: 80,
+  maxImportDiagramNodes: 40,
+  maxImportDiagramEdges: 80,
+  maxImportsDirectories: 40,
+  maxImportAliases: 24,
   maxPackages: 30,
   maxHotspots: 10,
   maxInsights: 10,
-  maxImportsDirectories: 40,
   maxLanguages: 12,
 })
 
@@ -552,6 +556,25 @@ function buildPreviewMetrics(scan, limits) {
   }
 }
 
+function importAliasList(raw, limits) {
+  const values = []
+  const push = value => {
+    const text = textOf(value).trim()
+    if (text !== '') values.push(text)
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (isRecord(item)) push(item.alias ?? item.prefix ?? item.from ?? item.name ?? item.path)
+      else push(item)
+    }
+  } else if (isRecord(raw)) {
+    for (const key of Object.keys(raw)) push(key)
+  } else {
+    push(raw)
+  }
+  return [...new Set(values)].slice(0, limits.maxImportAliases)
+}
+
 function buildPreviewImports(scan, suggestions, limits) {
   const supplied = isRecord(scan.imports) ? scan.imports : {}
   let edges
@@ -562,16 +585,171 @@ function buildPreviewImports(scan, suggestions, limits) {
   }
   const rawByDirectory = isRecord(supplied.byDirectory)
     ? supplied.byDirectory
-    : isRecord(supplied.byDir) ? supplied.byDir : {}
+    : Array.isArray(supplied.byDirectory)
+      ? supplied.byDirectory
+      : isRecord(supplied.byDir) ? supplied.byDir : Array.isArray(supplied.byDir) ? supplied.byDir : []
   const byDirectory = {}
-  for (const [key, value] of Object.entries(rawByDirectory).slice(0, limits.maxImportsDirectories)) {
-    byDirectory[key] = value
+  if (Array.isArray(rawByDirectory)) {
+    for (const item of rawByDirectory.slice(0, limits.maxImportsDirectories)) {
+      if (!isRecord(item)) continue
+      const from = textOf(item.from).trim() || '.'
+      const to = textOf(item.to).trim() || '.'
+      byDirectory[`${from} → ${to}`] = positiveInteger(item.weight, 1)
+    }
+  } else {
+    for (const [key, value] of Object.entries(rawByDirectory).slice(0, limits.maxImportsDirectories)) {
+      byDirectory[key] = value
+    }
   }
   let external
   if (Array.isArray(supplied.external)) external = supplied.external.length
   else if (typeof supplied.external === 'number' && Number.isFinite(supplied.external)) external = Math.max(0, Math.floor(supplied.external))
   else external = listOf(scan.externalDeps).length
-  return { edges, byDirectory, external }
+  const aliases = importAliasList(supplied.aliases ?? supplied.alias ?? scan.aliases, limits)
+  return { edges, byDirectory, external, aliases }
+}
+
+function directoryLabel(directory, rootName) {
+  const value = textOf(directory).trim() || '.'
+  const label = value === '.' || value === '' ? (rootName || 'root') : value
+  return label.length > 64 ? `${label.slice(0, 61)}...` : label
+}
+
+function importDirectoryPairs(scan) {
+  const supplied = isRecord(scan.imports) ? scan.imports : {}
+  const pairs = new Map()
+  const add = (from, to, weight) => {
+    const left = textOf(from).trim() || '.'
+    const right = textOf(to).trim() || '.'
+    if (left === right) return
+    const key = `${left}|${right}`
+    const bucket = pairs.get(key)
+    const value = positiveInteger(weight, 1) || 1
+    if (bucket === undefined) pairs.set(key, { from: left, to: right, weight: value })
+    else bucket.weight += value
+  }
+  const rawByDirectory = supplied.byDirectory ?? supplied.byDir
+  if (Array.isArray(rawByDirectory)) {
+    for (const item of rawByDirectory) {
+      if (isRecord(item)) add(item.from, item.to, item.weight)
+    }
+  } else if (isRecord(rawByDirectory)) {
+    for (const item of Object.values(rawByDirectory)) {
+      if (isRecord(item) && item.from !== undefined && item.to !== undefined) add(item.from, item.to, item.weight)
+    }
+  }
+  if (pairs.size === 0 && Array.isArray(supplied.edges)) {
+    for (const edge of supplied.edges) {
+      if (!isRecord(edge)) continue
+      const fromDirectory = textOf(edge.from).includes('/')
+        ? textOf(edge.from).split('/').slice(0, -1).join('/') || '.'
+        : '.'
+      const toDirectory = textOf(edge.to).includes('/')
+        ? textOf(edge.to).split('/').slice(0, -1).join('/') || '.'
+        : '.'
+      add(fromDirectory, toDirectory, edge.weight)
+    }
+  }
+  return pairs
+}
+
+function buildFallbackImportDiagram(scan, limits) {
+  const rootName = baseName(scan.root) || 'root'
+  const pairs = importDirectoryPairs(scan)
+  const weights = new Map()
+  const bump = (directory, direction, weight) => {
+    const bucket = weights.get(directory) ?? { incoming: 0, outgoing: 0, total: 0 }
+    bucket[direction] += weight
+    bucket.total += weight
+    weights.set(directory, bucket)
+  }
+  for (const pair of pairs.values()) {
+    bump(pair.from, 'outgoing', pair.weight)
+    bump(pair.to, 'incoming', pair.weight)
+  }
+  const directories = [...weights.entries()]
+    .sort((left, right) => right[1].total - left[1].total || (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
+    .slice(0, limits.maxImportDiagramNodes)
+    .map(([directory]) => directory)
+  const nodeIds = new Map(directories.map((directory, index) => [directory, `dir-${index}`]))
+  const nodes = directories.map(directory => {
+    const bucket = weights.get(directory) ?? { incoming: 0, outgoing: 0 }
+    return {
+      id: nodeIds.get(directory),
+      type: 'module',
+      label: directoryLabel(directory, rootName),
+      technology: `${bucket.incoming} in / ${bucket.outgoing} out`,
+    }
+  })
+  const edges = [...pairs.values()]
+    .filter(pair => nodeIds.has(pair.from) && nodeIds.has(pair.to))
+    .sort((left, right) => right.weight - left.weight
+      || (left.from < right.from ? -1 : left.from > right.from ? 1 : 0)
+      || (left.to < right.to ? -1 : left.to > right.to ? 1 : 0))
+    .slice(0, limits.maxImportDiagramEdges)
+    .map(pair => ({
+      from: nodeIds.get(pair.from),
+      to: nodeIds.get(pair.to),
+      label: pair.weight > 1 ? String(pair.weight) : '',
+      kind: 'depends',
+    }))
+  return {
+    key: 'import-graph',
+    layerId: 'A',
+    type: 'module',
+    title: 'Import graph',
+    nodes,
+    edges,
+  }
+}
+
+function scannerImportDiagram(scan, limits) {
+  // The scanner-side builder can land later (same release train, different
+  // worktree). A namespace import lets us prefer it without a brittle dynamic
+  // import, and the local directory aggregation is the always-available
+  // fallback.
+  if (typeof scannerApi.buildImportDiagram !== 'function') return undefined
+  const attempts = [
+    () => scannerApi.buildImportDiagram(scan),
+    () => scannerApi.buildImportDiagram(scan, limits),
+    () => scannerApi.buildImportDiagram(scan.imports),
+  ]
+  for (const attempt of attempts) {
+    try {
+      const candidate = attempt()
+      if (!isRecord(candidate)) continue
+      if (Array.isArray(candidate.nodes)) return candidate
+      if (isRecord(candidate.diagram) && Array.isArray(candidate.diagram.nodes)) return candidate.diagram
+      if (Array.isArray(candidate.diagrams)) {
+        const diagram = candidate.diagrams.find(item => isRecord(item) && Array.isArray(item.nodes))
+        if (diagram !== undefined) return diagram
+      }
+    } catch {
+      // Try the next supported signature, then fall back to local aggregation.
+    }
+  }
+  return undefined
+}
+
+function buildImportPreviewSvg(scan, limits) {
+  try {
+    const diagram = scannerImportDiagram(scan, limits) ?? buildFallbackImportDiagram(scan, limits)
+    const trimmed = trimPreviewDiagram(diagram, limits, {
+      maxNodes: limits.maxImportDiagramNodes,
+      maxEdges: limits.maxImportDiagramEdges,
+      key: 'import-graph',
+      title: 'Import graph',
+    })
+    return renderDiagramSvg(trimmed, { maxNodes: limits.maxImportDiagramNodes })
+  } catch {
+    return renderDiagramSvg({
+      key: 'import-graph',
+      type: 'module',
+      title: 'Import graph',
+      nodes: [],
+      edges: [],
+    })
+  }
 }
 
 function previewModuleDiagram(suggestions) {
@@ -588,19 +766,21 @@ function previewModuleDiagram(suggestions) {
   return best ?? root ?? { key: 'module', layerId: 'A', type: 'module', title: 'Repository structure', nodes: [], edges: [] }
 }
 
-function trimPreviewDiagram(diagram, limits) {
+function trimPreviewDiagram(diagram, limits, options = {}) {
   const source = isRecord(diagram) ? diagram : {}
-  const nodes = listOf(source.nodes).filter(node => isRecord(node)).slice(0, limits.maxDiagramNodes).map(node => cloneData(node))
+  const maxNodes = positiveInteger(options.maxNodes, limits.maxDiagramNodes)
+  const maxEdges = positiveInteger(options.maxEdges, maxNodes * 3)
+  const nodes = listOf(source.nodes).filter(node => isRecord(node)).slice(0, maxNodes).map(node => cloneData(node))
   const nodeIds = new Set(nodes.map(node => textOf(node.id)))
   const edges = listOf(source.edges)
     .filter(edge => isRecord(edge) && nodeIds.has(textOf(edge.from)) && nodeIds.has(textOf(edge.to)))
-    .slice(0, limits.maxDiagramNodes * 3)
+    .slice(0, maxEdges)
     .map(edge => cloneData(edge))
   return {
-    key: textOf(source.key) || 'module',
+    key: textOf(source.key) || textOf(options.key) || 'module',
     layerId: textOf(source.layerId) || 'A',
     type: textOf(source.type) || 'module',
-    title: textOf(source.title) || 'Repository structure',
+    title: textOf(source.title) || textOf(options.title) || 'Repository structure',
     nodes,
     edges,
   }
@@ -619,6 +799,7 @@ export function buildScanPreview({ scan, suggestions, limits } = {}) {
   const metrics = buildPreviewMetrics(source, mergedLimits)
   const imports = buildPreviewImports(source, suggested, mergedLimits)
   const svg = renderDiagramSvg(trimPreviewDiagram(previewModuleDiagram(suggested), mergedLimits))
+  const importSvg = buildImportPreviewSvg(source, mergedLimits)
   const layers = listOf(suggested.layers).filter(layer => normalizeLetter(layer?.letter ?? layer?.id) !== '')
   return {
     ok: true,
@@ -640,6 +821,7 @@ export function buildScanPreview({ scan, suggestions, limits } = {}) {
       diagrams: listOf(suggested.diagrams).length,
     },
     svg,
+    importSvg,
   }
 }
 
