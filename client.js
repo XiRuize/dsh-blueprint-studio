@@ -162,8 +162,15 @@ window.__ModuleLoader__.load({
       workspaceScanHealth: 'Health {score} · risk {risk}',
       workspaceScanInsights: 'Insights',
       workspaceScanTree: 'File tree',
-      workspaceScanTreeMore: '{count} more rows hidden',
-      workspaceScanEntry: 'entry', workspaceScanTest: 'test',
+      workspaceScanTreeMore: '{count} more nodes',
+      workspaceScanEntry: 'entry', workspaceScanTest: 'test', workspaceScanDoc: 'doc',
+      workspaceScanToggle: 'Expand or collapse',
+      workspaceScanTreePath: 'Selected path',
+      workspaceScanCopy: 'Copy path', workspaceScanCopied: 'Path copied',
+      workspaceScanCopyFailed: 'Could not copy the path',
+      workspaceScanModuleGraph: 'Module graph', workspaceScanImportGraph: 'Import graph',
+      workspaceScanNoModuleGraph: 'No module graph available',
+      workspaceScanNoImportGraph: 'No import graph available',
       workspaceRiskLow: 'low', workspaceRiskMedium: 'medium', workspaceRiskHigh: 'high',
       workspaceEmpty: 'No workspace mounts yet. Add the first mount to bind folders, repositories or archives to modules.',
       workspaceAddFirstMount: 'Add the first mount', workspaceAddMount: 'Add mount',
@@ -383,8 +390,15 @@ window.__ModuleLoader__.load({
       workspaceScanHealth: '健康分 {score} · 风险 {risk}',
       workspaceScanInsights: '洞察',
       workspaceScanTree: '文件树',
-      workspaceScanTreeMore: '另隐藏 {count} 行',
-      workspaceScanEntry: '入口', workspaceScanTest: '测试',
+      workspaceScanTreeMore: '还有 {count} 个节点',
+      workspaceScanEntry: '入口', workspaceScanTest: '测试', workspaceScanDoc: '文档',
+      workspaceScanToggle: '展开或折叠',
+      workspaceScanTreePath: '选中路径',
+      workspaceScanCopy: '复制路径', workspaceScanCopied: '路径已复制',
+      workspaceScanCopyFailed: '复制路径失败',
+      workspaceScanModuleGraph: '模块图', workspaceScanImportGraph: '导入图',
+      workspaceScanNoModuleGraph: '暂无模块图',
+      workspaceScanNoImportGraph: '暂无导入图',
       workspaceRiskLow: '低', workspaceRiskMedium: '中', workspaceRiskHigh: '高',
       workspaceEmpty: '还没有工作区挂载。添加第一个挂载，把文件夹、仓库或归档绑定到模块。',
       workspaceAddFirstMount: '添加第一个挂载', workspaceAddMount: '添加挂载',
@@ -6253,6 +6267,290 @@ ${task}
             h('button', { type: 'button', className: 'bp-btn bp-primary', disabled: text.trim() === '', onClick: run }, t('importAction')))))
     }
 
+    const SCAN_TREE_RENDER_LIMIT = 200
+    const SCAN_TREE_DEFAULT_DEPTH = 2
+
+    function scanDocPath(relative) {
+      const value = stringValue(relative).trim()
+      return /\.(?:md|mdx|rst|txt|adoc)$/iu.test(value)
+        || /(^|\/)(?:docs?|documentation|man)\//iu.test(value)
+    }
+
+    function scanNodeKey(node, index) {
+      const path = stringValue(node?.path).trim()
+      return path !== '' ? path : `scan-node-${index}`
+    }
+
+    function defaultScanTreeExpanded(nodes, maxDepth = SCAN_TREE_DEFAULT_DEPTH) {
+      const expanded = new Set()
+      const visit = (list, depth) => {
+        if (!Array.isArray(list)) return
+        for (const node of list) {
+          const children = Array.isArray(node?.children) ? node.children : []
+          if (children.length === 0) continue
+          const key = scanNodeKey(node, expanded.size)
+          if (depth < maxDepth) expanded.add(key)
+          visit(children, depth + 1)
+        }
+      }
+      visit(nodes, 0)
+      return expanded
+    }
+
+    function scanTreeIsExpanded(path, expanded, defaults) {
+      if (expanded !== null && typeof expanded === 'object' && typeof expanded.has === 'function') {
+        return expanded.has(path) || expanded.has('*')
+      }
+      if (expanded !== null && typeof expanded === 'object') {
+        if (Object.prototype.hasOwnProperty.call(expanded, path)) return expanded[path] === true
+      }
+      if (defaults !== null && typeof defaults === 'object' && typeof defaults.has === 'function') return defaults.has(path)
+      return false
+    }
+
+    function flattenScanTree(nodes, options = {}) {
+      const limit = Number.isInteger(options.limit) && options.limit >= 0 ? options.limit : SCAN_TREE_RENDER_LIMIT
+      const defaults = options.defaults !== null && typeof options.defaults === 'object' && typeof options.defaults.has === 'function'
+        ? options.defaults
+        : new Set()
+      const expanded = options.expanded ?? defaults
+      const rows = []
+      let total = 0
+      const visit = (list, depth) => {
+        if (!Array.isArray(list)) return
+        for (let index = 0; index < list.length; index += 1) {
+          const node = list[index]
+          if (node === null || typeof node !== 'object') continue
+          const children = Array.isArray(node.children) ? node.children.filter(child => child !== null && typeof child === 'object') : []
+          const path = scanNodeKey(node, index)
+          total += 1
+          if (rows.length < limit) {
+            rows.push({
+              node,
+              path,
+              depth,
+              hasChildren: children.length > 0,
+              expanded: children.length > 0 && scanTreeIsExpanded(path, expanded, defaults),
+            })
+          }
+          if (children.length > 0 && scanTreeIsExpanded(path, expanded, defaults)) visit(children, depth + 1)
+        }
+      }
+      visit(nodes, 0)
+      return { rows, total, hidden: Math.max(0, total - rows.length), limited: total > limit }
+    }
+
+    async function copyScanPath(value) {
+      const text = stringValue(value)
+      if (text === '') return false
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard !== undefined && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(text)
+          return true
+        }
+      } catch {
+        // Permission or insecure-context failures fall through to the DOM copy.
+      }
+      try {
+        if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false
+        const area = document.createElement('textarea')
+        area.value = text
+        area.setAttribute('readonly', '')
+        area.style.position = 'fixed'
+        area.style.left = '-9999px'
+        area.style.opacity = '0'
+        document.body.appendChild(area)
+        area.select()
+        if (typeof area.setSelectionRange === 'function') area.setSelectionRange(0, text.length)
+        const copied = document.execCommand('copy')
+        document.body.removeChild(area)
+        return copied === true
+      } catch {
+        return false
+      }
+    }
+
+    function scanBadges(node, t) {
+      const badges = []
+      if (node?.entryPoint === true) badges.push(h('span', { className: 'bp-workspace-scan-tag entry', key: 'entry' }, t('workspaceScanEntry')))
+      if (node?.test === true) badges.push(h('span', { className: 'bp-workspace-scan-tag test', key: 'test' }, t('workspaceScanTest')))
+      if (node?.doc === true || scanDocPath(node?.path)) badges.push(h('span', { className: 'bp-workspace-scan-tag doc', key: 'doc' }, t('workspaceScanDoc')))
+      return badges
+    }
+
+    // Recursive directory/file renderer. Budget is shared across the whole tree
+    // so a giant scan still renders at most SCAN_TREE_RENDER_LIMIT rows and
+    // reports the exact number of nodes that stayed hidden.
+    function countVisibleScanNodes(node, expanded, defaults) {
+      if (node === null || typeof node !== 'object') return 0
+      const children = Array.isArray(node.children) ? node.children : []
+      let total = 1
+      if (children.length > 0 && scanTreeIsExpanded(scanNodeKey(node, 0), expanded, defaults)) {
+        for (const child of children) total += countVisibleScanNodes(child, expanded, defaults)
+      }
+      return total
+    }
+
+    function renderScanTreeNodes(nodes, ctx, depth = 0) {
+      if (!Array.isArray(nodes)) return []
+      const elements = []
+      for (let index = 0; index < nodes.length; index += 1) {
+        const node = nodes[index]
+        if (node === null || typeof node !== 'object') continue
+        const children = Array.isArray(node.children)
+          ? node.children.filter(child => child !== null && typeof child === 'object')
+          : []
+        const path = scanNodeKey(node, index)
+        const isOpen = children.length > 0 && scanTreeIsExpanded(path, ctx.expanded, ctx.defaults)
+        if (ctx.budget.remaining <= 0) {
+          ctx.budget.hidden += countVisibleScanNodes(node, isOpen ? ctx.expanded : new Set(), ctx.defaults)
+          continue
+        }
+        ctx.budget.remaining -= 1
+        const selected = ctx.selectedPath !== '' && ctx.selectedPath === path
+        elements.push(h('div', {
+          key: `row-${path}-${depth}`,
+          className: `bp-workspace-scan-tree-row${selected ? ' selected' : ''}`,
+          role: 'treeitem',
+          tabIndex: 0,
+          'aria-selected': selected ? 'true' : 'false',
+          'aria-expanded': children.length > 0 ? (isOpen ? 'true' : 'false') : undefined,
+          title: node.path,
+          style: { paddingLeft: `${Math.min(depth, 10) * 12}px` },
+          onClick: () => ctx.onSelect(path),
+          onKeyDown: event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              ctx.onSelect(path)
+            }
+          },
+        },
+          children.length > 0
+            ? h('button', {
+                type: 'button',
+                className: 'bp-workspace-scan-toggle',
+                title: ctx.t('workspaceScanToggle'),
+                'aria-label': ctx.t('workspaceScanToggle'),
+                onClick: event => { event.stopPropagation(); ctx.onToggle(path) },
+              }, isOpen ? '▾' : '▸')
+            : h('span', { className: 'bp-workspace-scan-toggle empty' }, ''),
+          h('span', { className: `bp-workspace-scan-tree-icon ${node.type === 'directory' ? 'dir' : 'file'}` },
+            node.type === 'directory' ? '▣' : '·'),
+          h('span', { className: 'bp-workspace-scan-tree-name' }, stringValue(node.name ?? node.path)),
+          scanBadges(node, ctx.t)))
+        if (isOpen) elements.push(renderScanTreeNodes(children, ctx, depth + 1))
+      }
+      return elements
+    }
+
+    function ScanPreview({ result, t, initialExpandedPaths, initialSelectedPath, initialPreviewMode, actions }) {
+      const [expandedOverrides, setExpandedOverrides] = useState(() => {
+        if (Array.isArray(initialExpandedPaths)) {
+          return Object.fromEntries(initialExpandedPaths.map(path => [stringValue(path), true]))
+        }
+        if (initialExpandedPaths !== null && typeof initialExpandedPaths === 'object') return { ...initialExpandedPaths }
+        return {}
+      })
+      const [selectedPath, setSelectedPath] = useState(() => stringValue(initialSelectedPath).trim())
+      const [previewMode, setPreviewMode] = useState(() => initialPreviewMode === 'import' ? 'import' : 'module')
+      const metrics = result?.scan?.metrics ?? {}
+      const totals = metrics.totals ?? {}
+      const languages = Object.entries(metrics.languages ?? {})
+        .sort((left, right) => Number(right[1]?.bytes ?? 0) - Number(left[1]?.bytes ?? 0))
+        .slice(0, 3)
+        .map(([name]) => name)
+      const insights = Array.isArray(metrics.insights) ? metrics.insights.slice(0, 5) : []
+      const health = metrics.health ?? {}
+      const risk = health.level === 'high' ? t('workspaceRiskHigh')
+        : health.level === 'medium' ? t('workspaceRiskMedium') : t('workspaceRiskLow')
+      const tree = Array.isArray(result?.scan?.tree) ? result.scan.tree : []
+      const defaults = defaultScanTreeExpanded(tree)
+      const isExpanded = path => Object.prototype.hasOwnProperty.call(expandedOverrides, path)
+        ? expandedOverrides[path] === true
+        : defaults.has(path)
+      const toggle = path => setExpandedOverrides(current => {
+        const now = Object.prototype.hasOwnProperty.call(current, path) ? current[path] === true : defaults.has(path)
+        return { ...current, [path]: !now }
+      })
+      const budget = { remaining: SCAN_TREE_RENDER_LIMIT, hidden: 0 }
+      const scanTreeContext = {
+        budget,
+        expanded: expandedOverrides,
+        defaults,
+        onToggle: toggle,
+        selectedPath,
+        onSelect: setSelectedPath,
+        t,
+      }
+      const treeRows = tree.length === 0 ? null : h('div', {
+        className: 'bp-workspace-scan-tree',
+        role: 'tree',
+        'aria-label': t('workspaceScanTree'),
+      },
+        h('div', { className: 'bp-workspace-scan-subtitle' }, t('workspaceScanTree')),
+        renderScanTreeNodes(tree, scanTreeContext, 0),
+        budget.hidden === 0 ? null : h('div', { className: 'bp-workspace-scan-more' }, t('workspaceScanTreeMore', { count: budget.hidden })))
+      const moduleSvg = typeof result?.svg === 'string' ? result.svg : ''
+      const importSvg = typeof result?.importSvg === 'string' ? result.importSvg : ''
+      const activeSvg = previewMode === 'import' ? importSvg : moduleSvg
+      const copySelected = async () => {
+        const copied = await copyScanPath(selectedPath)
+        toast(copied ? t('workspaceScanCopied') : t('workspaceScanCopyFailed'), copied ? 'success' : 'error')
+      }
+      return h('div', { className: 'bp-workspace-scan' },
+        h('div', { className: 'bp-workspace-scan-head' },
+          h('span', { className: 'bp-workspace-scan-title' }, t('workspaceScanSummary', {
+            packages: totals.packages ?? 0,
+            mounts: result?.suggestions?.mounts ?? 0,
+            modules: result?.suggestions?.modules ?? 0,
+          })),
+          h('span', { className: 'bp-chip' }, t('workspaceScanHealth', {
+            score: health.score ?? '—',
+            risk,
+          }))),
+        h('div', { className: 'bp-workspace-scan-metrics' },
+          h('span', null, t('workspaceScanTotals', {
+            files: totals.files ?? 0,
+            size: formatBytes(totals.bytes ?? 0),
+            packages: totals.packages ?? 0,
+          })),
+          languages.length === 0 ? null
+            : h('span', null, t('workspaceScanLanguages', { list: languages.join(' · ') }))),
+        insights.length === 0 ? null : h('div', { className: 'bp-workspace-scan-insights' },
+          h('span', { className: 'bp-workspace-scan-subtitle' }, t('workspaceScanInsights')),
+          h('ul', null, insights.map((insight, index) => h('li', { key: index }, insight)))),
+        treeRows,
+        selectedPath === '' ? null : h('div', { className: 'bp-workspace-scan-selected' },
+          h('span', { className: 'bp-workspace-scan-selected-label' }, t('workspaceScanTreePath')),
+          h('code', { title: selectedPath }, selectedPath),
+          h('button', {
+            type: 'button', className: 'bp-btn bp-workspace-scan-copy',
+            onClick: copySelected,
+          }, t('workspaceScanCopy'))),
+        h('div', { className: 'bp-workspace-scan-preview-tabs' },
+          h('button', {
+            type: 'button',
+            className: `bp-workspace-scan-preview-tab${previewMode === 'module' ? ' active' : ''}`,
+            onClick: () => setPreviewMode('module'),
+          }, t('workspaceScanModuleGraph')),
+          h('button', {
+            type: 'button',
+            className: `bp-workspace-scan-preview-tab${previewMode === 'import' ? ' active' : ''}`,
+            onClick: () => setPreviewMode('import'),
+          }, t('workspaceScanImportGraph'))),
+        activeSvg === ''
+          ? h('div', { className: 'bp-workspace-scan-empty' },
+              t(previewMode === 'import' ? 'workspaceScanNoImportGraph' : 'workspaceScanNoModuleGraph'))
+          // Host-generated SVG only: every label is escaped by lib/svg.js.
+          : h('div', {
+              className: 'bp-workspace-scan-svg',
+              dangerouslySetInnerHTML: { __html: activeSvg },
+            }),
+        Array.isArray(actions) && actions.length > 0
+          ? h('div', { className: 'bp-workspace-scan-actions' }, actions)
+          : null)
+    }
+
     function WorkspacePanel({ store }) {
       const bp = store.bp
       const mounts = blueprintMounts(bp)
@@ -6374,29 +6672,11 @@ ${task}
           className: 'bp-input', value: draft[key], placeholder: t(placeholderKey),
           onChange: event => setDraftField(key, event.target.value),
         }))
-      const scanMetrics = scanResult?.scan?.metrics ?? {}
-      const scanTotals = scanMetrics.totals ?? {}
-      const scanLanguages = Object.entries(scanMetrics.languages ?? {})
-        .sort((left, right) => Number(right[1]?.bytes ?? 0) - Number(left[1]?.bytes ?? 0))
-        .slice(0, 3)
-        .map(([name]) => name)
-      const scanInsights = Array.isArray(scanMetrics.insights) ? scanMetrics.insights.slice(0, 5) : []
-      const scanHealth = scanMetrics.health ?? {}
-      const scanRisk = scanHealth.level === 'high' ? t('workspaceRiskHigh')
-        : scanHealth.level === 'medium' ? t('workspaceRiskMedium') : t('workspaceRiskLow')
-      const treeRows = []
-      const collectTree = (nodes, depth) => {
-        if (!Array.isArray(nodes) || treeRows.length > 40) return
-        for (const node of nodes) {
-          if (treeRows.length > 40) return
-          treeRows.push({ node, depth })
-          if (Array.isArray(node?.children) && node.children.length > 0) collectTree(node.children, depth + 1)
-        }
-      }
-      collectTree(scanResult?.scan?.tree, 0)
-      const visibleTreeRows = treeRows.slice(0, 40)
-      const hiddenTreeRows = Math.max(0, treeRows.length - visibleTreeRows.length)
-      const previewSvg = typeof scanResult?.svg === 'string' ? scanResult.svg : ''
+      const scanActions = [
+        h('button', { type: 'button', className: 'bp-btn', key: 'preview', disabled: scanBusy, onClick: runScan }, t('workspacePreviewDiagram')),
+        h('button', { type: 'button', className: 'bp-btn', key: 'graph', onClick: applyScanBlueprint }, t('workspaceScanGraph')),
+        h('button', { type: 'button', className: 'bp-btn', key: 'mounts', onClick: applyScanMounts }, t('workspaceScanApply')),
+      ]
       return h('div', { className: 'bp-workspace' },
         h('div', { className: 'bp-kicker' }, t('workspace')),
         h('div', { className: 'bp-muted bp-workspace-hint' }, t('workspaceHint')),
@@ -6404,48 +6684,11 @@ ${task}
           type: 'button', className: 'bp-workspace-banner', disabled: scanBusy,
           onClick: runScan,
         }, h(Icon, { name: 'search', size: 13 }), scanBusy ? t('workspaceScanning') : t('workspaceScan')),
-        scanResult === null ? null : h('div', { className: 'bp-workspace-scan' },
-          h('div', { className: 'bp-workspace-scan-head' },
-            h('span', { className: 'bp-workspace-scan-title' }, t('workspaceScanSummary', {
-              packages: scanTotals.packages ?? 0,
-              mounts: scanResult.suggestions?.mounts ?? 0,
-              modules: scanResult.suggestions?.modules ?? 0,
-            })),
-            h('span', { className: 'bp-chip' }, t('workspaceScanHealth', {
-              score: scanHealth.score ?? '—',
-              risk: scanRisk,
-            }))),
-          h('div', { className: 'bp-workspace-scan-metrics' },
-            h('span', null, t('workspaceScanTotals', {
-              files: scanTotals.files ?? 0,
-              size: formatBytes(scanTotals.bytes ?? 0),
-              packages: scanTotals.packages ?? 0,
-            })),
-            scanLanguages.length === 0 ? null
-              : h('span', null, t('workspaceScanLanguages', { list: scanLanguages.join(' · ') }))),
-          scanInsights.length === 0 ? null : h('div', { className: 'bp-workspace-scan-insights' },
-            h('span', { className: 'bp-workspace-scan-subtitle' }, t('workspaceScanInsights')),
-            h('ul', null, scanInsights.map((insight, index) => h('li', { key: index }, insight)))),
-          visibleTreeRows.length === 0 ? null : h('div', { className: 'bp-workspace-scan-tree' },
-            h('span', { className: 'bp-workspace-scan-subtitle' }, t('workspaceScanTree')),
-            visibleTreeRows.map((row, index) => h('div', {
-              key: `${row.node?.path ?? index}-${index}`,
-              className: 'bp-workspace-scan-tree-row',
-              style: { paddingLeft: `${Math.min(row.depth, 8) * 10}px` },
-            },
-              h('span', { className: 'bp-workspace-scan-tree-name' }, row.node?.name ?? row.node?.path ?? ''),
-              row.node?.entryPoint === true ? h('span', { className: 'bp-workspace-scan-tag' }, t('workspaceScanEntry')) : null,
-              row.node?.test === true ? h('span', { className: 'bp-workspace-scan-tag test' }, t('workspaceScanTest')) : null)),
-            hiddenTreeRows === 0 ? null : h('div', { className: 'bp-workspace-scan-more' }, t('workspaceScanTreeMore', { count: hiddenTreeRows }))),
-          previewSvg === '' ? null : h('div', {
-            className: 'bp-workspace-scan-svg',
-            // Host-generated SVG only: labels are escaped by lib/svg.js before reaching the client.
-            dangerouslySetInnerHTML: { __html: previewSvg },
-          }),
-          h('div', { className: 'bp-workspace-scan-actions' },
-            h('button', { type: 'button', className: 'bp-btn', disabled: scanBusy, onClick: runScan }, t('workspacePreviewDiagram')),
-            h('button', { type: 'button', className: 'bp-btn', onClick: applyScanBlueprint }, t('workspaceScanGraph')),
-            h('button', { type: 'button', className: 'bp-btn', onClick: applyScanMounts }, t('workspaceScanApply')))),
+        scanResult === null ? null : h(ScanPreview, {
+          result: scanResult,
+          t,
+          actions: scanActions,
+        }),
         h('button', {
           type: 'button',
           className: `bp-workspace-banner${unbound.length === 0 ? ' ok' : ''}`,
@@ -8368,7 +8611,7 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-board,.bp-versions{display:flex;flex-direction:column;gap:8px}
 .bp-workspace{display:flex;flex-direction:column;gap:8px}
 .bp-workspace-hint{font-size:10.5px;line-height:1.45}
-.bp-workspace-scan{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:7px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);font-size:10.5px;color:var(--dsw-alias-label-secondary);min-width:0}
+.bp-workspace-scan{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:7px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);font-size:10.5px;color:var(--dsw-alias-label-secondary);min-width:0;max-width:460px;width:100%;box-sizing:border-box}
 .bp-workspace-scan-head{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
 .bp-workspace-scan-title{font-weight:600;color:var(--dsw-alias-label-primary)}
 .bp-workspace-scan-metrics{display:flex;flex-direction:column;gap:2px;font-size:10px;overflow:hidden}
@@ -8376,13 +8619,33 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-workspace-scan-subtitle{font-size:10px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .bp-workspace-scan-insights ul{margin:2px 0 0;padding-left:14px;display:flex;flex-direction:column;gap:1px;max-height:76px;overflow:auto;font-size:10px}
 .bp-workspace-scan-insights li{line-height:1.4}
-.bp-workspace-scan-tree{display:flex;flex-direction:column;gap:1px;max-height:150px;overflow:auto;font-size:10px;min-width:0}
-.bp-workspace-scan-tree-row{display:flex;align-items:center;gap:4px;min-width:0;white-space:nowrap;overflow:hidden}
+.bp-workspace-scan-tree{display:flex;flex-direction:column;gap:0;max-height:210px;overflow:auto;font-size:10px;min-width:0;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:3px;background:var(--dsw-alias-bg-layer-1)}
+.bp-workspace-scan-tree-row{display:flex;align-items:center;gap:4px;min-width:0;white-space:nowrap;overflow:hidden;padding:1px 3px;border-radius:5px;cursor:pointer;line-height:1.5}
+.bp-workspace-scan-tree-row:hover{background:var(--dsw-alias-bg-layer-2)}
+.bp-workspace-scan-tree-row.selected{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 15%,transparent);color:var(--dsw-alias-label-primary)}
+.bp-workspace-scan-tree-row:focus-visible{outline:1px solid var(--dsw-alias-brand-primary);outline-offset:-1px}
+.bp-workspace-scan-toggle{flex:none;width:13px;height:13px;display:grid;place-items:center;border:0;border-radius:3px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:9px;line-height:1;padding:0;cursor:pointer}
+.bp-workspace-scan-toggle:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.bp-workspace-scan-toggle.empty{pointer-events:none;opacity:0}
+.bp-workspace-scan-tree-icon{flex:none;width:10px;text-align:center;font-size:9px;color:var(--dsw-alias-label-tertiary)}
+.bp-workspace-scan-tree-icon.dir{color:var(--dsw-alias-brand-primary)}
 .bp-workspace-scan-tree-name{overflow:hidden;text-overflow:ellipsis;min-width:0}
 .bp-workspace-scan-tag{flex:none;padding:0 3px;border:1px solid var(--dsw-alias-border-l1);border-radius:4px;font-size:8.5px;line-height:1.4;color:var(--dsw-alias-label-secondary)}
+.bp-workspace-scan-tag.entry{color:var(--dsw-alias-brand-primary);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary) 40%,transparent)}
 .bp-workspace-scan-tag.test{color:var(--dsw-alias-label-secondary);border-style:dashed}
-.bp-workspace-scan-more{font-size:9.5px;color:var(--dsw-alias-label-tertiary)}
-.bp-workspace-scan-svg{max-height:160px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);padding:4px;min-width:0}
+.bp-workspace-scan-tag.doc{color:var(--dsw-alias-label-tertiary)}
+.bp-workspace-scan-more{font-size:9.5px;color:var(--dsw-alias-label-tertiary);padding:2px 3px 0}
+.bp-workspace-scan-selected{display:flex;align-items:center;gap:5px;min-width:0;padding:3px 5px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-1);font-size:9.5px}
+.bp-workspace-scan-selected-label{flex:none;color:var(--dsw-alias-label-tertiary)}
+.bp-workspace-scan-selected code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--dsw-alias-label-primary)}
+.bp-workspace-scan-copy{flex:none;height:20px;padding:0 6px;font-size:9.5px}
+.bp-workspace-scan-preview-tabs{display:flex;gap:0;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;overflow:hidden;align-self:flex-start;max-width:100%}
+.bp-workspace-scan-preview-tab{border:0;border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:9.5px;line-height:20px;padding:0 8px;cursor:pointer;white-space:nowrap}
+.bp-workspace-scan-preview-tab:last-child{border-right:0}
+.bp-workspace-scan-preview-tab:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.bp-workspace-scan-preview-tab.active{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 13%,transparent);color:var(--dsw-alias-brand-primary);font-weight:600}
+.bp-workspace-scan-empty{padding:12px 8px;text-align:center;font-size:10px;color:var(--dsw-alias-label-tertiary);border:1px dashed var(--dsw-alias-border-l2);border-radius:7px}
+.bp-workspace-scan-svg{max-height:180px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);padding:4px;min-width:0}
 .bp-workspace-scan-svg svg{display:block;width:100%;max-width:100%;height:auto}
 .bp-workspace-scan-actions{display:flex;gap:4px;flex-wrap:wrap}
 .bp-workspace-scan-list{display:flex;flex-direction:column;gap:2px;width:100%;font-size:10px;color:var(--dsw-alias-label-secondary);overflow:hidden}
@@ -8662,14 +8925,21 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
         ModuleRunInfo,
         NodeShape,
         RunsPanel,
+        SCAN_TREE_RENDER_LIMIT,
+        ScanPreview,
         TEMPLATES,
         WorkspacePanel,
         blueprintRuns,
+        copyScanPath,
         defaultEdgeKind,
+        defaultScanTreeExpanded,
         detectImportSource,
         dispatchPrompt,
         edgeKindsFor,
         ensureLayout,
+        flattenScanTree,
+        scanDocPath,
+        scanTreeIsExpanded,
         flowchartMermaidSource,
         flowchartHiddenIds,
         formatRunLease,
