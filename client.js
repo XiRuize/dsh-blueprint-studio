@@ -148,6 +148,11 @@ window.__ModuleLoader__.load({
       searchHint: '↑↓ to choose · Enter to open · Esc to close', layer: 'Layer', sublayerOf: 'Sublayer of',
       workspace: 'Workspace',
       workspaceHint: 'Map folders, repositories and archives to modules, and set how each module is dispatched.',
+      workspaceScan: 'Scan workspace', workspaceScanning: 'Scanning…',
+      workspaceScanDone: 'Scan found {mounts} suggested mounts',
+      workspaceScanFailed: 'Workspace scan failed',
+      workspaceScanSummary: '{packages} packages, {mounts} mounts, {modules} module suggestions',
+      workspaceScanApply: 'Add suggested mounts', workspaceScanApplied: 'Added {count} mounts',
       workspaceEmpty: 'No workspace mounts yet. Add the first mount to bind folders, repositories or archives to modules.',
       workspaceAddFirstMount: 'Add the first mount', workspaceAddMount: 'Add mount',
       workspaceMounts: 'Workspace mounts', workspaceNoMounts: 'No mounts yet.',
@@ -265,7 +270,7 @@ window.__ModuleLoader__.load({
       diffTitle: '版本对比', noVersions: '还没有历史版本。保存一次就会生成第一份快照。',
       added: '新增', removed: '删除', changed: '修改', selectTwo: '选择两个版本进行对比。',
       closeDiff: '返回', versionRestored: '已恢复版本', snapshotSaved: '快照已保存', versionLoadFailed: '版本加载失败',
-      checks: '自检', checksHint: '检查图结构、模块依赖与需求承接情况。',
+      checks: '自检', checksHint: '检查图结构、模块依赖与需求承接情况。', checkFix: '修复建议：{fix}',
       checkLoading: '正在自检…', checkEmpty: '没有发现问题，蓝图保持一致。',
       checkFailed: '自检失败', checkInvalid: '自检结果不是有效的 JSON。',
       checkCheckedAt: '自检于 {time}', checkTruncated: '只显示前 {shown} 条问题，其余已截断。',
@@ -352,6 +357,11 @@ window.__ModuleLoader__.load({
       searchHint: '↑↓ 选择 · Enter 定位 · Esc 关闭', layer: '层', sublayerOf: '子层，父模块',
       workspace: '工作区',
       workspaceHint: '把文件夹、仓库与归档映射到模块，并设置每个模块的执行方式。',
+      workspaceScan: '扫描工作区', workspaceScanning: '扫描中…',
+      workspaceScanDone: '扫描到 {mounts} 个建议挂载',
+      workspaceScanFailed: '工作区扫描失败',
+      workspaceScanSummary: '{packages} 个包，{mounts} 个挂载建议，{modules} 个模块建议',
+      workspaceScanApply: '添加建议挂载', workspaceScanApplied: '已添加 {count} 个挂载',
       workspaceEmpty: '还没有工作区挂载。添加第一个挂载，把文件夹、仓库或归档绑定到模块。',
       workspaceAddFirstMount: '添加第一个挂载', workspaceAddMount: '添加挂载',
       workspaceMounts: '工作区挂载', workspaceNoMounts: '还没有挂载。',
@@ -5772,6 +5782,7 @@ ${task}
                     h('span', { className: `bp-check-sev ${issue.severity}` }, checkSeverityLabel(issue.severity)),
                     h('code', { className: 'bp-check-code', title: ruleTitle }, issue.code || '—')),
                   h('div', { className: 'bp-check-message' }, issue.message || ruleTitle || issue.code || '—'),
+                  issue.fix ? h('div', { className: 'bp-check-fix' }, t('checkFix', { fix: issue.fix })) : null,
                   meta.length === 0 ? null : h('div', { className: 'bp-check-meta' },
                     meta.map(([label, value]) => h('span', { key: `${label}-${value}`, title: `${label}: ${value}` }, `${label} ${value}`))))
               })))))
@@ -6226,11 +6237,38 @@ ${task}
       const [formOpen, setFormOpen] = useState(mounts.length === 0)
       const [draft, setDraft] = useState(emptyMountDraft)
       const [errorKey, setErrorKey] = useState(null)
+      const [scanResult, setScanResult] = useState(null)
+      const [scanBusy, setScanBusy] = useState(false)
       useEffect(() => {
         if (mounts.length === 0) setFormOpen(true)
       }, [mounts.length])
       if (bp === null) return null
       const setDraftField = (key, value) => setDraft(current => ({ ...current, [key]: value }))
+      const runScan = async () => {
+        if (scanBusy) return
+        setScanBusy(true)
+        try {
+          const text = await runBlueprintCommand('scan')
+          const parsed = JSON.parse(text)
+          setScanResult(parsed)
+          toast(t('workspaceScanDone', { mounts: parsed.suggestions?.mounts?.length ?? 0 }), 'success')
+        } catch (failure) {
+          toast(`${t('workspaceScanFailed')}: ${String(failure?.message ?? failure)}`, 'error')
+        } finally {
+          setScanBusy(false)
+        }
+      }
+      const applyScanMounts = () => {
+        const suggested = Array.isArray(scanResult?.suggestions?.mounts) ? scanResult.suggestions.mounts : []
+        if (suggested.length === 0) return
+        mutate(current => {
+          const existing = blueprintMounts(current)
+          const ids = new Set(existing.map(mount => stringValue(mount.id).trim()))
+          const added = suggested.filter(mount => !ids.has(stringValue(mount.id).trim()))
+          current.mounts = [...existing, ...added]
+        })
+        toast(t('workspaceScanApplied', { count: suggested.length }), 'success')
+      }
       const submitMount = () => {
         const invalid = validateMountDraft(draft, mounts)
         if (invalid !== null) {
@@ -6281,6 +6319,17 @@ ${task}
       return h('div', { className: 'bp-workspace' },
         h('div', { className: 'bp-kicker' }, t('workspace')),
         h('div', { className: 'bp-muted bp-workspace-hint' }, t('workspaceHint')),
+        h('button', {
+          type: 'button', className: 'bp-workspace-banner', disabled: scanBusy,
+          onClick: runScan,
+        }, h(Icon, { name: 'search', size: 13 }), scanBusy ? t('workspaceScanning') : t('workspaceScan')),
+        scanResult === null ? null : h('div', { className: 'bp-workspace-scan' },
+          h('div', null, t('workspaceScanSummary', {
+            packages: scanResult.scan?.packages?.length ?? 0,
+            mounts: scanResult.suggestions?.mounts?.length ?? 0,
+            modules: scanResult.suggestions?.modules?.length ?? 0,
+          })),
+          h('button', { type: 'button', className: 'bp-btn', onClick: applyScanMounts }, t('workspaceScanApply'))),
         h('button', {
           type: 'button',
           className: `bp-workspace-banner${unbound.length === 0 ? ' ok' : ''}`,
@@ -8203,6 +8252,7 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-board,.bp-versions{display:flex;flex-direction:column;gap:8px}
 .bp-workspace{display:flex;flex-direction:column;gap:8px}
 .bp-workspace-hint{font-size:10.5px;line-height:1.45}
+.bp-workspace-scan{display:flex;align-items:center;gap:6px;justify-content:space-between;padding:7px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);font-size:10.5px;color:var(--dsw-alias-label-secondary)}
 .bp-workspace-banner{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;text-align:left;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary) 34%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 9%,transparent);color:var(--dsw-alias-state-warn-primary);font:inherit;font-size:10.5px;line-height:1.4;padding:6px 8px;cursor:pointer}
 .bp-workspace-banner:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 15%,transparent)}
 .bp-workspace-banner.ok{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 8%,transparent);color:var(--dsw-alias-state-success-primary);cursor:default}

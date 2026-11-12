@@ -2,6 +2,15 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.14.0] — 2026-11-12
+
+### Added
+
+- **Repository scanner.** `scanWorkspace` detects manifests, packages, monorepo roots, languages, entry points, test commands, external dependencies and git metadata with bounded reads; `suggestBlueprint` proposes mounts, modules and module/C4 diagrams. `/blueprint scan` is read-only; the Workspace panel can add suggested mounts.
+- **Deep diagram validation.** `validateDiagrams` adds type-specific checks and a concrete `fix` for use case, DFD, sequence, ER, class, C4, state and flowchart diagrams. `/blueprint check` merges these with structural and plan checks; the Checks panel displays fixes.
+- **Better review graphics.** Orthogonal obstacle-aware edge routing, width-aware text wrapping, dynamic spacing, light/dark SVG themes and print pagination improve the self-contained review page.
+- **Distribution packaging.** `examples/` is included in the npm tarball; distribution docs cover npm, tarball and profile installation.
+
 ## [0.13.2] — 2026-11-11
 
 ### Changed

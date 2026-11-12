@@ -35,6 +35,7 @@ import {
 } from './lib/blueprint.js'
 import { CHECK_RULES, analyzeBlueprint, coverageMatrix } from './lib/checks.js'
 import { PLAN_CHECK_RULES, analyzePlan } from './lib/plan.js'
+import { VALIDATE_RULES, validateDiagrams } from './lib/validate.js'
 import { exportHtml, exportMarkdown } from './lib/export.js'
 import { buildHandoff, buildReviewPacket, exportReviewHtml } from './lib/review.js'
 import { buildProjectReview, exportProjectReviewHtml, readProjectBlueprints } from './lib/project-review.js'
@@ -1007,16 +1008,17 @@ export function apply(ctx, rawConfig) {
               const analyzed = analyzeBlueprint(blueprint)
               const hasFlowchart = (blueprint.diagrams ?? []).some(diagram => diagram.type === 'flowchart' || diagram.key === 'flowchart' || String(diagram.key).endsWith(':flowchart'))
               const planned = hasFlowchart ? analyzePlan(blueprint) : { issues: [], coverage: null }
-              const issues = [...analyzed.issues, ...planned.issues]
+              const deep = validateDiagrams(blueprint)
+              const issues = [...analyzed.issues, ...planned.issues, ...deep.issues]
               const summary = { error: 0, warn: 0, info: 0 }
               for (const issue of issues) {
                 if (summary[issue.severity] !== undefined) summary[issue.severity] += 1
               }
               result = {
                 issues,
-                coverage: { ...coverageMatrix(blueprint), plan: planned.coverage },
+                coverage: { ...coverageMatrix(blueprint), plan: planned.coverage, validation: deep.coverage },
                 summary,
-                rules: [...CHECK_RULES, ...PLAN_CHECK_RULES],
+                rules: [...CHECK_RULES, ...PLAN_CHECK_RULES, ...VALIDATE_RULES],
               }
             } catch (error) {
               return { kind: 'error', text: `蓝图自检失败：${errorMessage(error)}` }
