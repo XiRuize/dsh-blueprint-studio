@@ -153,6 +153,8 @@ window.__ModuleLoader__.load({
       workspaceScanFailed: 'Workspace scan failed',
       workspaceScanSummary: '{packages} packages, {mounts} mounts, {modules} module suggestions',
       workspaceScanApply: 'Add suggested mounts', workspaceScanApplied: 'Added {count} mounts',
+      workspaceScanGraph: 'Create structure diagram',
+      workspaceScanGraphDone: 'Created structure diagram ({mounts} mounts, {modules} modules)',
       workspaceEmpty: 'No workspace mounts yet. Add the first mount to bind folders, repositories or archives to modules.',
       workspaceAddFirstMount: 'Add the first mount', workspaceAddMount: 'Add mount',
       workspaceMounts: 'Workspace mounts', workspaceNoMounts: 'No mounts yet.',
@@ -362,6 +364,8 @@ window.__ModuleLoader__.load({
       workspaceScanFailed: '工作区扫描失败',
       workspaceScanSummary: '{packages} 个包，{mounts} 个挂载建议，{modules} 个模块建议',
       workspaceScanApply: '添加建议挂载', workspaceScanApplied: '已添加 {count} 个挂载',
+      workspaceScanGraph: '生成结构图',
+      workspaceScanGraphDone: '已生成结构图（{mounts} 个挂载，{modules} 个模块）',
       workspaceEmpty: '还没有工作区挂载。添加第一个挂载，把文件夹、仓库或归档绑定到模块。',
       workspaceAddFirstMount: '添加第一个挂载', workspaceAddMount: '添加挂载',
       workspaceMounts: '工作区挂载', workspaceNoMounts: '还没有挂载。',
@@ -6269,6 +6273,21 @@ ${task}
         })
         toast(t('workspaceScanApplied', { count: suggested.length }), 'success')
       }
+      const applyScanBlueprint = async () => {
+        try {
+          const text = await runBlueprintCommand('scan apply')
+          const result = JSON.parse(text)
+          if (result.ok !== true) throw new Error(result.message ?? 'scan apply failed')
+          await loadBlueprint()
+          set({ tab: 'module', panel: 'inspector' })
+          toast(t('workspaceScanGraphDone', {
+            mounts: result.mountsAdded ?? 0,
+            modules: result.modulesAdded ?? 0,
+          }), 'success')
+        } catch (failure) {
+          toast(`${t('workspaceScanFailed')}: ${String(failure?.message ?? failure)}`, 'error')
+        }
+      }
       const submitMount = () => {
         const invalid = validateMountDraft(draft, mounts)
         if (invalid !== null) {
@@ -6329,7 +6348,11 @@ ${task}
             mounts: scanResult.suggestions?.mounts?.length ?? 0,
             modules: scanResult.suggestions?.modules?.length ?? 0,
           })),
-          h('button', { type: 'button', className: 'bp-btn', onClick: applyScanMounts }, t('workspaceScanApply'))),
+          (scanResult.scan?.packages ?? []).length === 0 ? null : h('div', { className: 'bp-workspace-scan-list' },
+            (scanResult.scan.packages ?? []).slice(0, 8).map(entry => h('code', { key: entry.relativePath }, `${entry.relativePath} · ${entry.name}`))),
+          h('div', { className: 'bp-workspace-scan-actions' },
+            h('button', { type: 'button', className: 'bp-btn', onClick: applyScanBlueprint }, t('workspaceScanGraph')),
+            h('button', { type: 'button', className: 'bp-btn', onClick: applyScanMounts }, t('workspaceScanApply')))),
         h('button', {
           type: 'button',
           className: `bp-workspace-banner${unbound.length === 0 ? ' ok' : ''}`,
@@ -8252,7 +8275,10 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-board,.bp-versions{display:flex;flex-direction:column;gap:8px}
 .bp-workspace{display:flex;flex-direction:column;gap:8px}
 .bp-workspace-hint{font-size:10.5px;line-height:1.45}
-.bp-workspace-scan{display:flex;align-items:center;gap:6px;justify-content:space-between;padding:7px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.bp-workspace-scan{display:flex;align-items:center;gap:6px;justify-content:space-between;padding:7px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);font-size:10.5px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap}
+.bp-workspace-scan-actions{display:flex;gap:4px;flex-wrap:wrap}
+.bp-workspace-scan-list{display:flex;flex-direction:column;gap:2px;width:100%;font-size:10px;color:var(--dsw-alias-label-secondary);overflow:hidden}
+.bp-workspace-scan-list code{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
 .bp-workspace-banner{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;text-align:left;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warn-primary) 34%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 9%,transparent);color:var(--dsw-alias-state-warn-primary);font:inherit;font-size:10.5px;line-height:1.4;padding:6px 8px;cursor:pointer}
 .bp-workspace-banner:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 15%,transparent)}
 .bp-workspace-banner.ok{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 30%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 8%,transparent);color:var(--dsw-alias-state-success-primary);cursor:default}

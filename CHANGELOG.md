@@ -2,6 +2,13 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.14.2] — 2026-11-12
+
+### Added
+
+- **Scan apply → structure blueprint.** `/blueprint scan apply` now creates a blueprint when none exists, or augments the current one with suggested mounts, modules and a module/C4 diagram. Existing modules are preserved; a structure diagram is built from their `dependsOn` edges.
+- Workspace panel scan results list detected packages and add a one-click **Create structure diagram** action, then open the module diagram.
+
 ## [0.14.1] — 2026-11-12
 
 ### Added
