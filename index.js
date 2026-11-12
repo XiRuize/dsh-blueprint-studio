@@ -733,7 +733,10 @@ function scannerImportDiagram(scan, limits) {
 
 function buildImportPreviewSvg(scan, limits) {
   try {
-    const diagram = scannerImportDiagram(scan, limits) ?? buildFallbackImportDiagram(scan, limits)
+    const preferred = scannerImportDiagram(scan, limits)
+    const diagram = preferred !== undefined && listOf(preferred.nodes).length > 0
+      ? preferred
+      : buildFallbackImportDiagram(scan, limits)
     const trimmed = trimPreviewDiagram(diagram, limits, {
       maxNodes: limits.maxImportDiagramNodes,
       maxEdges: limits.maxImportDiagramEdges,

@@ -2,6 +2,20 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.16.0] — 2026-11-12
+
+### Added
+
+- **Path-alias-aware imports.** TS/JS `tsconfig.json`/`jsconfig.json` `baseUrl` and `paths` (including fallback targets) and Python `src` layout absolute imports resolve to local files; aliases are reported separately.
+- **Import graph preview.** `buildImportDiagram` turns real import edges into a bounded directory/file graph; `scan preview` returns a second Host SVG (`importSvg`) alongside the module thumbnail.
+- **Interactive file tree.** Scan results render an expandable directory tree with entry/test/doc badges, selection, path copy and a 200-row cap.
+- **Dual preview.** Workspace scan results switch between Module graph and Import graph thumbnails.
+- B/C child-layer module diagrams now carry real import weights from directory aggregation.
+
+### Fixed
+
+- Import preview falls back to directory aggregation when a scanner graph has no file edges.
+
 ## [0.15.0] — 2026-11-12
 
 ### Added

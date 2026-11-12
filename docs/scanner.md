@@ -35,12 +35,26 @@ Ordinary files are omitted by default to keep large repositories cheap; set
 
 `scan.imports` includes local file edges for:
 
-- TS/JS: `import`, `export … from`, `require`, dynamic `import()`
-- Python: package-relative `from .x import`
+- TS/JS: `import`, `export … from`, `require`, dynamic `import()`, plus
+  `tsconfig`/`jsconfig` `baseUrl` and `paths` aliases
+- Python: package-relative `from .x import` and `src` layout absolute imports
 - Go: imports under the `go.mod` module path
 - Rust: `mod`, `crate::`, `super::`, `self::`
 
 External packages are reported separately; unresolved local imports are capped.
+`buildImportDiagram(scan)` turns the edges into a bounded directory/file graph
+for the preview.
+
+## Preview
+
+`/blueprint scan preview` returns both a module SVG and an import SVG. The
+Workspace panel renders:
+
+- metrics/health/insights
+- an expandable file tree with entry/test/doc badges and path copy
+- Module graph / Import graph thumbnails
+
+Nothing is written until **Create structure diagram** is pressed.
 
 ## Layering
 
