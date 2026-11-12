@@ -246,6 +246,7 @@ window.__ModuleLoader__.load({
       runRefresh: 'Refresh', runStatusRunning: 'Running', runStatusDone: 'Completed', runStatusFailed: 'Failed',
       runStatusCancelled: 'Cancelled', runStatusBlocked: 'Blocked',
       runInfo: 'Run', runInfoNone: 'No run yet for this module.', runOpenPanel: 'Open Runs',
+      runDispatchNote: 'Dispatch and Run are two execution paths for the same module: dispatch spawns a subagent with the prompt, while a Run claims the writable mounts for a local/CLI runner. Do not start both for one module at the same time; Run success does not replace the three verification layers.',
       runDispatchNone: 'Before dispatch, create an execution record with /blueprint run start {module}; never start it automatically.',
     }
     const ZH = {
@@ -488,6 +489,7 @@ window.__ModuleLoader__.load({
       runRefresh: '刷新', runStatusRunning: '运行中', runStatusDone: '已完成', runStatusFailed: '失败',
       runStatusCancelled: '已取消', runStatusBlocked: '受阻',
       runInfo: '执行记录', runInfoNone: '该模块还没有执行记录。', runOpenPanel: '打开执行面板',
+      runDispatchNote: '分派与 Run 是同一模块的两条执行路径：分派把提示词交给子代理，Run 为本地/CLI 执行器占用可写挂载。同一个模块不要同时启动两者；Run 成功也不等于三层验证通过。',
       runDispatchNone: '分派前用 /blueprint run start {module} 建立执行记录，不要自动启动。',
     }
 
@@ -4867,7 +4869,19 @@ ${task}
         }
         set({ selected: { kind: 'node', id: node.id } })
         if (diagramType === 'module' && node.type === 'module') {
-          setFocusNode(current => current === node.id ? null : node.id)
+          const focusing = focusNode !== node.id
+          setFocusNode(focusing ? node.id : null)
+          if (focusing) {
+            const size = sizeOf(node)
+            const zoom = 1.7
+            setView({
+              zoom,
+              x: W / 2 - (Number(node.x ?? 0) + size.w / 2) * zoom,
+              y: H / 2 - (Number(node.y ?? 0) + size.h / 2) * zoom,
+            })
+          } else {
+            setView(fitViewFor(diagram))
+          }
         }
       }
 
