@@ -92,10 +92,10 @@ A GitHub URL is a **git dependency**: pnpm shells out to `git ls-remote`, so it 
 
 ```bash
 dsh plugin --profile <profile> add \
-  https://github.com/XiRuize/dsh-blueprint-studio/releases/download/v0.14.0/dsh-blueprint-studio-0.14.0.tgz
+  https://github.com/XiRuize/dsh-blueprint-studio/releases/download/v0.14.1/dsh-blueprint-studio-0.14.1.tgz
 ```
 
-Or download `dsh-blueprint-studio-0.14.0.tgz` from [Releases](https://github.com/XiRuize/dsh-blueprint-studio/releases) and point `install_bundle` at the local `.tgz` / extracted directory.
+Or download `dsh-blueprint-studio-0.14.1.tgz` from [Releases](https://github.com/XiRuize/dsh-blueprint-studio/releases) and point `install_bundle` at the local `.tgz` / extracted directory.
 
 If you prefer the git URL, install Git for Windows first (`winget install --id Git.Git -e`) and reopen the terminal. Behind a proxy, set `HTTPS_PROXY` for pnpm, or configure Git's proxy/SSH transport separately.
 

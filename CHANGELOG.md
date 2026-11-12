@@ -2,6 +2,12 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.14.1] — 2026-11-12
+
+### Added
+
+- **Blueprint Studio skill bundle.** `skills/blueprint-studio/SKILL.md` teaches agents the scan → layered plan → check → run → review workflow. It is included in the npm tarball for manual skill installation.
+
 ## [0.14.0] — 2026-11-12
 
 ### Added

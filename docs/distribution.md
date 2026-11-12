@@ -48,7 +48,7 @@ dsh plugin --profile web add /path/to/dsh-blueprint-studio
 The plugin uses the DSH Host session/workspace APIs only; it does not start a
 second server or open a port.
 
-## Reference runners
+## Skill bundle\n\n`skills/blueprint-studio/SKILL.md` is included in the package. Install it into a DSH skills directory or point your profile skill provider at it; it contains the scan → layered plan → check → run → review workflow.\n\n## Reference runners
 
 The `examples/` directory is distributed with the package:
 
