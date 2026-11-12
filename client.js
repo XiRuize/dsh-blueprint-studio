@@ -6545,6 +6545,12 @@ ${task}
           : h('div', {
               className: 'bp-workspace-scan-svg',
               dangerouslySetInnerHTML: { __html: activeSvg },
+              onClick: event => {
+                if (previewMode !== 'import') return
+                const node = event.target?.closest?.('[data-node-id]')
+                const id = node?.getAttribute?.('data-node-id')
+                if (id) setSelectedPath(id)
+              },
             }),
         Array.isArray(actions) && actions.length > 0
           ? h('div', { className: 'bp-workspace-scan-actions' }, actions)
@@ -8647,6 +8653,7 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-workspace-scan-empty{padding:12px 8px;text-align:center;font-size:10px;color:var(--dsw-alias-label-tertiary);border:1px dashed var(--dsw-alias-border-l2);border-radius:7px}
 .bp-workspace-scan-svg{max-height:180px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);padding:4px;min-width:0}
 .bp-workspace-scan-svg svg{display:block;width:100%;max-width:100%;height:auto}
+.bp-workspace-scan-svg [data-node-id]{cursor:pointer}
 .bp-workspace-scan-actions{display:flex;gap:4px;flex-wrap:wrap}
 .bp-workspace-scan-list{display:flex;flex-direction:column;gap:2px;width:100%;font-size:10px;color:var(--dsw-alias-label-secondary);overflow:hidden}
 .bp-workspace-scan-list code{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}

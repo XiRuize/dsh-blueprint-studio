@@ -36,7 +36,8 @@ Ordinary files are omitted by default to keep large repositories cheap; set
 `scan.imports` includes local file edges for:
 
 - TS/JS: `import`, `export … from`, `require`, dynamic `import()`, plus
-  `tsconfig`/`jsconfig` `baseUrl` and `paths` aliases
+  `tsconfig`/`jsconfig` `baseUrl` and `paths` aliases; recursive `extends`
+  (string/array, node_modules) and directly referenced configs are honored
 - Python: package-relative `from .x import` and `src` layout absolute imports
 - Go: imports under the `go.mod` module path
 - Rust: `mod`, `crate::`, `super::`, `self::`
@@ -45,6 +46,23 @@ External packages are reported separately; unresolved local imports are capped.
 `buildImportDiagram(scan)` turns the edges into a bounded directory/file graph
 for the preview.
 
+## Check scan
+
+```text
+/blueprint check scan
+```
+
+Runs the normal blueprint checks plus repository health insights
+(`scan-no-tests`, `scan-large-files`, …). Each issue keeps its fix. Plain
+`/blueprint check` does not scan the filesystem.
+
+## Cache
+
+Preview/apply/check scan share a short in-memory scan cache (10 seconds, max 8
+roots). `/blueprint scan` always bypasses it with a fresh scan. No scan cache is
+written to disk, so restarting the host never serves stale data.
+
+
 ## Preview
 
 `/blueprint scan preview` returns both a module SVG and an import SVG. The
@@ -52,7 +70,8 @@ Workspace panel renders:
 
 - metrics/health/insights
 - an expandable file tree with entry/test/doc badges and path copy
-- Module graph / Import graph thumbnails
+- Module graph / Import graph thumbnails; clicking an import-graph node selects
+  and copies its path
 
 Nothing is written until **Create structure diagram** is pressed.
 

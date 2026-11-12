@@ -586,6 +586,13 @@ test('scan apply creates a blueprint, keeps existing modules and only writes und
     const dshEntries = await fs.readdir(path.join(root, '.dsh'))
     assert.deepEqual(dshEntries, ['blueprints'])
 
+    const check = await plugin.commands[0].handler({ rawInput: 'check scan', agent: plugin.agent })
+    assert.equal(check.kind, 'success')
+    const checkPayload = JSON.parse(check.text)
+    assert.ok(checkPayload.coverage.scan !== null)
+    assert.ok(checkPayload.issues.some(issue => String(issue.code).startsWith('scan-')))
+    assert.ok(checkPayload.rules.some(rule => String(rule.code).startsWith('scan-')))
+
     const second = await plugin.commands[0].handler({ rawInput: 'scan apply', agent: plugin.agent })
     assert.equal(second.kind, 'success')
     const secondPayload = JSON.parse(second.text)

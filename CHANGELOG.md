@@ -2,6 +2,15 @@
 
 All notable changes to Blueprint Studio are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses semantic versioning.
 
+## [0.17.0] — 2026-11-12
+
+### Added
+
+- **tsconfig extends and references.** Recursive `extends` (string/array, node_modules), inherited `baseUrl`/`paths`, relative-to-defining-config semantics, and directly referenced configs become alias candidates.
+- **`/blueprint check scan`.** Adds repository health insights as check issues with fixes, plus scan coverage; ordinary `/blueprint check` stays blueprint-only.
+- **Clickable import preview.** Clicking a node in the import SVG selects/copies its path; tree and graph stay in sync.
+- **Short scan cache.** In-memory 10s cache for preview/apply/check; `/blueprint scan` always performs a fresh scan. No persistent cache is written.
+
 ## [0.16.0] — 2026-11-12
 
 ### Added

@@ -47,6 +47,26 @@ import { renderDiagramSvg } from './lib/svg.js'
 export const name = 'blueprint-studio'
 export const inject = ['tools']
 
+// Preview → apply and check scan often run back-to-back. Keep the last scan
+// briefly to avoid parsing the same tree twice; /blueprint scan always asks for
+// a fresh scan. This is intentionally in-memory only: no stale cache on disk.
+const scanCache = new Map()
+const SCAN_CACHE_TTL_MS = 10_000
+const SCAN_CACHE_LIMIT = 8
+
+async function scanCached(cwd, { fresh = false } = {}) {
+  const key = String(cwd)
+  const hit = scanCache.get(key)
+  if (!fresh && hit !== undefined && Date.now() - hit.at < SCAN_CACHE_TTL_MS) return hit.scan
+  const scan = await scanWorkspace(cwd)
+  scanCache.set(key, { at: Date.now(), scan })
+  if (scanCache.size > SCAN_CACHE_LIMIT) {
+    const oldest = [...scanCache.entries()].sort((left, right) => left[1].at - right[1].at)[0]
+    if (oldest !== undefined) scanCache.delete(oldest[0])
+  }
+  return scan
+}
+
 const TOOL_DESCRIPTION = `在写代码之前，把需求整理成可协作的工程蓝图：需求栏目、用例图、数据流图、模块图、时序图、ER 图、C4 图、类图、状态图，以及用于编排实施步骤的计划流程图（可选），另有可独立分派的模块列表。
 
 蓝图会保存到当前会话工作区的 .dsh/blueprints/<sessionId>.json，用户在「蓝图」面板中能直接看到、手工增删改，之后点击「确认并分派」。每次保存会自动归档上一版，可在「版本」里对比和恢复。
@@ -1257,7 +1277,7 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比、恢复、导出、评审交接、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | scan [preview|apply] | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | scan [preview|apply] | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -1764,11 +1784,14 @@ export function apply(ctx, rawConfig) {
             return { kind: 'error', text: runUsage }
           }
           if (sub === 'check') {
-            if (rest.length > 0) return { kind: 'error', text: '用法：/blueprint check（不需要参数）。' }
+            const checkScan = rest[0] === 'scan'
+            if (rest.length > 1 || (rest.length === 1 && !checkScan)) return { kind: 'error', text: '用法：/blueprint check [scan]。' }
             let blueprint
+            let cwd = ''
             try {
               const { file, raw } = await readCurrent(invocation.agent)
               if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图，无法自检。' }
+              cwd = file.cwd
               blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
             } catch (error) {
               return { kind: 'error', text: `蓝图自检失败：无法读取或规范化蓝图（${errorMessage(error)}）。` }
@@ -1780,15 +1803,49 @@ export function apply(ctx, rawConfig) {
               const planned = hasFlowchart ? analyzePlan(blueprint) : { issues: [], coverage: null }
               const deep = validateDiagrams(blueprint)
               const issues = [...analyzed.issues, ...planned.issues, ...deep.issues]
+              let scanCoverage = null
+              const scanRules = []
+              if (checkScan) {
+                try {
+                  const scan = await scanCached(cwd)
+                  scanCoverage = {
+                    health: scan.metrics?.totals ? scan.metrics.health ?? null : null,
+                    insights: scan.metrics?.insights ?? [],
+                    languages: scan.metrics?.totals?.languages ?? [],
+                    packages: (scan.metrics?.packages ?? []).map(entry => ({ name: entry.name, health: entry.health ?? null })),
+                  }
+                  const seen = new Set()
+                  for (const insight of scanCoverage.insights) {
+                    const code = `scan-${String(insight.code ?? 'insight').replace(/[^a-z0-9-]+/giu, '-')}`
+                    issues.push({
+                      code,
+                      severity: insight.severity === 'error' ? 'error' : insight.severity === 'warn' ? 'warn' : 'info',
+                      message: insight.message,
+                      diagramKey: 'scan',
+                      nodeId: insight.subject ?? '',
+                      fix: insight.fix ?? '',
+                    })
+                    if (!seen.has(code)) {
+                      seen.add(code)
+                      scanRules.push({ code, severity: insight.severity ?? 'info', title: insight.code ?? code })
+                    }
+                  }
+                } catch (error) {
+                  issues.push({
+                    code: 'scan-failed', severity: 'warn', message: `仓库扫描失败：${errorMessage(error)}`,
+                    diagramKey: 'scan', fix: '确认工作目录可读后重试 /blueprint check scan。',
+                  })
+                }
+              }
               const summary = { error: 0, warn: 0, info: 0 }
               for (const issue of issues) {
                 if (summary[issue.severity] !== undefined) summary[issue.severity] += 1
               }
               result = {
                 issues,
-                coverage: { ...coverageMatrix(blueprint), plan: planned.coverage, validation: deep.coverage },
+                coverage: { ...coverageMatrix(blueprint), plan: planned.coverage, validation: deep.coverage, scan: scanCoverage },
                 summary,
-                rules: [...CHECK_RULES, ...PLAN_CHECK_RULES, ...VALIDATE_RULES],
+                rules: [...CHECK_RULES, ...PLAN_CHECK_RULES, ...VALIDATE_RULES, ...scanRules],
               }
             } catch (error) {
               return { kind: 'error', text: `蓝图自检失败：${errorMessage(error)}` }
@@ -1810,7 +1867,7 @@ export function apply(ctx, rawConfig) {
             if (mode === 'preview') {
               try {
                 const cwd = await cwdOf(invocation.agent)
-                const scan = await scanWorkspace(cwd)
+                const scan = await scanCached(cwd)
                 const suggestions = suggestBlueprint(scan)
                 const preview = buildScanPreview({ scan, suggestions })
                 return { kind: 'success', text: JSON.stringify(preview) }
@@ -1821,7 +1878,7 @@ export function apply(ctx, rawConfig) {
             if (mode === 'apply') {
               try {
                 const { file, raw } = await readCurrent(invocation.agent)
-                const scan = await scanWorkspace(file.cwd)
+                const scan = await scanCached(file.cwd)
                 const suggestions = suggestBlueprint(scan)
                 const previous = raw === undefined ? undefined : normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
                 const merged = mergeScanSuggestions({ previous, suggestions })
@@ -1873,7 +1930,7 @@ export function apply(ctx, rawConfig) {
             }
             try {
               const cwd = await cwdOf(invocation.agent)
-              const scan = await scanWorkspace(cwd)
+              const scan = await scanCached(cwd, { fresh: true })
               const suggestions = suggestBlueprint(scan)
               return { kind: 'success', text: JSON.stringify({ scan, suggestions }) }
             } catch (error) {
@@ -1908,7 +1965,7 @@ export function apply(ctx, rawConfig) {
               return { kind: 'error', text: `取消子代理失败：${String(error?.message ?? error)}` }
             }
           }
-          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check | run list|start|evidence|complete|fail|cancel|rollback|prepare|collect|heartbeat | scan | cancel' }
+          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list|start|evidence|complete|fail|cancel|rollback|prepare|collect|heartbeat | scan | cancel' }
         },
       }),
     )
