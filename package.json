@@ -51,7 +51,7 @@
   ],
   "scripts": {
     "check": "node --check index.js && node --check client.js && node --check lib/blueprint.js && node --check lib/plan.js && node --check lib/review.js && node --check lib/svg.js && node --check lib/project-review.js && node --check lib/scanner.js && node --check lib/validate.js && node --check examples/http-runner/runner.mjs && node --check examples/dsh-subagent-runner/runner.mjs",
-    "test": "node --test test/blueprint.test.mjs test/mermaid.test.mjs test/flowchart-mermaid.test.mjs test/layers.test.mjs test/checks.test.mjs test/validate.test.mjs test/workspace.test.mjs test/runs.test.mjs test/handoff.test.mjs test/reqdiff.test.mjs test/export.test.mjs test/review.test.mjs test/review-svg.test.mjs test/project-review.test.mjs test/host-commands.test.mjs test/acceptance.test.mjs test/flowchart.test.mjs test/plan.test.mjs test/runner.test.mjs test/remote-runners.test.mjs test/scanner.test.mjs test/scanner-graph.test.mjs",
+    "test": "node --test test/blueprint.test.mjs test/mermaid.test.mjs test/flowchart-mermaid.test.mjs test/layers.test.mjs test/checks.test.mjs test/validate.test.mjs test/workspace.test.mjs test/runs.test.mjs test/handoff.test.mjs test/reqdiff.test.mjs test/export.test.mjs test/review.test.mjs test/review-svg.test.mjs test/project-review.test.mjs test/host-commands.test.mjs test/acceptance.test.mjs test/flowchart.test.mjs test/plan.test.mjs test/runner.test.mjs test/remote-runners.test.mjs test/scanner.test.mjs test/scanner-graph.test.mjs test/scan-preview.test.mjs",
     "prepublishOnly": "npm run check && npm test"
   },
   "engines": {

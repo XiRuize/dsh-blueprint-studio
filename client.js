@@ -154,7 +154,17 @@ window.__ModuleLoader__.load({
       workspaceScanSummary: '{packages} packages, {mounts} mounts, {modules} module suggestions',
       workspaceScanApply: 'Add suggested mounts', workspaceScanApplied: 'Added {count} mounts',
       workspaceScanGraph: 'Create structure diagram',
-      workspaceScanGraphDone: 'Created structure diagram ({mounts} mounts, {modules} modules)',
+      workspaceScanGraphDone: 'Created structure diagram ({mounts} mounts, {modules} modules, {layers} layers)',
+      workspacePreviewDiagram: 'Preview structure diagram',
+      workspaceScanNoMounts: 'No suggested mounts to add',
+      workspaceScanTotals: '{files} files · {size} · {packages} packages',
+      workspaceScanLanguages: 'Languages: {list}',
+      workspaceScanHealth: 'Health {score} · risk {risk}',
+      workspaceScanInsights: 'Insights',
+      workspaceScanTree: 'File tree',
+      workspaceScanTreeMore: '{count} more rows hidden',
+      workspaceScanEntry: 'entry', workspaceScanTest: 'test',
+      workspaceRiskLow: 'low', workspaceRiskMedium: 'medium', workspaceRiskHigh: 'high',
       workspaceEmpty: 'No workspace mounts yet. Add the first mount to bind folders, repositories or archives to modules.',
       workspaceAddFirstMount: 'Add the first mount', workspaceAddMount: 'Add mount',
       workspaceMounts: 'Workspace mounts', workspaceNoMounts: 'No mounts yet.',
@@ -365,7 +375,17 @@ window.__ModuleLoader__.load({
       workspaceScanSummary: '{packages} 个包，{mounts} 个挂载建议，{modules} 个模块建议',
       workspaceScanApply: '添加建议挂载', workspaceScanApplied: '已添加 {count} 个挂载',
       workspaceScanGraph: '生成结构图',
-      workspaceScanGraphDone: '已生成结构图（{mounts} 个挂载，{modules} 个模块）',
+      workspaceScanGraphDone: '已生成结构图（{mounts} 个挂载，{modules} 个模块，{layers} 层）',
+      workspacePreviewDiagram: '预览结构图',
+      workspaceScanNoMounts: '没有可添加的建议挂载',
+      workspaceScanTotals: '{files} 个文件 · {size} · {packages} 个包',
+      workspaceScanLanguages: '语言：{list}',
+      workspaceScanHealth: '健康分 {score} · 风险 {risk}',
+      workspaceScanInsights: '洞察',
+      workspaceScanTree: '文件树',
+      workspaceScanTreeMore: '另隐藏 {count} 行',
+      workspaceScanEntry: '入口', workspaceScanTest: '测试',
+      workspaceRiskLow: '低', workspaceRiskMedium: '中', workspaceRiskHigh: '高',
       workspaceEmpty: '还没有工作区挂载。添加第一个挂载，把文件夹、仓库或归档绑定到模块。',
       workspaceAddFirstMount: '添加第一个挂载', workspaceAddMount: '添加挂载',
       workspaceMounts: '工作区挂载', workspaceNoMounts: '还没有挂载。',
@@ -6248,30 +6268,48 @@ ${task}
       }, [mounts.length])
       if (bp === null) return null
       const setDraftField = (key, value) => setDraft(current => ({ ...current, [key]: value }))
+      // Preview never writes: it calls the read-only Host command and only renders
+      // the returned metrics, tree and Host-escaped SVG.
       const runScan = async () => {
         if (scanBusy) return
         setScanBusy(true)
         try {
-          const text = await runBlueprintCommand('scan')
+          const text = await runBlueprintCommand('scan preview')
           const parsed = JSON.parse(text)
+          if (parsed?.ok !== true) throw new Error(parsed?.message ?? 'scan preview failed')
           setScanResult(parsed)
-          toast(t('workspaceScanDone', { mounts: parsed.suggestions?.mounts?.length ?? 0 }), 'success')
+          toast(t('workspaceScanDone', { mounts: parsed.suggestions?.mounts ?? 0 }), 'success')
         } catch (failure) {
           toast(`${t('workspaceScanFailed')}: ${String(failure?.message ?? failure)}`, 'error')
         } finally {
           setScanBusy(false)
         }
       }
-      const applyScanMounts = () => {
-        const suggested = Array.isArray(scanResult?.suggestions?.mounts) ? scanResult.suggestions.mounts : []
-        if (suggested.length === 0) return
-        mutate(current => {
-          const existing = blueprintMounts(current)
-          const ids = new Set(existing.map(mount => stringValue(mount.id).trim()))
-          const added = suggested.filter(mount => !ids.has(stringValue(mount.id).trim()))
-          current.mounts = [...existing, ...added]
-        })
-        toast(t('workspaceScanApplied', { count: suggested.length }), 'success')
+      const applyScanMounts = async () => {
+        if (scanBusy) return
+        setScanBusy(true)
+        try {
+          const text = await runBlueprintCommand('scan')
+          const parsed = JSON.parse(text)
+          const suggested = Array.isArray(parsed?.suggestions?.mounts) ? parsed.suggestions.mounts : []
+          if (suggested.length === 0) {
+            toast(t('workspaceScanNoMounts'), 'error')
+            return
+          }
+          let added = 0
+          mutate(current => {
+            const existing = blueprintMounts(current)
+            const ids = new Set(existing.map(mount => stringValue(mount.id).trim()))
+            const next = suggested.filter(mount => !ids.has(stringValue(mount.id).trim()))
+            added = next.length
+            current.mounts = [...existing, ...next]
+          })
+          toast(t('workspaceScanApplied', { count: added }), 'success')
+        } catch (failure) {
+          toast(`${t('workspaceScanFailed')}: ${String(failure?.message ?? failure)}`, 'error')
+        } finally {
+          setScanBusy(false)
+        }
       }
       const applyScanBlueprint = async () => {
         try {
@@ -6283,6 +6321,7 @@ ${task}
           toast(t('workspaceScanGraphDone', {
             mounts: result.mountsAdded ?? 0,
             modules: result.modulesAdded ?? 0,
+            layers: result.layersAdded ?? 0,
           }), 'success')
         } catch (failure) {
           toast(`${t('workspaceScanFailed')}: ${String(failure?.message ?? failure)}`, 'error')
@@ -6335,6 +6374,29 @@ ${task}
           className: 'bp-input', value: draft[key], placeholder: t(placeholderKey),
           onChange: event => setDraftField(key, event.target.value),
         }))
+      const scanMetrics = scanResult?.scan?.metrics ?? {}
+      const scanTotals = scanMetrics.totals ?? {}
+      const scanLanguages = Object.entries(scanMetrics.languages ?? {})
+        .sort((left, right) => Number(right[1]?.bytes ?? 0) - Number(left[1]?.bytes ?? 0))
+        .slice(0, 3)
+        .map(([name]) => name)
+      const scanInsights = Array.isArray(scanMetrics.insights) ? scanMetrics.insights.slice(0, 5) : []
+      const scanHealth = scanMetrics.health ?? {}
+      const scanRisk = scanHealth.level === 'high' ? t('workspaceRiskHigh')
+        : scanHealth.level === 'medium' ? t('workspaceRiskMedium') : t('workspaceRiskLow')
+      const treeRows = []
+      const collectTree = (nodes, depth) => {
+        if (!Array.isArray(nodes) || treeRows.length > 40) return
+        for (const node of nodes) {
+          if (treeRows.length > 40) return
+          treeRows.push({ node, depth })
+          if (Array.isArray(node?.children) && node.children.length > 0) collectTree(node.children, depth + 1)
+        }
+      }
+      collectTree(scanResult?.scan?.tree, 0)
+      const visibleTreeRows = treeRows.slice(0, 40)
+      const hiddenTreeRows = Math.max(0, treeRows.length - visibleTreeRows.length)
+      const previewSvg = typeof scanResult?.svg === 'string' ? scanResult.svg : ''
       return h('div', { className: 'bp-workspace' },
         h('div', { className: 'bp-kicker' }, t('workspace')),
         h('div', { className: 'bp-muted bp-workspace-hint' }, t('workspaceHint')),
@@ -6343,14 +6405,45 @@ ${task}
           onClick: runScan,
         }, h(Icon, { name: 'search', size: 13 }), scanBusy ? t('workspaceScanning') : t('workspaceScan')),
         scanResult === null ? null : h('div', { className: 'bp-workspace-scan' },
-          h('div', null, t('workspaceScanSummary', {
-            packages: scanResult.scan?.packages?.length ?? 0,
-            mounts: scanResult.suggestions?.mounts?.length ?? 0,
-            modules: scanResult.suggestions?.modules?.length ?? 0,
-          })),
-          (scanResult.scan?.packages ?? []).length === 0 ? null : h('div', { className: 'bp-workspace-scan-list' },
-            (scanResult.scan.packages ?? []).slice(0, 8).map(entry => h('code', { key: entry.relativePath }, `${entry.relativePath} · ${entry.name}`))),
+          h('div', { className: 'bp-workspace-scan-head' },
+            h('span', { className: 'bp-workspace-scan-title' }, t('workspaceScanSummary', {
+              packages: scanTotals.packages ?? 0,
+              mounts: scanResult.suggestions?.mounts ?? 0,
+              modules: scanResult.suggestions?.modules ?? 0,
+            })),
+            h('span', { className: 'bp-chip' }, t('workspaceScanHealth', {
+              score: scanHealth.score ?? '—',
+              risk: scanRisk,
+            }))),
+          h('div', { className: 'bp-workspace-scan-metrics' },
+            h('span', null, t('workspaceScanTotals', {
+              files: scanTotals.files ?? 0,
+              size: formatBytes(scanTotals.bytes ?? 0),
+              packages: scanTotals.packages ?? 0,
+            })),
+            scanLanguages.length === 0 ? null
+              : h('span', null, t('workspaceScanLanguages', { list: scanLanguages.join(' · ') }))),
+          scanInsights.length === 0 ? null : h('div', { className: 'bp-workspace-scan-insights' },
+            h('span', { className: 'bp-workspace-scan-subtitle' }, t('workspaceScanInsights')),
+            h('ul', null, scanInsights.map((insight, index) => h('li', { key: index }, insight)))),
+          visibleTreeRows.length === 0 ? null : h('div', { className: 'bp-workspace-scan-tree' },
+            h('span', { className: 'bp-workspace-scan-subtitle' }, t('workspaceScanTree')),
+            visibleTreeRows.map((row, index) => h('div', {
+              key: `${row.node?.path ?? index}-${index}`,
+              className: 'bp-workspace-scan-tree-row',
+              style: { paddingLeft: `${Math.min(row.depth, 8) * 10}px` },
+            },
+              h('span', { className: 'bp-workspace-scan-tree-name' }, row.node?.name ?? row.node?.path ?? ''),
+              row.node?.entryPoint === true ? h('span', { className: 'bp-workspace-scan-tag' }, t('workspaceScanEntry')) : null,
+              row.node?.test === true ? h('span', { className: 'bp-workspace-scan-tag test' }, t('workspaceScanTest')) : null)),
+            hiddenTreeRows === 0 ? null : h('div', { className: 'bp-workspace-scan-more' }, t('workspaceScanTreeMore', { count: hiddenTreeRows }))),
+          previewSvg === '' ? null : h('div', {
+            className: 'bp-workspace-scan-svg',
+            // Host-generated SVG only: labels are escaped by lib/svg.js before reaching the client.
+            dangerouslySetInnerHTML: { __html: previewSvg },
+          }),
           h('div', { className: 'bp-workspace-scan-actions' },
+            h('button', { type: 'button', className: 'bp-btn', disabled: scanBusy, onClick: runScan }, t('workspacePreviewDiagram')),
             h('button', { type: 'button', className: 'bp-btn', onClick: applyScanBlueprint }, t('workspaceScanGraph')),
             h('button', { type: 'button', className: 'bp-btn', onClick: applyScanMounts }, t('workspaceScanApply')))),
         h('button', {
@@ -8275,7 +8368,22 @@ button.bp-check-issue:hover{background:var(--dsw-alias-bg-layer-2);border-color:
 .bp-board,.bp-versions{display:flex;flex-direction:column;gap:8px}
 .bp-workspace{display:flex;flex-direction:column;gap:8px}
 .bp-workspace-hint{font-size:10.5px;line-height:1.45}
-.bp-workspace-scan{display:flex;align-items:center;gap:6px;justify-content:space-between;padding:7px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);font-size:10.5px;color:var(--dsw-alias-label-secondary);flex-wrap:wrap}
+.bp-workspace-scan{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:7px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);font-size:10.5px;color:var(--dsw-alias-label-secondary);min-width:0}
+.bp-workspace-scan-head{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.bp-workspace-scan-title{font-weight:600;color:var(--dsw-alias-label-primary)}
+.bp-workspace-scan-metrics{display:flex;flex-direction:column;gap:2px;font-size:10px;overflow:hidden}
+.bp-workspace-scan-metrics span{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.bp-workspace-scan-subtitle{font-size:10px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.bp-workspace-scan-insights ul{margin:2px 0 0;padding-left:14px;display:flex;flex-direction:column;gap:1px;max-height:76px;overflow:auto;font-size:10px}
+.bp-workspace-scan-insights li{line-height:1.4}
+.bp-workspace-scan-tree{display:flex;flex-direction:column;gap:1px;max-height:150px;overflow:auto;font-size:10px;min-width:0}
+.bp-workspace-scan-tree-row{display:flex;align-items:center;gap:4px;min-width:0;white-space:nowrap;overflow:hidden}
+.bp-workspace-scan-tree-name{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.bp-workspace-scan-tag{flex:none;padding:0 3px;border:1px solid var(--dsw-alias-border-l1);border-radius:4px;font-size:8.5px;line-height:1.4;color:var(--dsw-alias-label-secondary)}
+.bp-workspace-scan-tag.test{color:var(--dsw-alias-label-secondary);border-style:dashed}
+.bp-workspace-scan-more{font-size:9.5px;color:var(--dsw-alias-label-tertiary)}
+.bp-workspace-scan-svg{max-height:160px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-base);padding:4px;min-width:0}
+.bp-workspace-scan-svg svg{display:block;width:100%;max-width:100%;height:auto}
 .bp-workspace-scan-actions{display:flex;gap:4px;flex-wrap:wrap}
 .bp-workspace-scan-list{display:flex;flex-direction:column;gap:2px;width:100%;font-size:10px;color:var(--dsw-alias-label-secondary);overflow:hidden}
 .bp-workspace-scan-list code{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
