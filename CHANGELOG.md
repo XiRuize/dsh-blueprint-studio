@@ -6,6 +6,7 @@
 - **符号抽取**：`lib/symbols.js` 无依赖地从 JS/TS 与 Python 源码提取 `export function/class/const/{}`、`module.exports`、`def/class/__all__` 签名；解析失败留空并标注，不假装知道。
 - **分派携带事实**：`/blueprint dispatch` 的返回值新增 `packs` 与 `grounding`；客户端把它们原样注入分派提示词，重试分派时通过 `/blueprint brief` 重新取包。
 - **落地门禁**：模块声明了 `files` 却在 mounts（或会话 cwd）下解析不到时，分派被拒绝且一次性令牌不被消费，避免子代理带着不存在的文件开工；未绑定 mounts 会给出 warning。
+- **安全与预算**：上下文包只读取 mounts 内的文件，`../` 越界路径被拒绝；多个包合计 80,000 字符预算，超出部分提示用 `/blueprint context <moduleId>` 单独获取。
 
 ### 变更
 
