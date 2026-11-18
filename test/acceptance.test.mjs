@@ -106,13 +106,13 @@ test('module status aggregation only grants done when all three layers passed', 
 
   const notYet = { tests: PASSED, reviewer: PENDING, human: PENDING }
   assert.equal(moduleStatusAfterVerification('running', notYet), 'running')
-  assert.equal(moduleStatusAfterVerification('done', notYet), 'done', 'pending verification does not auto-done or auto-revert')
+  assert.equal(moduleStatusAfterVerification('done', notYet), 'needs-rework', 'a self-declared done without all layers passed is demoted')
   assert.equal(moduleStatusAfterVerification('', notYet), 'pending')
 
   const normalizedDone = normalizeBlueprint({
     modules: [{ id: 'api', name: 'API', status: 'done', acceptance: ['ok'] }],
   }).modules[0]
-  assert.equal(normalizedDone.status, 'done')
+  assert.equal(normalizedDone.status, 'needs-rework')
   assert.equal(normalizedDone.verification.tests.status, 'pending')
 })
 

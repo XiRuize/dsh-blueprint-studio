@@ -1,3 +1,26 @@
+## [0.22.0] — 2026-11-18
+
+### 新增
+
+- **模块上下文包（Context Pack）**：`blueprint(action="brief")` 与 `/blueprint context <moduleId>` 从仓库编译每个叶子模块的可执行上下文：mounts 绝对路径、已校验存在的文件、导出符号、import 入/出边、相关测试、测试命令、验收标准与关联需求。紧凑上限 12,000 字符，明确标注截断。
+- **符号抽取**：`lib/symbols.js` 无依赖地从 JS/TS 与 Python 源码提取 `export function/class/const/{}`、`module.exports`、`def/class/__all__` 签名；解析失败留空并标注，不假装知道。
+- **分派携带事实**：`/blueprint dispatch` 的返回值新增 `packs` 与 `grounding`；客户端把它们原样注入分派提示词，重试分派时通过 `/blueprint brief` 重新取包。
+- **落地门禁**：模块声明了 `files` 却在 mounts（或会话 cwd）下解析不到时，分派被拒绝且一次性令牌不被消费，避免子代理带着不存在的文件开工；未绑定 mounts 会给出 warning。
+
+### 变更
+
+- **`done` 必须绑定验证证据**：`moduleStatusAfterVerification` 不再保留“自报 done 但三层验证未通过”的状态，读取时统一回落为 `needs-rework`；`module-verification-incomplete` 检查仍对未规范化的原始对象生效。
+- 系统提示词要求分派前先 `brief`，并把上下文包原样放进子代理提示词，明确禁止用图片或摘要替代。
+
+### 测试
+
+- 新增 `test/context-pack.test.mjs`（11 条）：路径/mount 解析、glob 展开、缺失文件、符号抽取、截断、叶子模块、`brief` 工具、缺文件拒绝分派、分派返回 packs。
+- 全量 316 条测试通过。
+
+### 注意
+
+- 历史蓝图中“done 但三层验证未通过”的模块下次读取会显示为 `needs-rework`，这是预期行为；证据补录后可由 `/blueprint verify` 重新置为 done。
+
 ## [0.21.0] — 2026-11-12
 
 ### 变更

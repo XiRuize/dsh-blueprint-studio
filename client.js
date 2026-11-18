@@ -1279,10 +1279,30 @@ ${task}
       return `当前会话已有工程蓝图。请先调用 blueprint(action="get") 读取用户可能手工修改过的最新版本，然后只扩充「${kind}」（key=${diagram.key}）：补齐缺失的节点、连线、字段或消息，保留现有内容和用户修改。最后调用 blueprint(action="update") 保存完整蓝图，不要删除其他栏目、图解或模块。完成后用一句话说明新增了什么。`
     }
 
-    function dispatchPrompt(source) {
+    function contextPackBlock(packs) {
+      if (!Array.isArray(packs) || packs.length === 0) return ''
+      const body = packs
+        .map(pack => String(pack?.markdown ?? '').trim())
+        .filter(markdown => markdown !== '')
+        .join('\n\n---\n\n')
+      if (body === '') return ''
+      return `以下是 Host 从仓库编译的模块上下文包（${packs.length} 个）：文件已校验存在，符号与 import 边来自源码扫描。请把每个包装进对应子代理的提示词，路径、符号、测试命令原样保留，不要用摘要替代：\n\n${body}`
+    }
+
+    function packsFromCommandText(text) {
+      try {
+        const parsed = JSON.parse(String(text ?? ''))
+        return Array.isArray(parsed?.packs) ? parsed.packs : []
+      } catch {
+        return []
+      }
+    }
+
+    function dispatchPrompt(source, packs) {
       const bp = source ?? state.bp
-      const base = `用户已在蓝图面板确认工程蓝图，Host 已校验一次性确认令牌并完成分派。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；\n2. 不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")：确认与分派只能由用户在面板完成，工具调用会被 Host 拒绝；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须包含该模块的范围、摘要、依赖、验收标准，以及相关用例/数据流/接口；模块绑定了 mounts 时，把 mounts（id/root/kind/access）、cwd、adapter/agentProfile、allow/commands 一并带入；未绑定工作区时先确认路径；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态；\n6. 执行记录由用户显式启动：没有 running run 时提示用户执行 /blueprint run start <moduleId>，不要自动创建或伪造 run。`
-      if (bp === null) return base
+      const contextBlock = contextPackBlock(packs)
+      const base = `用户已在蓝图面板确认工程蓝图，Host 已校验一次性确认令牌并完成分派。请执行：\n1. 调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过）；再调用 blueprint(action="brief") 或 /blueprint context <moduleId> 取每个叶子模块的上下文包；\n2. 不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")：确认与分派只能由用户在面板完成，工具调用会被 Host 拒绝；\n3. 为 modules 中每个模块启动一个子代理：有依赖的按依赖顺序执行，无依赖的并行；每个子代理的提示词必须原样包含该模块的上下文包（mounts 绝对路径、已校验文件、导出符号、import 入/出边、测试命令、验收），再补层路径与依赖；模块绑定了 mounts 时，把 mounts（id/root/kind/access）、cwd、adapter/agentProfile、allow/commands 一并带入；未绑定工作区时先确认路径；\n4. 不要让一个子代理包办所有模块，也不要自己直接实现全部模块；\n5. 所有子代理完成后，汇总每个模块的改动、验证结果与剩余风险，并用 blueprint(action="update") 更新模块状态；\n6. 执行记录由用户显式启动：没有 running run 时提示用户执行 /blueprint run start <moduleId>，不要自动创建或伪造 run。`
+      if (bp === null) return contextBlock === '' ? base : `${base}\n\n${contextBlock}`
       const blocks = []
       for (const module of bp.modules ?? []) {
         const nodeIds = Array.isArray(module.nodeIds) ? module.nodeIds : []
@@ -1326,8 +1346,11 @@ ${task}
         }
         blocks.push(lines.join('\n'))
       }
-      if (blocks.length === 0) return base
-      return `${base}\n\n请把以下模块追踪信息原样带入对应子代理的提示词：\n\n${blocks.join('\n\n')}`
+      const blocksText = blocks.length === 0
+        ? ''
+        : `请把以下模块追踪信息原样带入对应子代理的提示词：\n\n${blocks.join('\n\n')}`
+      const parts = [base, blocksText, contextBlock].filter(part => part !== '')
+      return parts.join('\n\n')
     }
 
     function modulePrompt(module) {
@@ -8723,7 +8746,8 @@ ${task}
         // transient prompt failure does not force the user to re-confirm (tokens are one-time).
         if (bp.status === 'dispatched') {
           stage = 'prompt'
-          await sendPrompt(dispatchPrompt(), 'dispatching')
+          const brief = await runBlueprintCommand('brief').catch(() => '')
+          await sendPrompt(dispatchPrompt(undefined, packsFromCommandText(brief)), 'dispatching')
           toast(t('dispatching'), 'success')
           return
         }
@@ -8737,7 +8761,8 @@ ${task}
         const confirmation = await runBlueprintCommand('confirm')
         const token = confirmTokenFromCommand(confirmation)
         stage = 'dispatch'
-        await runBlueprintCommand(`dispatch ${token}`)
+        const dispatchText = await runBlueprintCommand(`dispatch ${token}`)
+        const contextPacks = packsFromCommandText(dispatchText)
         // The Host has already written status=dispatched. Update the local view without
         // writing again: a later save with a stale status must not roll the gate back.
         set({
@@ -8771,7 +8796,7 @@ ${task}
         }
         if (skippedModules.length > 0) toast(t('dispatchRunsSkipped', { count: skippedModules.length }), 'error')
         stage = 'prompt'
-        await sendPrompt(dispatchPrompt(), 'dispatching')
+        await sendPrompt(dispatchPrompt(undefined, contextPacks), 'dispatching')
         toast(t('dispatching'), 'success')
       } catch (error) {
         const detail = String(error?.message ?? error)
