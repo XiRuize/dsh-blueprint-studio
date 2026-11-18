@@ -199,6 +199,36 @@ test('leafModules skips parents that own children and buildContextPacks covers l
   }
 })
 
+test('module files cannot escape the mount root', async () => {
+  const cwd = await workspace({ 'repo/src/a.js': 'export const a = 1\n', 'outside.txt': 'top secret\n' })
+  try {
+    const blueprint = blueprintWith(
+      [{ id: 'core', name: 'Core', files: ['../outside.txt'] }],
+      [{ id: 'repo', label: 'repo', root: 'repo', kind: 'working', access: 'rw' }],
+    )
+    blueprint.modules[0].mountIds = ['repo']
+    const pack = await buildContextPack(blueprint, 'core', { cwd })
+    assert.equal(pack.ok, false)
+    assert.ok(pack.issues.some(issue => issue.code === 'context-file-missing'))
+    assert.doesNotMatch(pack.markdown, /top secret/)
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('buildContextPacks reports an unknown module instead of returning an empty success', async () => {
+  const cwd = await workspace({ 'src/a.js': 'export const a = 1\n' })
+  try {
+    const blueprint = blueprintWith([{ id: 'core', name: 'Core', files: ['src/a.js'] }])
+    const result = await buildContextPacks(blueprint, { cwd, moduleId: 'ghost' })
+    assert.equal(result.ok, false)
+    assert.equal(result.packs.length, 0)
+    assert.ok(result.issues.some(issue => issue.code === 'module-unknown' && issue.severity === 'error'))
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true })
+  }
+})
+
 // --- host integration ------------------------------------------------------
 
 function setupPlugin(cwd) {
