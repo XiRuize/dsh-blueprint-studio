@@ -41,6 +41,7 @@ import { buildHandoff, buildReviewPacket, exportReviewHtml } from './lib/review.
 import { buildProjectReview, exportProjectReviewHtml, readProjectBlueprints } from './lib/project-review.js'
 import { PLAN_MODE_PROMPT } from './lib/plan.js'
 import { scanWorkspace, suggestBlueprint } from './lib/scanner.js'
+import { buildContextPack, buildContextPacks } from './lib/context-pack.js'
 import { appendScanSnapshot, buildScanSnapshot, diffScanSnapshots, readScanHistory } from './lib/scan-history.js'
 import * as scannerApi from './lib/scanner.js'
 import { renderDiagramSvg } from './lib/svg.js'
@@ -84,6 +85,7 @@ action:
 - create：创建或整体覆盖蓝图（需要 blueprint 对象）。
 - update：在已有蓝图上合并更新：sections 未提交的 items 沿用旧值，显式 items: [] 会清空；diagrams 按 layerId+type 对齐（root 兼容旧 key），节点/边按 id 合并，未提交的节点/边和子层图保留，用 removedNodeIds / removedEdgeIds / removedModuleIds / removedLayerIds / removedDiagramKeys 显式删除。
 - get：读取当前蓝图全文；用户确认后、分派模块前必须先 get。
+- brief：从仓库编译每个叶子模块的上下文包（mounts 绝对路径、已校验文件、导出符号、import 入/出边、测试命令、验收、关联需求），返回 markdown；可分派前用它替代凭印象写提示词。
 - confirm：已禁用。确认只能由用户在「蓝图」面板发起，Host 会校验一次性确认令牌。
 - dispatch：已禁用。分派只能由用户在「蓝图」面板完成，Host 会校验一次性确认令牌。
 - snapshot：把当前蓝图归档为一个手工版本（可传 label）。
@@ -1157,9 +1159,10 @@ export function apply(ctx, rawConfig) {
       properties: {
         action: {
           type: 'string',
-          enum: ['create', 'update', 'get', 'confirm', 'dispatch', 'snapshot', 'delete'],
+          enum: ['create', 'update', 'get', 'brief', 'confirm', 'dispatch', 'snapshot', 'delete'],
           description: '要执行的操作；默认 get。',
         },
+        moduleId: { type: 'string', description: 'brief 时可选：只返回该模块的上下文包。' },
         blueprint: {
           type: 'object',
           additionalProperties: true,
@@ -1204,6 +1207,45 @@ export function apply(ctx, rawConfig) {
           absolutePath: file.absolute,
           blueprint,
           message: summaryText(blueprint, file.relative),
+        }
+      }
+
+      if (action === 'brief') {
+        const { file, raw } = await readCurrent(agent)
+        if (raw === undefined) {
+          return { found: false, path: file.relative, message: '当前会话还没有工程蓝图。' }
+        }
+        const blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+        const moduleId = typeof input.moduleId === 'string' ? input.moduleId.trim() : ''
+        let scan
+        try {
+          scan = await scanCached(file.cwd)
+        } catch {
+          scan = undefined
+        }
+        const context = await buildContextPacks(blueprint, {
+          cwd: file.cwd,
+          scan,
+          ...(moduleId === '' ? {} : { moduleId }),
+        })
+        const errors = context.issues.filter(issue => issue.severity === 'error')
+        return {
+          found: true,
+          path: file.relative,
+          ok: context.ok,
+          issues: context.issues,
+          packs: context.packs.map(pack => ({
+            moduleId: pack.moduleId,
+            code: pack.code,
+            name: pack.name,
+            ok: pack.ok,
+            chars: pack.chars,
+            issues: pack.issues,
+            markdown: pack.markdown,
+          })),
+          message: context.ok
+            ? `已编译 ${context.packs.length} 个模块上下文包。`
+            : `上下文包存在 ${errors.length} 个阻塞错误：${errors.map(issue => `${issue.moduleId} ${issue.message}`).join('；')}`,
         }
       }
 
@@ -1286,7 +1328,7 @@ export function apply(ctx, rawConfig) {
         name: 'blueprint',
         description: '蓝图工坊：保存、归档、对比、恢复、导出、评审交接、记录分层验收和自检当前会话的工程蓝图（界面调用）。',
         recordInput: false,
-        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | template list|get <id>|save <base64>|import <base64>|remove <id>|export <id> | scan [preview|apply|snapshot|history|diff] | cancel <childSessionId>' },
+        input: { hint: 'save <base64-json> [--draft] | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | context <moduleId> | confirm | dispatch <token> | versions | diff <from> <to> | restore <id> | snapshot <label> | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list | run start <moduleId> [--adapter x] [--ttl minutes] [--by name] | run evidence <runId> <text...> | run complete|fail|cancel <runId> [text...] | run rollback <runId> | run prepare <runId> | run collect <runId> | run heartbeat <runId> [--ttl minutes] | template list|get <id>|save <base64>|import <base64>|remove <id>|export <id> | scan [preview|apply|snapshot|history|diff] | cancel <childSessionId>' },
         async handler(invocation) {
           const rawInput = String(invocation.rawInput ?? '').trim()
           const [sub, ...rest] = rawInput.split(/\s+/)
@@ -1439,6 +1481,56 @@ export function apply(ctx, rawConfig) {
               }),
             }
           }
+          if (sub === 'brief') {
+            const { file, raw } = await readCurrent(invocation.agent)
+            if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图，无法编译上下文包。' }
+            const blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            let scan
+            try {
+              scan = await scanCached(file.cwd)
+            } catch {
+              scan = undefined
+            }
+            const context = await buildContextPacks(blueprint, { cwd: file.cwd, scan })
+            return {
+              kind: 'success',
+              text: JSON.stringify({
+                ok: context.ok,
+                issues: context.issues,
+                packs: context.packs.map(pack => ({
+                  moduleId: pack.moduleId,
+                  code: pack.code,
+                  name: pack.name,
+                  chars: pack.chars,
+                  markdown: pack.markdown,
+                })),
+              }),
+            }
+          }
+          if (sub === 'context') {
+            const moduleId = String(rest[0] ?? '').trim()
+            if (moduleId === '') {
+              return { kind: 'error', text: '用法：/blueprint context <moduleId>（先用 /blueprint get 查看模块 id）' }
+            }
+            const { file, raw } = await readCurrent(invocation.agent)
+            if (raw === undefined) return { kind: 'error', text: '当前会话还没有工程蓝图，无法编译上下文包。' }
+            const blueprint = normalizeBlueprint(raw, undefined, { sessionId: file.sessionId })
+            let scan
+            try {
+              scan = await scanCached(file.cwd)
+            } catch {
+              scan = undefined
+            }
+            const pack = await buildContextPack(blueprint, moduleId, { cwd: file.cwd, scan })
+            if (pack.ok === false) {
+              const errors = pack.issues.filter(issue => issue.severity === 'error')
+              return {
+                kind: 'error',
+                text: `上下文包无法编译：\n${errors.map(issue => `- ${issue.message}`).join('\n')}`,
+              }
+            }
+            return { kind: 'success', text: pack.markdown }
+          }
           if (sub === 'confirm') {
             const { file, raw } = await readCurrent(invocation.agent)
             if (raw === undefined) return { kind: 'error', text: '还没有工程蓝图，无法确认。' }
@@ -1480,6 +1572,20 @@ export function apply(ctx, rawConfig) {
             const blueprint = normalizeBlueprint(previous, undefined, { sessionId: file.sessionId })
             const checked = verifyBlueprintToken(confirmTokens, file.sessionId, token, blueprint)
             if (!checked.ok) return { kind: 'error', text: checked.message }
+            let scan
+            try {
+              scan = await scanCached(file.cwd)
+            } catch {
+              scan = undefined
+            }
+            const context = await buildContextPacks(blueprint, { cwd: file.cwd, scan })
+            if (!context.ok) {
+              const errors = context.issues.filter(issue => issue.severity === 'error')
+              return {
+                kind: 'error',
+                text: `分派被拒绝：以下模块的上下文无法从仓库解析，令牌未消费。\n${errors.slice(0, 12).map(issue => `- ${issue.moduleId}：${issue.message}`).join('\n')}\n\n修正 mounts / module.files 后重试，避免子代理带着不存在的文件开工。`,
+              }
+            }
             const consumed = confirmTokens.consume(file.sessionId, token)
             if (!consumed.ok) return { kind: 'error', text: consumed.message }
             blueprint.status = 'dispatched'
@@ -1493,6 +1599,17 @@ export function apply(ctx, rawConfig) {
                 status: blueprint.status,
                 path: file.relative,
                 modules: blueprint.modules,
+                packs: context.packs.map(pack => ({
+                  moduleId: pack.moduleId,
+                  code: pack.code,
+                  name: pack.name,
+                  chars: pack.chars,
+                  markdown: pack.markdown,
+                })),
+                grounding: {
+                  ok: true,
+                  warnings: context.issues.filter(issue => issue.severity !== 'error'),
+                },
                 summary: summaryText(blueprint, file.relative),
               }),
             }
@@ -2106,7 +2223,7 @@ export function apply(ctx, rawConfig) {
               return { kind: 'error', text: `取消子代理失败：${String(error?.message ?? error)}` }
             }
           }
-          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list|start|evidence|complete|fail|cancel|rollback|prepare|collect|heartbeat | scan | cancel' }
+          return { kind: 'error', text: '可用：/blueprint save | verify <moduleId> <tests|reviewer|human> <passed|failed|pending> [evidence] | context <moduleId> | confirm | dispatch <token> | versions | diff | restore | snapshot | path | get | export <md|html> [all|<层>] | review | review html | review handoff <runId> | review project [html] | check [scan] | run list|start|evidence|complete|fail|cancel|rollback|prepare|collect|heartbeat | scan | cancel' }
         },
       }),
     )
@@ -2125,9 +2242,10 @@ export function apply(ctx, rawConfig) {
 1. 调用 blueprint(action="create") 生成结构化蓝图：7 个需求栏目、根层 A（总览）与按需子层（layers）、usecase / dfd / module 三张基础图，按需补 sequence / er / c4 / class / state，以及可独立分派的 modules。把原始需求写进 prompt。
 2. 分层数据模型：A 是根层，子层 letter 唯一且 id=letter，用 parentModuleId 指向父层模块；模块用稳定的 id、layerId、code（如 A1/B1）和 parentId，需求条目用 uid（sectionKey:id）和全局递增 code（R1/R2…）。只有根层 A 自动保留 8 张图；子层图必须显式给出，key 为 "<letter>:<type>"，没有空图占位。
 3. 用两三句话向用户说明方案，并请他在「蓝图」面板中检查、增删改；在用户明确确认之前，不要开始实现，也不要调用文件编辑工具。确认与分派由用户在面板发起，Host 会校验一次性令牌；不要调用 blueprint(action="confirm") 或 blueprint(action="dispatch")，它们会被拒绝。
-4. 用户确认后，调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过），再按 modules 为每个模块启动一个子代理：有依赖的按依赖顺序，无依赖的并行。子代理提示词必须包含模块范围、层路径、依赖、验收标准，以及相关图表中的接口/数据流。
-5. 启动子代理后，把子代理 sessionId 写回对应 module 的 subagentSessionId 字段，并用 module.status 标记 running；每个子代理完成后不要自行宣称模块 done：tests / reviewer / human 三层验证只能由用户执行 /blueprint verify 记录，任一层 failed 会自动置为 needs-rework，三层全部 passed 才会置为 done。
-6. 全部完成后汇总改动、验证结果与剩余风险。用户可以在「版本」面板对比每次保存并恢复旧版本。
+4. 用户确认后，调用 blueprint(action="get") 读取最新蓝图（用户可能手工改过），再调用 blueprint(action="brief") 或 /blueprint context <moduleId> 编译每个叶子模块的上下文包；按 modules 为每个模块启动一个子代理：有依赖的按依赖顺序，无依赖的并行。子代理提示词必须原样带上该模块的上下文包（mounts 绝对路径、已校验文件、导出符号、import 入/出边、测试命令、验收），再补层路径与依赖；不要用图片或摘要替代上下文包。
+5. modules[].files 必须能在 mounts（或会话 cwd）下解析到真实文件；声明了却解析不到时，Host 会拒绝分派。跨仓库任务先补 mounts，再重新 brief。
+6. 启动子代理后，把子代理 sessionId 写回对应 module 的 subagentSessionId 字段，并用 module.status 标记 running；每个子代理完成后不要自行宣称模块 done：tests / reviewer / human 三层验证只能由用户执行 /blueprint verify 记录，任一层 failed 会自动置为 needs-rework，三层全部 passed 才会置为 done；done 但三层未通过的模块会被规范化回 needs-rework。
+7. 全部完成后汇总改动、验证结果与剩余风险。用户可以在「版本」面板对比每次保存并恢复旧版本。
 
 简单问答、解释概念、单行小修不需要蓝图，直接回答或修改即可。
 
